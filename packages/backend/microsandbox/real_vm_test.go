@@ -55,6 +55,18 @@ func realRuntime(t *testing.T, root string) *Runtime {
 // reopened over the same state finds its branches' heads again.
 var machineHosts sync.Map
 
+// machineHostRepository is the bare host repository holding each branch's
+// authoritative head, and the empty commit every branch seeds from.
+type machineHostRepository struct{ path, seed string }
+
+// machineHost returns the host repository bindMachineHost composed for runtime.
+func machineHost(t *testing.T, runtime *Runtime) *machineHostRepository {
+	t.Helper()
+	stored, ok := machineHosts.Load(runtime.root)
+	require.True(t, ok, "the runtime has no bundle, so no host repository")
+	return stored.(*machineHostRepository)
+}
+
 // bindMachineHost gives an installed runtime the host half its daemon needs,
 // from the providers the install composes (compose/main.go): the repository
 // holding each branch's authoritative head, bundle transfer in both
@@ -72,10 +84,9 @@ func bindMachineHost(t *testing.T, runtime *Runtime) {
 		require.NoError(t, err, "git %v: %s", args, out)
 		return strings.TrimSpace(string(out))
 	}
-	type repository struct{ path, seed string }
-	created := repository{path: t.TempDir()}
+	created := machineHostRepository{path: t.TempDir()}
 	stored, loaded := machineHosts.LoadOrStore(runtime.root, &created)
-	host := stored.(*repository)
+	host := stored.(*machineHostRepository)
 	if !loaded {
 		git(host.path, "init", "--quiet", "--bare")
 		host.seed = git(host.path, "-c", "user.name=Smithers", "-c", "user.email=smithers@example.invalid", "commit-tree", "-m", "empty source",

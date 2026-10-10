@@ -273,6 +273,10 @@ impl super::control::Controls for Cgroups {
 }
 
 #[cfg(test)]
+#[path = "freeze_inputs_tests.rs"]
+mod freeze_inputs_tests;
+
+#[cfg(test)]
 mod freeze_tests {
     use super::*;
     use crate::broker::control::Controls;
