@@ -64,5 +64,5 @@ test("the Rust CI job checks the shipped notices", async () => {
   const { parseWorkflow } = await import("./release-rehearsal.mjs")
   const ci = parseWorkflow(readFileSync(join(repoRoot, ".github/workflows/ci.yml"), "utf8"))
   assert.ok(ci.jobs.rust.steps.some((step) =>
-    typeof step.run === "string" && /^pnpm exec smthrs test '\/\/scripts:thirdPartyNotices'(?: --known-red '\.github\/ci-known-red\.json')?(?: --verbose)?$/.test(step.run)))
+    typeof step.run === "string" && /^pnpm exec smthrs test '\/\/scripts:thirdPartyNotices'(?: --known-red '\.github\/ci-known-red\.json')?(?: --results-file "\$RUNNER_TEMP\/smthrs-results\/\$GITHUB_ACTION\.json")?(?: --verbose)?$/.test(step.run)))
 })

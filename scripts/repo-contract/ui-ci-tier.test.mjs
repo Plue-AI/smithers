@@ -35,13 +35,15 @@ describe("required PR selection", () => {
     assert.equal(ui["runs-on"], "ubuntu-latest")
     assert.equal(ui.needs, undefined, "UI diagnostics must not wait behind the workspace graph")
     const targets = ui.steps.filter((step) => /(?:smthrs|smithers-build) (?:build|test) /.test(step.run ?? ""))
+    // Every step records its structured results for the CI check receipts (#3663).
+    const options = `--known-red '.github/ci-known-red.json' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`
     assert.deepEqual(targets.map((step) => step.run), [
-      "pnpm exec smthrs build '//apps/app:check' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//apps/app:unitTests' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//apps/app:conformance' --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//apps/app:browserE2e' --known-red '.github/ci-known-red.json' --verbose",
+      `pnpm exec smthrs build '//apps/app:check' ${options}`,
+      `pnpm exec smthrs test '//apps/app:unitTests' ${options}`,
+      `pnpm exec smthrs test '//apps/app:conformance' ${options}`,
+      `pnpm exec smthrs test '//apps/app:browserE2e' ${options}`,
       // Exclusive, so the job's `ci '//apps/tui/...'` step omits it.
-      "pnpm exec smthrs test '//apps/tui:e2eTests' --known-red '.github/ci-known-red.json' --verbose"
+      `pnpm exec smthrs test '//apps/tui:e2eTests' ${options}`
     ])
     for (const step of targets) {
       assert.equal(step.if, "${{ !cancelled() && steps.setup.conclusion == 'success' }}")
@@ -104,12 +106,37 @@ it("browser typecheck executes after security validation and propagates compiler
       name: "ui-typecheck-refusal", private: true, type: "module", packageManager: rootManifest.packageManager
     }))
     copyFileSync(join(root, "pnpm-lock.yaml"), join(temporary, "pnpm-lock.yaml"))
+    // The projection holds every local module the copied declarations import,
+    // transitively: the root declaration imports crates, apps and scripts
+    // declarations, and evaluating any of them must not reach outside the copy.
+    const localImports = (path) => /\.[cm]?[jt]s$/.test(path)
+      ? [...readFileSync(join(root, path), "utf8").matchAll(/\bfrom\s+"(\.{1,2}\/[^"]+)"/g)].map(([, spec]) => join(dirname(path), spec))
+      : []
+    const projected = new Set()
+    const pending = [
+      ...libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`),
+      "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"
+    ]
+    while (pending.length > 0) {
+      const path = pending.pop()
+      if (projected.has(path) || !existsSync(join(root, path))) continue
+      projected.add(path)
+      pending.push(...localImports(path))
+    }
+    // scripts/PACKAGE.ts (imported by packages/smithers and apps/site) lists the
+    // API schemas and each library package's docs as it loads. Package manifests
+    // stay out: a copied manifest would shadow the workspace package it names.
+    const files = (directory) => existsSync(join(root, directory))
+      ? globSync("**/*", { cwd: join(root, directory) }).map((path) => join(directory, path))
+        .filter((path) => statSync(join(root, path)).isFile())
+      : []
+    for (const path of ["docs/api/openapi.yaml", ...files("docs/api/openapi")]) projected.add(path)
+    for (const { dir } of libraryPackages()) for (const path of files(`${dir}/docs`)) projected.add(path)
+    const declarations = [...projected].filter((path) => /(?:^|\/)PACKAGE\.ts$/.test(path)).sort()
     // Every host binary a projected declaration names must be declared by the
     // workspace, so read them from the same declarations the fixture copies.
     const hostBins = [...new Set(
-      [...libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`), "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"]
-        .filter((path) => existsSync(join(root, path)))
-        .flatMap((path) => [...readFileSync(join(root, path), "utf8").matchAll(/\bHost\.bin\(\s*"([^"]+)"/g)].map(([, name]) => name))
+      declarations.flatMap((path) => [...readFileSync(join(root, path), "utf8").matchAll(/\bHost\.bin\(\s*"([^"]+)"/g)].map(([, name]) => name))
     )].sort()
     assert.ok(hostBins.includes("bun"), "the projected declarations name S.Host.bin(\"bun\")")
     write("WORKSPACE.ts", `import { Smithers as S } from "@smthrs/targets"
@@ -124,19 +151,14 @@ export const Workspace = S.Workspace("ui-typecheck-refusal", {
   sandboxes: S.Sandboxes({ default: S.Sandbox.None() })
 })
 `)
-    // Copy the real retained browser declaration and compiler configuration.
-    for (const path of ["PACKAGE.ts", "package.json", "tsconfig.json"]) {
+    // Copy the real retained browser compiler configuration, and every projected
+    // declaration and module, so graph discovery and its security checks
+    // precede compilation.
+    for (const path of ["package.json", "tsconfig.json"]) {
       const destination = write(`apps/app/${path}`, "")
       copyFileSync(join(root, "apps/app", path), destination)
     }
-    // The app declaration imports package targets. Project their real declarations
-    // as well, so graph discovery and its security checks precede compilation.
-    const libraryDeclarations = libraryPackages().map((entry) => `${entry.dir}/PACKAGE.ts`).filter((path) => existsSync(join(root, path)))
-    for (const path of libraryDeclarations) {
-      const destination = write(path, "")
-      copyFileSync(join(root, path), destination)
-    }
-    for (const path of ["PACKAGE.ts", "apps/site/src/data/project.json", "flows/PACKAGE.ts", ".smithers/coding-project.json"]) {
+    for (const path of projected) {
       const destination = write(path, "")
       copyFileSync(join(root, path), destination)
     }
@@ -158,7 +180,7 @@ else { writeFileSync(${JSON.stringify(tscMarker)}, JSON.stringify(process.argv.s
     // directory, as the review anchors them. A declaration file is left out,
     // so the projection's own WORKSPACE.ts and PACKAGE.ts files stay the only
     // ones discovered.
-    for (const declaration of [...libraryDeclarations, "apps/app/PACKAGE.ts", "PACKAGE.ts", "flows/PACKAGE.ts"]) {
+    for (const declaration of declarations) {
       const directory = dirname(declaration)
       const source = readFileSync(join(root, declaration), "utf8")
       const patterns = [...source.matchAll(/\b(?:paths|caller|authorization|service|storageOrEgress): \[([^\]]*)\]/g)]

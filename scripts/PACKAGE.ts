@@ -52,8 +52,10 @@ const engineeringScriptRegressions = Smithers.NodeTest({
     Smithers.file("//scripts/lane-prerequisites.test.mjs"),
     Smithers.file("//scripts/homebrew-publish.test.mjs"),
     Smithers.file("//scripts/homebrew-release.test.mjs"),
+    Smithers.file("//scripts/journeys/release-install.test.mjs"),
     Smithers.file("//scripts/migration-landing.test.mjs"),
     Smithers.file("//scripts/perf/questions.test.mjs"),
+    Smithers.file("//scripts/release/host-maintenance-evidence.test.mjs"),
     Smithers.file("//scripts/spikes/col-01/result.test.mjs")
   ]),
   srcs: [],

@@ -58,6 +58,7 @@ run-kind targets; `flow start` starts durable flows.
 | `review` | Review a change, return findings; waits for the person's confirmation |
 | `search` | Search code, wiki and runs |
 | `shell` | Open an interactive terminal in a workspace via the WebSocket terminal endpoint |
+| `ssh` | Copy the SSH line for a branch |
 | `ssh-key` | Add an SSH key |
 | `stack` | Reorder an item |
 | `todo` | Change an unmerged TODO's prompt; waits for the person's confirmation |

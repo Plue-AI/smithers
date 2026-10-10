@@ -161,6 +161,46 @@ only.
 | `smithers`                    | `CloudSandbox live workspace lifecycle`                                                            | `it.skipIf(SMITHERS_CLOUD_SANDBOX_SMOKE !== "1")`           |
 | `smithers`                    | `PostgreSQL retains one native ancestry snapshot across a committed writer on a separate connection` | `it.skipIf(process.env.SMITHERS_TEST_PG_URL === undefined)` |
 | `smithers`                    | `observing host over PostgreSQL`                                                                   | `describe.skipIf(!postgres)`                               |
+| `smithers`                    | `delegated laptop login against the install`                                                       | `describe.skipIf(!process.env.SMITHERS_TEST_DATABASE_URL && !process.env.CI)` |
+| `smithers`                    | `C-J6-02 laptop login is delegated, attributed, and cannot merge without B's press`                | `it.skipIf(!enabled)`                                       |
+| `smithers`                    | `C-INS-06 / C-INS-03 real CLI, launchd, bundled launcher and public origin`                        | `it.skipIf(!enabled && !required)`                          |
+| `smithers/agent/harness`      | `ExternalTranscript with the installed CLIs`                                                       | `describe.skipIf(!enabled)`                                 |
+| `smithers/agent/std`          | `C-COL-01 production dispatcher ${available ? "installed batch/delete/move" : "unavailable provider"}` | `test.skipIf(available && !installed)`                      |
+
+**`smithers`: delegated laptop login (C-J6-02).** `DelegatedLogin.integration.test.ts`
+drives the source CLI against the installed composition that
+`packages/backend`'s `TestDelegatedLoginCLIHarness` serves: real PostgreSQL,
+the native repository engine and the GitHub fake. The describe block runs
+wherever PostgreSQL is available (CI, or `SMITHERS_TEST_DATABASE_URL`); the
+login case also needs `SMITHERS_DELEGATED_LOGIN_TEST=1`, because it builds and
+runs the Go harness. What breaks if it regresses: a laptop login could mint a
+credential that merges without the member's press. Workaround: run it with
+both variables set.
+
+**`smithers`: host service on launchd (C-INS-06, C-INS-03).**
+`host-service.integration.test.ts` installs a real T-INS-01 bundle as a
+per-user launchd agent and checks the public origin. It runs only on macOS, as
+a non-root user, with `SMITHERS_HOST_TEST_BUNDLE` naming a built bundle. A
+qualification run sets `SMITHERS_REQUIRE_HOST_SERVICE_TESTS=1` (C-INS-06) so a
+missing bundle or host fails instead of skipping. What breaks if it regresses: `smthrs host install`
+could stop starting the backend on a Mac. Workaround: build a bundle and run
+it on a Mac with both variables set.
+
+**`harness`: ExternalTranscript with the installed CLIs.**
+`ExternalTranscript.live.test.ts` runs the person's installed Claude Code and
+Codex CLIs and reads the transcripts they write. It needs those CLIs and their
+logins, which CI does not have, so it runs only with
+`SMITHERS_REAL_AGENT_CLI=1`. What breaks if it regresses: imported external
+sessions could lose or misread tool calls. Workaround: run it on a machine with
+both CLIs signed in.
+
+**`std`: C-COL-01 installed dispatcher.** `StaleRead.integration.test.ts`
+runs the production coding edit-atom bindings twice. The unavailable-provider
+case always runs and proves the refusal. The installed batch/delete/move case
+needs a broker-registered guest coding session with `/workspace`, so it runs
+only with `SMITHERS_COL10_INSTALLED=1` inside one. What breaks if it
+regresses: a stale read could overwrite an outside edit in a real session.
+Workaround: run the command in the file's header inside a guest session.
 
 **PostgreSQL storage.** The `smithers` history and database adapter tests
 run with declared PostgreSQL services in their Linux test targets. The

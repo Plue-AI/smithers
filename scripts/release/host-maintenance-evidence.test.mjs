@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises'
+import { lstat, mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -14,8 +14,10 @@ test('independent inventory includes bytes, modes and links without following a 
     await writeFile(join(root, 'secret'), 'literal install key', { mode: 0o600 })
     await symlink('/outside/sentinel', join(root, 'home-link'))
     const result = await inventory(root, ['backups'])
+    // A link's own mode is 0777 on Linux and follows the umask on macOS; the inventory records the link, not its target.
+    const linkMode = (await lstat(join(root, 'home-link'))).mode & 0o777
     assert.deepEqual(result.filter(file => !file.directory), [
-      { path: 'home-link', mode: 0o777, link: '/outside/sentinel' },
+      { path: 'home-link', mode: linkMode, link: '/outside/sentinel' },
       { path: 'secret', mode: 0o600, size: 19, sha256: createHash('sha256').update('literal install key').digest('hex') },
     ])
     const before = { at: 'before', tables: [{ name: 'todos', count: 2, sha256: 'literal' }], files: result }

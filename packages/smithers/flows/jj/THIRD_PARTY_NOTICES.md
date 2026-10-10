@@ -521,14 +521,15 @@ These crates offer more than two alternatives, or combine license terms.
 The SPDX expression for each crate remains in its own source metadata;
 `encoding_rs` also carries BSD-3-Clause terms.
 
-| Crate           | Version | Copyright                                                                | Repository                                   |
-| --------------- | ------- | ------------------------------------------------------------------------ | -------------------------------------------- |
-| `dunce`         | 1.0.5   | Kornel <kornel@geekhood.net>                                             | <https://gitlab.com/kornelski/dunce>         |
-| `encoding_rs`   | 0.8.41  | Henri Sivonen <hsivonen@hsivonen.fi>                                     | <https://github.com/hsivonen/encoding_rs>    |
-| `rustix`        | 1.1.4   | Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com> | <https://github.com/bytecodealliance/rustix> |
-| `tinyvec`       | 1.13.3  | Lokathor <zefria@gmail.com>                                              | <https://github.com/Lokathor/tinyvec>        |
-| `unicode-ident` | 1.0.24  | David Tolnay <dtolnay@gmail.com>                                         | <https://github.com/dtolnay/unicode-ident>   |
-| `zerocopy`      | 0.8.56  | (see repository)                                                         | <https://github.com/google/zerocopy>         |
+| Crate             | Version | Copyright                                                                | Repository                                   |
+| ----------------- | ------- | ------------------------------------------------------------------------ | -------------------------------------------- |
+| `dunce`           | 1.0.5   | Kornel <kornel@geekhood.net>                                             | <https://gitlab.com/kornelski/dunce>         |
+| `encoding_rs`     | 0.8.41  | Henri Sivonen <hsivonen@hsivonen.fi>                                     | <https://github.com/hsivonen/encoding_rs>    |
+| `rustix`          | 1.1.4   | Dan Gohman <dev@sunfishcode.online>; Jakub Konka <kubkon@jakubkonka.com> | <https://github.com/bytecodealliance/rustix> |
+| `tinyvec`         | 1.13.3  | Lokathor <zefria@gmail.com>                                              | <https://github.com/Lokathor/tinyvec>        |
+| `unicode-ident`   | 1.0.24  | David Tolnay <dtolnay@gmail.com>                                         | <https://github.com/dtolnay/unicode-ident>   |
+| `zerocopy-derive` | 0.8.56  | (see repository)                                                         | <https://github.com/google/zerocopy>         |
+| `zerocopy`        | 0.8.56  | (see repository)                                                         | <https://github.com/google/zerocopy>         |
 
 - `unicode-ident` is additionally licensed under Unicode-3.0
   (<https://spdx.org/licenses/Unicode-3.0.html>) for its Unicode
