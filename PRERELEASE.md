@@ -1,38 +1,41 @@
 # Prerelease status
 
 ```
-Updated       2026-10-09 23:55 PDT
-main          8b4811ba6a (run 15 bundle) and later
+Updated       2026-10-10 13:10 PDT
+main          a27ba3dea9 (the rc.4 cut) and later
 
-Published     1.0.0-rc.3 on npm `next`, 16:47 PDT, tag v1.0.0-rc.3 → 71acddc881.
-              48 of 48 packages. `latest` stays 0.35.0, except @smthrs/canonical
-              (its first publish at rc.2 set latest=rc.2). rc.4 waits for the
-              learning and /review start fix below, then a run-16 pass.
-Journeys      8b4811ba6a: no failed row, every suite on try 1.
+Published     1.0.0-rc.4 on npm `next`, 13:00 PDT. Release run 38074210554,
+              tag v1.0.0-rc.4 → a27ba3dea9. 48 of 48 packages. `latest` stays
+              0.35.0, except @smthrs/canonical (its first publish at rc.2 set
+              latest=rc.2). `npm i smthrs@next` reports 1.0.0-rc.4.
+Journeys      a27ba3dea9: no failed row, every suite on try 1.
               J1 21/0/0  J2 14/0/0  J3 14/0/5  J4 23/0/2  J5 21/0/0  J6 4/0/16
-              J7 19/0/2  J8 6/0/3   J9 13/0/0  J10 36/0/4 J11 19/0/0
-Real install  Run 15 on dry run 38023660168's bundle (8b4811ba6a), no patch.
-              T1 PASS: canary-sandbox#158 merged with the card's Merge; card
-              shows Plan done. T2 PASS: #159. Relays: peak 7 per VM, 0 refusals.
-              One slot, nobody acting: T2's machine suspended in review, its
-              review lane took the slot, wrote "Review: approve", retired.
-Broken on     1. The learning machine's coding host exits at start: the box
-main             launcher hands it a landing credential it must not have.
-              2. /review's coding host exits (no jj exporter on the bare
-                 launcher), and that launcher cannot release the failed
-                 machine, so it keeps the only slot.
-              1 and 2 are one fix in progress (no landing credential, exporter
-              planted, release on exhaustion).
-              3. Wiki refresh runs end review-failed on the scripted model only
-                 (fixture gap, runs 12-15); fix in progress.
-Fixed since   rc.3 learning head (84e132ca0a) and vm_id (f5ca4c0dc1); relay
-rc.3          storm (5bc8b4db0b); one-slot deadlock (7f3bf68737, bac0abcd33,
-              3e007cbdeb); Plan "failed" (e202f42ad0); start bound (8b41be917d);
-              #3759 (2dad24a47d); #3760, #3761; DNS message (a58c17b4bf).
-Done work     Release gates: repo flows, site, drift, wasm, native FFI, TUI,
-              script lint and JSDoc green on lane hosts; the rest in progress.
-              Tickets still need the Mac mini for most receipts (see
-              ~/smithers-lanes/done/PLAN-D.md).
+              J7 21/0/0  J8 7/0/2   J9 13/0/0  J10 40/0/0 J11 19/0/0
+Real install  Run 16 on 0ee534991b (16 commits before the cut), no patch:
+              T1 canary-sandbox#160 merged with the card's Merge, Plan done.
+              The learning run completed after the merge (first time).
+              T2 #161. One slot, nobody acting: T2's machine suspended in
+              review, its review lane wrote "Review: approve" and retired.
+              Both wiki refresh runs succeeded (first time). Relays: peak 7
+              per VM, 0 refusals. Every slot freed; longest hold 2 min 34 s.
+Broken in     1. /review cannot finish on a real install. In rc.4 its coding
+rc.4             host exits (no coding model); the job fails cleanly and its
+                 machine is released. On main (2c400d5d93, run 17) the host
+                 starts and the run begins, then fails: the review machine's
+                 image has no bubblewrap, so the confined git that reads the
+                 change is refused. Fix in progress.
+              2. A failed review keeps no cause: only "review_failed".
+              3. /review sent before the first flow load settles answers 503
+                 with no hint to retry.
+Site, Cloud   smithers.sh serves ba82b11dc8 (10-10 10:37 PDT). Cloud still
+              runs fe4ef7e4d6; the re-pin to rc.4 is running.
+Done work     Release gates green on lane hosts: repo flows, site, drift,
+              wasm, native FFI, TUI, script lint, JSDoc, mode matrix
+              local-own, backend access-control, and Workspace targets except
+              host tools the lanes lack. Shared backend: 93 of 94 packages;
+              compose has 2 red tests (#3790, #3791) and runs 72 min.
+              Most ticket receipts still need the Mac mini
+              (~/smithers-lanes/done/PLAN-D.md).
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
@@ -42,10 +45,11 @@ Ships         npm packages under `next`. The Apple Silicon server bundle is an
 To try it     Apple Silicon Mac, macOS 15 or later, a GitHub login for `gh`, and
               44 GiB free on your home volume until the owner has signed in
               (refused at 39.19, started at 44.77). Commands: section 6.
-No mini/Cloud The Mac mini is offline (Will, 10-08). Cloud cannot run a TODO.
+No mini       The Mac mini is offline (Will, 10-08). Cloud cannot run a TODO.
 
 Needs Will    Owner calls in ~/smithers-lanes/done/QUEUE.md (hosting ratchet,
-              fixture path, sync-commits spec conflict, mapping approvals).
+              fixture path, sync-commits spec conflict, new @smthrs/cli
+              exports, API baseline review, mapping approvals).
               Optional: your model keys for a real-model TODO run.
 ```
 
