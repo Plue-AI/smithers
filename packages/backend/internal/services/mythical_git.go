@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -123,6 +125,14 @@ func (g mythicalGit) git(ctx context.Context, args ...string) (string, error) {
 func (g mythicalGit) init(ctx context.Context) error {
 	if _, err := g.git(ctx, "rev-parse", "--git-dir"); err == nil {
 		return nil
+	}
+	// The scratch repository is a cache rebuilt from the remote on every run.
+	// A process killed inside `git init` leaves HEAD.lock and no HEAD; start
+	// over rather than refuse every later run.
+	if _, err := os.Stat(filepath.Join(g.dir, "HEAD")); errors.Is(err, fs.ErrNotExist) {
+		if err := os.RemoveAll(g.dir); err != nil {
+			return fmt.Errorf("remove incomplete scratch repository: %w", err)
+		}
 	}
 	out, err := gitHubMainPullCommand(ctx, "init", "--quiet", "--bare", "--template=", g.dir).CombinedOutput()
 	if err != nil {
