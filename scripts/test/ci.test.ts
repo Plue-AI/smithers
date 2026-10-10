@@ -334,7 +334,12 @@ describe("ci conformance", () => {
     const targets = readFileSync(join(packagesDir, "..", "PACKAGE.ts"), "utf8")
     const jsdocTree = targets.match(/const jsdocTree = Smithers\.EsLint\(\{([\s\S]*?)\n\}\)/)?.[1]
     assert.notEqual(jsdocTree, undefined)
-    const targetGlobs = Array.from(jsdocTree!.matchAll(/Smithers\.glob\("([^"]+)"\)/g), (match) => match[1])
+    // Cross-package sources are declared as explicit files expanded from these
+    // workspace patterns (8c28ce0886), since a root glob cannot cross packages.
+    assert.match(jsdocTree!, /sources: \[\s*\.\.\.workspaceSources\s*\]/)
+    const workspaceSources = targets.match(/const workspaceSources = await workspaceFiles\(\[([\s\S]*?)\]\)/)?.[1]
+    assert.notEqual(workspaceSources, undefined)
+    const targetGlobs = Array.from(workspaceSources!.matchAll(/"([^"]+)"/g), (match) => match[1])
     const scriptGlobs = Array.from(root.scripts!["lint:jsdoc"]!.matchAll(/"([^"]+)"/g), (match) => match[1])
     assert.deepEqual(targetGlobs, scriptGlobs)
   })
@@ -350,15 +355,17 @@ describe("ci conformance", () => {
       "pnpm exec smthrs test '//scripts/...' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//scripts:webBundleContract' --known-red '.github/ci-known-red.json' --verbose",
       "pnpm exec smthrs test '//packages/...' --jobs 2 --known-red '.github/ci-known-red.json' --verbose",
-      "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --known-red '.github/ci-known-red.json' --verbose",
       "jj git init --colocate"
     ]) assert.ok(commands.includes(command), command)
     assert.doesNotMatch(JSON.stringify(ci), /\/\/(?:ci\/|e2e:)/)
     for (const id of ["test", "packages"]) {
       assert.ok(ci.jobs[id]!.steps.some((step) => step.uses === "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"))
     }
-    const faults = ci.jobs["e2e-faults"]!
-    assert.ok(faults.steps.some((step) => step.run?.includes("//packages/...:faults")))
+    // The serial fault matrix runs nightly in reliability.yml, not per push (009101820b, #3459).
+    assert.equal(ci.jobs["e2e-faults"], undefined)
+    const reliability = Yaml.parse(readFileSync(new URL("../../.github/workflows/reliability.yml", import.meta.url), "utf8"))
+    const faults = reliability.jobs["e2e-faults"] as CiJob
+    assert.ok(faults.steps.some((step) => step.run?.includes("pnpm exec smthrs test '//packages/...:faults' --jobs 1 ")))
     assert.doesNotMatch(JSON.stringify(faults), /continue-on-error/)
     assert.ok(steps.some((step) => /^jj-cli@\d+\.\d+\.\d+$/.test(step.with?.tool ?? "")))
   })

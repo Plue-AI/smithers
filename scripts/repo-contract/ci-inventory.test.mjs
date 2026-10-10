@@ -202,7 +202,7 @@ test("required CI resolves package, app, script and evaluation suites to real ru
   assert.deepEqual(inventoryRunner.slice(1), ["--test", "scripts/repo-contract/ci-inventory.test.mjs"])
   const uiUnits = inventory.rows.filter((row) => row.label === "//apps/app:unitTests" && row.required && row.selectedRoot)
   assert.equal(uiUnits.length, 1, "the UI unit tier runs once in required CI")
-  assert.deepEqual(uiUnits[0].runner, ["bun", "test", "--isolate", "src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "scripts"])
+  assert.deepEqual(uiUnits[0].runner, ["bun", "test", "--isolate", "src", "./proof", "e2e/contracts", "e2e/support", "e2e/real/coverage", "e2e/real/support", "e2e/real/auth-permissions/profile.test.ts", "e2e/real/chat-tools/shared-traffic.test.ts", "scripts"])
   const packageTests = inventory.rows.filter((row) => row.job === "packages" && row.required && row.selectedRoot)
   assert.ok(packageTests.length > 100, "the complete package test graph must resolve")
   for (const row of packageTests) assert.ok(selected(row.label, "test").length, `${row.label} must also be selected by ci //packages/...`)

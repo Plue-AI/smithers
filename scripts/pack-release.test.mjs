@@ -683,6 +683,7 @@ test("defaultBindings reports the default import and export sites and nothing sp
     "import initial from \"./migrations/0001_initial.ts\"",
     "import lineage, { later } from \"../migrations/0002_lineage.ts\"",
     "// import commented from \"./Commented.ts\"",
+    "import catalog from \"./catalog.json\" with { type: \"json\" }",
     "const fence = \"```ts\"",
     "export const template = `\"use server\"",
     "",
@@ -695,9 +696,12 @@ test("defaultBindings reports the default import and export sites and nothing sp
   assert.deepEqual(defaultBindings(source), [
     { line: 8, kind: "import", text: "import initial from \"./migrations/0001_initial.ts\"" },
     { line: 9, kind: "import", text: "import lineage, { later } from \"../migrations/0002_lineage.ts\"" },
-    { line: 17, kind: "export", text: "export default named" }
+    { line: 18, kind: "export", text: "export default named" }
   ])
   assert.deepEqual(defaultBindings("export const set = {}\n"), [])
+  // A JSON module's only binding is its default, and esbuild's CommonJS
+  // `__toESM(require("./x.json"), 1).default` is that same parsed value.
+  assert.deepEqual(defaultBindings("import catalog from \"./catalog.mvp.json\" with { type: \"json\" }\n"), [])
 })
 
 test("no published source module default-imports a sibling or exports a default", () => {

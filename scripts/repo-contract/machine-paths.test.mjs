@@ -92,6 +92,27 @@ const isRecorded = (path) =>
   || path.startsWith("evals/swebench/archive/")
   || path.startsWith("evals/authoring/data/")
 
+/**
+ * Modeled accounts, exempt because the home is the subject under test rather
+ * than an operator's checkout.
+ *
+ * - `scripts/spikes/mch-02-virtiofs-homes/` shares member homes over VirtioFS.
+ * - `scripts/spikes/trm-06/` confines terminal sessions to guest accounts.
+ *
+ * Each creates these accounts inside the VM or namespace it boots, so the path
+ * resolves on every machine that runs it. Only the named accounts are exempt:
+ * any other home in those trees, an operator's included, still fails.
+ */
+const modeledAccounts = new Map([
+  ["scripts/spikes/mch-02-virtiofs-homes/", ["alice", "ben", "carol", "member", "root"]],
+  ["scripts/spikes/trm-06/", ["agent", "ben", "environment", "other", "root"]]
+])
+// The account a Linux home belongs to. Accounts are named, not spelled as
+// paths, so this gate's own source names no home either.
+const accountOf = (home) => /^\/home\/([^/]+)$|^\/(root)$/.exec(home)?.slice(1).find(Boolean)
+const isModeledAccount = (path, home) =>
+  [...modeledAccounts].some(([prefix, accounts]) => path.startsWith(prefix) && accounts.includes(accountOf(home)))
+
 describe("the rigs and gates outside the packages", () => {
   it("has files to check", () => {
     assert.ok(tracked().length > 0, `VCS inventory found no tracked file under ${scanned.join(", ")}`)
@@ -109,7 +130,7 @@ describe("the rigs and gates outside the packages", () => {
       }
       for (const [index, line] of content.split("\n").entries()) {
         const found = homePath.exec(line)
-        if (found !== null) offenders.push(`${path}:${index + 1} ${found[0]}`)
+        if (found !== null && !isModeledAccount(path, found[0])) offenders.push(`${path}:${index + 1} ${found[0]}`)
       }
     }
     assert.deepEqual(

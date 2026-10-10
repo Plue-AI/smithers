@@ -134,6 +134,16 @@ describe("child-process containment conformance", () => {
       + "both. No durable process ledger or hard-kill recovery guarantee."
     ],
     [
+      "smithers/src/internal/backend/HostService.ts",
+      "`smthrs host`: the per-user launchd adapter on macOS, outside a durable flow. It runs "
+      + "the fixed-path `/bin/launchctl` and the verified bundle's own `bin/smithers-backend` "
+      + "(`host-maintenance`, `microvm doctor`) synchronously: fixed arguments, no shell, no "
+      + "PATH lookup, an explicit minimal environment for the bundle, a 64 KiB output cap for "
+      + "maintenance and a 30-second timeout for the doctor. HostService.test.ts and "
+      + "HostMaintenanceAdapter.test.ts drive scripted runners; host-service.integration.test.ts "
+      + "runs launchd on a Mac. No durable process ledger or hard-kill recovery guarantee."
+    ],
+    [
       "smithers/src/Detached.ts",
       "`smithers up -d`, the one launcher whose child must OUTLIVE the process that "
       + "started it. Routing it through the host spawner would kill the engine on the "

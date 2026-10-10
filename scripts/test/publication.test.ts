@@ -132,7 +132,7 @@ describe("publication conformance", () => {
     const publishScript = readFileSync(join(packagesDir, "..", "scripts", "publish-release.mjs"), "utf8")
     assert.ok(publishScript.includes("join(directory, \"release-manifest.json\")"))
     assert.ok(publishScript.includes("const pending = await preflight(directory, candidate, options)"))
-    assert.ok(publishScript.includes("for (const entry of pending)"))
+    assert.ok(publishScript.includes("for (const [index, entry] of pending.entries())"))
     // Verify the actual registry adapter's invocation, so extracting a helper
     // cannot break this contract while dropping provenance still does.
     const { registryPublisher } = await import(

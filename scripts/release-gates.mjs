@@ -50,8 +50,9 @@ import { parse } from "yaml"
  *
  * The first block combines required CI `test`, `repository`, `scripts`, and `docs` gates copied out
  * of the generated ci.yml; then the `apps-e2e` gates the release runs without
- * the browser suite; then the `e2e-faults` matrix and the release-only
- * targets; then the `wasm-repro` pair. `pack-release.test.mjs` proves the
+ * the browser suite; then the exclusive fault matrix (nightly in
+ * reliability.yml, no longer a ci.yml job) and the release-only targets; then
+ * the `wasm-repro` pair and the shared backend gates. `pack-release.test.mjs` proves the
  * workflow-to-workflow copy, and `release-gates.test.mjs` proves this list
  * against the workflow.
  *
@@ -112,6 +113,7 @@ export const releaseGates = [
   { name: "Generated workflow drift", verb: "lint", target: "//:ci" },
   { name: "Factory projection drift", verb: "lint", target: "//:factoryProjection" },
   { name: "Target index drift", verb: "lint", target: "//:targetIndex" },
+  { name: "Package documentation tarballs", verb: "test", target: "//scripts:packageDocs" },
   { name: "Native FFI clippy and tests", verb: "build", target: "//:nativeFfi" },
   // Ordinary workspace CI omits this exclusive tier; the explicit label opts in.
   { name: "Exclusive fault matrix", verb: "test", target: "//packages/...:faults", jobs: 1 },
@@ -122,7 +124,8 @@ export const releaseGates = [
   { name: "Build-script unit tests", verb: "test", target: "//crates/flows-jj:buildScript" },
   // The committed flows_jj.wasm is rebuilt and byte-compared before packing.
   { name: "Rebuild and byte-compare flows_jj.wasm", verb: "test", target: "//crates/flows-jj:wasmReproducibility" },
-  { name: "Build and test shared backend", verb: "test", target: "//:backendGo" }
+  { name: "Build and test shared backend", verb: "test", target: "//:backendGo" },
+  { name: "Backend access-control tests", verb: "test", target: "//:backendGoAccess" }
 ]
 
 /**
@@ -167,8 +170,8 @@ export const releaseGateSetForHost = (host = process) => {
  * here keeps each omission a decision rather than an oversight: the drift test
  * proves each is still a ci.yml gate, that the inventory does not run it (or
  * the reason would be false), and that every other CI gate is run by an
- * inventory gate. A job with no entry is mirrored whole: `test`, `repository`, `scripts`, `docs`, `e2e-faults`
- * and `wasm-repro` step for step; `browser` through `//scripts/...`, which selects
+ * inventory gate. A job with no entry is mirrored whole: `test`, `repository`, `scripts`, `docs`
+ * and `wasm-repro` step for step, `go-backend` and `go-backend-access` by command; `browser` through `//scripts/...`, which selects
  * `//scripts:webBundleContract`, explicitly pinned in ciCommands. Even omitted
  * jobs enumerate today's commands so future additions cannot hide behind a
  * whole-job waiver. `push` is an `on` trigger, not a job.
@@ -183,8 +186,12 @@ export const releaseGateExclusions = [
   },
   {
     job: "rust",
-    commands: ["pnpm exec smthrs lint '//crates/flows-jj/...' --verbose", "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose"],
-    reason: "Native Rust lint and tests validate the native crate, which is not a published release artifact. The release verifies the shipped WASM with the pinned Rust toolchain instead. Third-party notices run under //scripts/...."
+    commands: [
+      "pnpm exec smthrs lint '//crates/flows-jj/...' --verbose",
+      "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose",
+      "pnpm exec smthrs test '//crates/smithers-machined:documentComponents' --verbose"
+    ],
+    reason: "Native Rust lint and tests validate the native crates, which are not published release artifacts. The release verifies the shipped WASM with the pinned Rust toolchain instead. The daemon's document components and their Yjs interop exercise smithers-machined and smithers-ffi, which ship in the install bundle the distribution workflow builds. Third-party notices run under //scripts/...."
   },
   {
     job: "packages",
@@ -450,13 +457,16 @@ const discoveredJobGates = (jobs, job) => {
     }
     const gateVariable = assignedValues.some((value) => shellCommands(value).some(({ tokens }) => isGateCandidate(tokens)))
     return commands.filter(({ tokens }) => isGateCandidate(tokens) || (gateVariable && hasIndirectExecutable(tokens)))
-      .map((command) => ({
-        name: step.name ?? "",
-        ...command,
-        command: command.command.replace(/ --known-red '[^']+'/, ""),
-        tokens: withoutKnownRed(command.tokens),
-        valid: command.valid && !/[$`]/.test(command.command)
-      }))
+      .map((command) => {
+        const text = command.command.replace(/ --known-red '[^']+'/, "").replace(` ${resultsFileOption}`, "")
+        return {
+          name: step.name ?? "",
+          ...command,
+          command: text,
+          tokens: withoutResultsFile(withoutKnownRed(command.tokens)),
+          valid: command.valid && !/[$`]/.test(text)
+        }
+      })
   })
 }
 
@@ -486,6 +496,21 @@ const matchesCommand = (step, command) => {
   if (!step.valid || !parseGateCommand(command)) return false
   const [canonical] = shellCommands(command)
   return canonical.tokens.length === step.tokens.length && canonical.tokens.every((token, i) => token === step.tokens[i])
+}
+
+/**
+ * The results file every CI and release step writes for the check receipts
+ * (#3663). Like a known-red list it changes neither which targets run nor which
+ * fail, so discovery drops it. Only this exact generated path is dropped: any
+ * other path or expansion stays in the command and leaves the step unowned.
+ */
+const resultsFilePath = "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json"
+const resultsFileOption = `--results-file "${resultsFilePath}"`
+
+/** @param {readonly string[]} tokens */
+const withoutResultsFile = (tokens) => {
+  const at = tokens.indexOf("--results-file")
+  return at >= 0 && tokens[at + 1] === resultsFilePath ? [...tokens.slice(0, at), ...tokens.slice(at + 2)] : tokens
 }
 
 /**

@@ -206,6 +206,12 @@ describe("coverage conformance", () => {
       assert.ok(coverage!.includes(
         'enabled: coversWholeSuite(parseCLI(["vitest", ...process.argv.slice(2)], { allowUnknownOptions: true })),\n'
       ))
+    } else if (name === "smithers") {
+      // `vitest related <files>` fast checks run a subset, where whole-package
+      // thresholds always fail (299804930c, #3523). The declared full-suite
+      // target passes no `related` argument, so it keeps the gate. Pin the exact
+      // expression, so no other dynamic condition can disable coverage.
+      assert.match(coverage!, /\benabled: !process\.argv\.includes\("related"\),\n/)
     } else {
       assert.match(
         coverage!,

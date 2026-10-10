@@ -137,6 +137,20 @@ for (const [job, source] of parityJobs) {
     ]) assert.deepEqual(missingFor(job, withRun(source, job, gate.name, command)), [], command)
   })
 
+  // CI and release steps record structured results for the check receipts (#3663).
+  // Only that one generated path joins a canonical gate; any other path or
+  // expansion in the option leaves the step unowned.
+  test(`fail-closed ${job}: only the generated results file joins a canonical gate`, () => {
+    const gate = mirrored.find(gate => gate.name === "UI unit tests")
+    const canonical = releaseGateCommand(gate)
+    const recorded = canonical.replace(" --verbose", ' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose')
+    assert.deepEqual(missingFor(job, withRun(source, job, gate.name, recorded)), [])
+    for (const option of ['--results-file "$OTHER/results.json"', '--results-file "$(printf x)"', "--results-file results.json"]) {
+      const command = canonical.replace(" --verbose", ` ${option} --verbose`)
+      assert.deepEqual(missingFor(job, withRun(source, job, gate.name, command)), reported(job, gate.name, command), command)
+    }
+  })
+
   test(`fail-closed ${job}: dynamic gate segments and assignment indirection are unowned`, () => {
     for (const command of [
       "pnpm exec smthrs $VERB '//x'", "pnpm exec smthrs ${VERB} '//x'",
@@ -256,7 +270,7 @@ test("exception and exclusion drift checks use literal tokens and reject dynamic
 })
 
 /** Pin every job so a new one forces a release decision. `on.push` is a trigger, not a job. */
-const ciJobs = ["test", "repository", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "e2e-faults", "browser", "packages", "go-backend"]
+const ciJobs = ["test", "repository", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "browser", "packages", "go-backend", "go-backend-access"]
 
 /** A copy of the release workflow with one more gate step ahead of the build. */
 const withUnlistedStep = (source, name, command) => {
@@ -447,9 +461,10 @@ test("the release proves every CI gate the exclusions do not name, and every exc
   assert.deepEqual(releaseGateExclusions.find((exclusion) => exclusion.job === "apps-e2e").commands, ["pnpm exec smthrs test '//apps/app:browserE2e' --verbose"])
   assert.deepEqual(releaseGateExclusions.find((exclusion) => exclusion.job === "rust").commands, [
     "pnpm exec smthrs lint '//crates/flows-jj/...' --verbose",
-    "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose"
+    "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose",
+    "pnpm exec smthrs test '//crates/smithers-machined:documentComponents' --verbose"
   ])
-  for (const job of ["test", "repository", "scripts", "docs", "e2e-faults", "wasm-repro"]) {
+  for (const job of ["test", "repository", "scripts", "docs", "wasm-repro"]) {
     for (const step of workflowGateSteps(ci, job)) {
       assert.ok(mirrored.some((gate) => gate.name === step.name && releaseGateCommand(gate) === step.command), `${job}: ${step.name} is an inventory gate by name and command`)
     }

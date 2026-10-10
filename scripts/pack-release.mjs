@@ -424,8 +424,11 @@ const defaultExportPattern = /^[ \t]*export\s+default\b/gm
  * Type-only imports (`import type x from "./y.ts"`) erase before the build and
  * are not reported. Bare and scoped specifiers (`import React from "react"`)
  * cross a package boundary where the interop is the consumer's, not ours, and
- * are not reported either. Comments and template literals are blanked before
- * matching, so a flow skeleton spelled inside a template string is not a site.
+ * are not reported either. A JSON module (`import x from "./y.json" with
+ * { type: "json" }`) is not a site: its only binding is the default, and the
+ * CommonJS `__toESM(require("./y.json"), 1).default` is that same parsed value.
+ * Comments and template literals are blanked before matching, so a flow
+ * skeleton spelled inside a template string is not a site.
  */
 export const defaultBindings = (source) => {
   const text = declarationText(source)
@@ -433,6 +436,7 @@ export const defaultBindings = (source) => {
   const lineAt = (index) => text.slice(0, index).split("\n").length
   const sites = []
   for (const match of text.matchAll(defaultImportPattern)) {
+    if (match[2].endsWith(".json")) continue
     const line = lineAt(match.index)
     sites.push({ line, kind: "import", text: lines[line - 1].trim() })
   }

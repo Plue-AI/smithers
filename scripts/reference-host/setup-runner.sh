@@ -18,11 +18,11 @@
 # What `setup` changes, each step skipped when already in place:
 #   1. group ghrunner and user ghrunner (primary group ghrunner, not staff;
 #      not an admin; hidden; random password that is printed nowhere)
-#   2. /Users/williamcory to mode 0700 (its ACL is kept)
+#   2. the operator's home (the account that ran sudo) to mode 0700 (its ACL is kept)
 #   3. /opt/reference-host: bun, node, pnpm and go, root:wheel, read-only,
 #      every archive checked against a pinned SHA-256 (sha512 for pnpm)
 #   4. /usr/local/libexec/smithers-reference-host/job-started.sh, root:wheel 0555
-#   5. /Users/ghrunner/actions-runner: the official runner, downloaded as
+#   5. ghrunner's home/actions-runner: the official runner, downloaded as
 #      ghrunner and checked against the release's published SHA-256
 #   6. /Library/LaunchDaemons/org.smithers.reference-host-runner.plist,
 #      UserName ghrunner, written but not loaded until `register`
@@ -30,7 +30,7 @@ set -eu
 setopt pipefail
 
 readonly RUNNER_USER=ghrunner
-readonly RUNNER_HOME=/Users/ghrunner
+readonly RUNNER_HOME=/Users/$RUNNER_USER
 readonly RUNNER_DIR=$RUNNER_HOME/actions-runner
 readonly RUNNER_VERSION=2.338.0
 # Published in the v2.338.0 release notes ("BEGIN SHA osx-arm64") and as the
@@ -38,7 +38,9 @@ readonly RUNNER_VERSION=2.338.0
 readonly RUNNER_SHA256=df4cebda25c86a886ed204e49fee63f5c2e7cec5f447b5c98440a826bbdf9df2
 readonly REPO_URL=https://github.com/smithersai/smithers
 readonly RUNNER_NAME=reference-host-mac-mini
-readonly OPERATOR_HOME=/Users/williamcory
+# The operator is the account that ran sudo; its home is read from the directory service.
+readonly OPERATOR=${SUDO_USER:?run through sudo from the operator account: sudo zsh setup-runner.sh}
+readonly OPERATOR_HOME=$(/usr/bin/dscl . -read /Users/$OPERATOR NFSHomeDirectory | /usr/bin/awk '{print $2}')
 readonly TOOLS=/opt/reference-host
 readonly HOOK_DIR=/usr/local/libexec/smithers-reference-host
 readonly HOOK=$HOOK_DIR/job-started.sh
@@ -260,8 +262,8 @@ probe_denied_reads() {
       say "  DENIED    $target ($(as_runner /bin/ls "$target" 2>&1 >/dev/null | /usr/bin/head -1))"
     fi
   done
-  local exposed=$(/usr/bin/find /private/tmp -maxdepth 2 -user williamcory -perm -004 -type f 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')
-  say "  note: $exposed world-readable williamcory files under /private/tmp (lane scratch; outside this setup)"
+  local exposed=$(/usr/bin/find /private/tmp -maxdepth 2 -user $OPERATOR -perm -004 -type f 2>/dev/null | /usr/bin/wc -l | /usr/bin/tr -d ' ')
+  say "  note: $exposed world-readable $OPERATOR files under /private/tmp (lane scratch; outside this setup)"
 }
 
 receipt() {

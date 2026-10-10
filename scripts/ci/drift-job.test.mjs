@@ -589,7 +589,7 @@ test('root-ci-setup-input-validation disposable Ubuntu positive and hostile cont
   try {
     const replacement = join(hostile, 'setup.py')
     await writeFile(replacement, 'from pathlib import Path\nPath("/run/smithers-hostile-root").write_text("hostile root setup executed\\n")\n')
-    const handoff = `import runpy, subprocess; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); subprocess.run(['/usr/bin/sudo', '--non-interactive', '/usr/bin/env', '-i', 'PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'HOME=/root', 'LANG=C.UTF-8', '/usr/bin/python3', '-I', '-c', m['ROOT_DISPATCH'], ${JSON.stringify(replacement)}, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'], cwd='/', check=True)`
+    const handoff = `import pwd, runpy, subprocess; m = runpy.run_path(${JSON.stringify(trustedSetupPath)}); subprocess.run(['/usr/bin/sudo', '--non-interactive', '/usr/bin/env', '-i', 'PATH=/usr/sbin:/usr/bin:/sbin:/bin', 'HOME=' + pwd.getpwuid(0).pw_dir, 'LANG=C.UTF-8', '/usr/bin/python3', '-I', '-c', m['ROOT_DISPATCH'], ${JSON.stringify(replacement)}, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'], cwd='/', check=True)`
     await assert.rejects(runFile('/usr/bin/python3', ['-I', '-c', handoff], { cwd: '/', env: setupEnvironment }), (error) => {
       assert.equal(error.code, 1)
       assert.match(error.stderr, /trusted setup refused: root setup byte identity/)

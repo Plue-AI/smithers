@@ -896,6 +896,22 @@
       "reason": "Refuses a cell's success claim when a call in the same cell failed; the harness index already re-exports it and the transcript and cell turn depend on it (0d0b24df4)."
     },
     {
+      "name": "@smthrs/harness",
+      "subpath": "./ExternalTranscript",
+      "development": "./src/ExternalTranscript.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/ExternalTranscript.d.ts",
+          "default": "./dist/esm/ExternalTranscript.js"
+        },
+        "require": {
+          "types": "./dist/cjs/ExternalTranscript.d.ts",
+          "default": "./dist/cjs/ExternalTranscript.js"
+        }
+      },
+      "reason": "Pure, read-only decoding of the Codex and Claude Code transcripts a person runs beside Smithers into ordered entries (mvp.md M-38, T-UI-07 S2); apps/model-host tails them. It reads only caller-supplied bytes and refuses unknown records with tagged errors."
+    },
+    {
       "name": "@smthrs/model",
       "subpath": "./FailureCopy",
       "development": "./src/FailureCopy.ts",
@@ -1103,6 +1119,38 @@
         "require": "./dist/cjs/CloudSandbox.js"
       },
       "reason": "Scoped Smithers Cloud workspace Sandbox.Provider with stable per-session names, fresh pinned SSH grants, and deletion on scope release; shared by any sandbox-backed flow (#2924)."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./Catalog",
+      "development": "./src/Catalog.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/Catalog.d.ts",
+          "default": "./dist/esm/Catalog.js"
+        },
+        "require": {
+          "types": "./dist/cjs/Catalog.d.ts",
+          "default": "./dist/cjs/Catalog.js"
+        }
+      },
+      "reason": "The generated product catalog (catalog.mvp.json) as typed descriptors, so the model host derives its product tools from the same operations the CLI and app expose instead of a second list. Read-only data; no transport or credentials."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./CatalogRequest",
+      "development": "./src/CatalogRequest.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/CatalogRequest.d.ts",
+          "default": "./dist/esm/CatalogRequest.js"
+        },
+        "require": {
+          "types": "./dist/cjs/CatalogRequest.d.ts",
+          "default": "./dist/cjs/CatalogRequest.js"
+        }
+      },
+      "reason": "Encodes one catalog operation's HTTP request from its generated binding for the CLI and the model host, refusing an unavailable or invalid binding or field with a typed CatalogRequestError. Payload validation and actor authorization stay at the invoking boundary."
     },
     {
       "name": "@smthrs/capability",
