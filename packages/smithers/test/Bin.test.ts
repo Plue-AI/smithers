@@ -964,7 +964,8 @@ describe("the SQLite-only database contract", processBudget, () => {
     expect(result.status).toBe(0)
     expect(JSON.parse(result.stdout)).toMatchObject({ _tag: "flows" })
     expect(result.stderr.split("\n").filter((line) => line.startsWith("ignored: "))).toEqual([
-      "ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.1 (use SMITHERS_POSTGRES_URL to select PostgreSQL)"
+      // The storage notice names the release, which the bump keeps equal to this package's.
+      `ignored: SMITHERS_TEST_PG_URL has no effect in ${Version.packageVersion} (use SMITHERS_POSTGRES_URL to select PostgreSQL)`
     ])
   })
 
