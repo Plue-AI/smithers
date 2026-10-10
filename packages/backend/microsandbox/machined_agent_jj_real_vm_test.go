@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,7 +21,7 @@ import (
 
 // startAgentRun opens script as an admitted coding run (agent, registered run
 // binding), as startNativeHost admits the coding host, and starts it.
-func startAgentRun(t *testing.T, ctx context.Context, runtime *Runtime, id, script string) (*lockedBuffer, *lockedBuffer) {
+func startAgentRun(t *testing.T, ctx context.Context, runtime *Runtime, id, script string) *agentRun {
 	t.Helper()
 	ws, err := runtime.runningWorkspace(id)
 	require.NoError(t, err)
@@ -51,14 +52,39 @@ func startAgentRun(t *testing.T, ctx context.Context, runtime *Runtime, id, scri
 		defer stop()
 		_ = e.Kill(cleanup)
 	})
-	var stdout, stderr lockedBuffer
-	go func() { _, _ = io.Copy(&stdout, e.Stdout()) }()
-	go func() { _, _ = io.Copy(&stderr, e.Stderr()) }()
+	started := &agentRun{stdout: new(lockedBuffer), stderr: new(lockedBuffer), ended: make(chan struct{})}
+	var copied sync.WaitGroup
+	copied.Add(2)
+	go func() { defer copied.Done(); _, _ = io.Copy(started.stdout, e.Stdout()) }()
+	go func() { defer copied.Done(); _, _ = io.Copy(started.stderr, e.Stderr()) }()
+	go func() {
+		started.exit = e.Wait()
+		copied.Wait()
+		close(started.ended)
+	}()
 	require.NoError(t, coding.RegisterRun(ctx, run, e.ID()))
 	_, err = e.Write([]byte("start\n"))
 	require.NoError(t, err)
 	require.NoError(t, e.CloseWrite())
-	return &stdout, &stderr
+	return started
+}
+
+// agentRun is one started coding run: its output and its end.
+type agentRun struct {
+	stdout, stderr *lockedBuffer
+	ended          chan struct{}
+	exit           error
+}
+
+// wait returns the run's exit status once Exec.Wait returned and both outputs
+// were copied, or DeadlineExceeded when that took longer than budget (#3761).
+func (r *agentRun) wait(budget time.Duration) error {
+	select {
+	case <-r.ended:
+		return r.exit
+	case <-time.After(budget):
+		return context.DeadlineExceeded
+	}
 }
 
 // An agent's jj operation inside its coding run must stay readable by the
@@ -86,7 +112,7 @@ func TestRealMicroVMAgentJJWriteKeepsDaemonServing(t *testing.T) {
 	// The coding run's jj call inside a confinement user namespace, as the
 	// guarded spawner runs it once a toolchain layer supplies bubblewrap: there
 	// root and the team group read as the overflow IDs.
-	stdout, stderr := startAgentRun(t, ctx, runtime, id, `read -r _
+	run := startAgentRun(t, ctx, runtime, id, `read -r _
 /usr/bin/python3 -I -S -c '
 import os
 uid, gid = os.getuid(), os.getgid()
@@ -99,10 +125,10 @@ print("confined /workspace %d:%d" % (root.st_uid, root.st_gid), flush=True)
 os.execv("/usr/local/bin/jj", ["jj", "-R", "/workspace", "--no-pager", "--color=never", "new", "-m", "B"])
 ' 2>&1; echo "jj=$?"
 echo done=1`)
-	require.Eventually(t, func() bool { return strings.Contains(stdout.String(), "done=1") }, 90*time.Second, 100*time.Millisecond,
-		"stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
-	t.Logf("agent run:\n%s", stdout.String())
-	require.Contains(t, stdout.String(), "jj=0")
+	require.NoError(t, run.wait(90*time.Second), "stdout:\n%s\nstderr:\n%s", run.stdout.String(), run.stderr.String())
+	t.Logf("agent run:\n%s", run.stdout.String())
+	require.Contains(t, run.stdout.String(), "done=1")
+	require.Contains(t, run.stdout.String(), "jj=0")
 
 	guest := func(script string) string {
 		out, _ := runtime.cli.run(context.Background(), nil, "exec", ws.Machine, "--", "timeout", "20", "/bin/sh", "-c", script)

@@ -78,7 +78,6 @@ func TestExecSeparatesStdoutAndStderrAndReturnsCreditAfterReads(t *testing.T) {
 	sendSession(t, peer, []byte{2, 1})
 	sendSession(t, peer, []byte{2, 2})
 	sendSession(t, peer, []byte{5, 0, 0, 0, 0, 3})
-	sendSession(t, peer, []byte{7})
 	rest, err := io.ReadAll(process.Stdout())
 	require.NoError(t, err)
 	require.Empty(t, rest)
@@ -90,15 +89,53 @@ func TestExecSeparatesStdoutAndStderrAndReturnsCreditAfterReads(t *testing.T) {
 func TestExecCleanExitAndSignal(t *testing.T) {
 	process, peer := execFixture(t, "lsp")
 	sendSession(t, peer, []byte{5, 0, 0, 0, 0, 0})
-	sendSession(t, peer, []byte{7})
 	require.NoError(t, process.Wait())
 
 	process, peer = execFixture(t, "lsp")
 	sendSession(t, peer, []byte{5, 1, 4, 0})
-	sendSession(t, peer, []byte{7})
 	var exit *ExitError
 	require.ErrorAs(t, process.Wait(), &exit)
 	require.Equal(t, byte(4), exit.Signal, "wire signal 4 is KILL")
+}
+
+// The broker sends an exec's exit after both output EOFs and then nothing: it
+// never closes an owner's stream (crates/smithers-machined/tests/
+// session_dispatch.rs exit_follows_both_outputs_and_marks_registry_once). Wait
+// must return at that exit, with the session still open for Kill (#3761).
+func TestExecWaitReturnsAtTheBrokersExitWithoutAClose(t *testing.T) {
+	process, peer := execFixture(t, "lsp")
+	stdout := make(chan string, 1)
+	go func() {
+		read, _ := io.ReadAll(process.Stdout())
+		stdout <- string(read)
+	}()
+	sendSession(t, peer, []byte{1, 1, 'o', 'k'})
+	frame, err := wire.Read(peer)
+	require.NoError(t, err)
+	require.Equal(t, []byte{6, 0, 0, 0, 2}, frame.Payload)
+	sendSession(t, peer, []byte{2, 1})
+	sendSession(t, peer, []byte{2, 2})
+	sendSession(t, peer, []byte{5, 0, 0, 0, 0, 9})
+	waited := make(chan error, 1)
+	go func() { waited <- process.Wait() }()
+	select {
+	case err := <-waited:
+		var exit *ExitError
+		require.ErrorAs(t, err, &exit)
+		require.Equal(t, 9, exit.ExitStatus())
+	case <-time.After(5 * time.Second):
+		t.Fatal("Wait did not return at the exit frame")
+	}
+	require.Equal(t, "ok", <-stdout)
+	stderr, err := io.ReadAll(process.Stderr())
+	require.NoError(t, err)
+	require.Empty(t, stderr)
+}
+
+func TestExecCloseWithoutExitIsATransportFailure(t *testing.T) {
+	process, peer := execFixture(t, "lsp")
+	sendSession(t, peer, []byte{7})
+	require.ErrorIs(t, process.Wait(), io.ErrUnexpectedEOF)
 }
 
 func TestExecKillEmptiesTheSessionThenCloses(t *testing.T) {

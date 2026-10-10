@@ -16,6 +16,10 @@ import (
 // separate (ADR 0004 data fd 1 and 2). Output credit returns only after the
 // consumer read the bytes. Unlike Terminal it never reattaches: a lost link
 // ends the stream, and the caller starts a fresh process.
+//
+// The broker sends the exit status only after both outputs end, and it never
+// closes an owner's stream itself: the session and its cgroup stay until Kill
+// or Close. The exit frame is therefore the last frame Exec reads.
 type Exec struct {
 	sessions  *Sessions
 	id        uint32
@@ -111,6 +115,8 @@ func (e *Exec) receive() {
 			} else {
 				exit = &ExitError{Signal: frame[2], Core: frame[3] != 0}
 			}
+			// No close follows an exit (#3761): waiting for one hung Wait.
+			return
 		case 7:
 			return
 		case 255:
@@ -149,7 +155,8 @@ func (e *Exec) CloseWrite() error {
 }
 
 // Wait returns nil for exit 0, *ExitError for another status or a signal,
-// and the transport error when the session ended without an exit.
+// and the transport error when the session ended without an exit. It returns
+// at the exit status; the session stays open until Kill or Close.
 func (e *Exec) Wait() error {
 	<-e.done
 	return e.exit

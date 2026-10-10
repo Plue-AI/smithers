@@ -68,23 +68,17 @@ func TestRealMicroVMAgentWriteKeepsDaemonAnswering(t *testing.T) {
 
 	// An admitted coding run: its first edit through the local client, then
 	// quick checks that stream output, as the coding flow's T1 did.
-	stdout, stderr := startAgentRun(t, ctx, runtime, id, `read -r _
+	run := startAgentRun(t, ctx, runtime, id, `read -r _
 printf 'first edit\n' | timeout 40 /opt/smithers/bin/smithers-machined client write-file EDIT.md --base absent
 echo "write=$?"
 i=0
 while [ $i -lt 200 ]; do echo "check $i"; ls -la /workspace >/dev/null; sleep 0.02; i=$((i+1)); done
 echo checks=done`)
 
-	// Its last output line proves the write's reply and the checks' output
-	// came back through the daemon. Like the coding host (native_host.go),
-	// this reads output rather than waiting for the run's stream to close.
-	deadline := time.Now().Add(90 * time.Second)
-	for !strings.Contains(stdout.String(), "checks=done") && time.Now().Before(deadline) {
-		time.Sleep(100 * time.Millisecond)
-	}
-	if !strings.Contains(stdout.String(), "checks=done") {
-		err = context.DeadlineExceeded
-	}
+	// Its end proves the write's reply and the checks' output came back
+	// through the daemon: Exec.Wait returns at the exit the broker sends after
+	// both outputs end (#3761).
+	err = run.wait(90 * time.Second)
 	// Two more pushes after the run, so a wedge left behind is also caught.
 	time.Sleep(2500 * time.Millisecond)
 	stopRoster()
@@ -109,9 +103,9 @@ echo checks=done`)
 			"/usr/bin/python3", "-I", "-S", "-c", daemonThreadView)
 		t.Logf("daemon threads:\n%s", view)
 	}
-	require.NoError(t, err, "agent run did not finish; stdout:\n%s\nstderr:\n%s", stdout.String(), stderr.String())
-	require.Contains(t, stdout.String(), "write=0", "stderr:\n%s", stderr.String())
-	require.Contains(t, stdout.String(), "checks=done")
+	require.NoError(t, err, "agent run did not finish; stdout:\n%s\nstderr:\n%s", run.stdout.String(), run.stderr.String())
+	require.Contains(t, run.stdout.String(), "write=0", "stderr:\n%s", run.stderr.String())
+	require.Contains(t, run.stdout.String(), "checks=done")
 	require.Empty(t, failed, "roster pushes failed during or after the agent run")
 	require.Less(t, slowest, 3*time.Second)
 	require.GreaterOrEqual(t, len(pushes), 3)
