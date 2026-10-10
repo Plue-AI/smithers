@@ -211,6 +211,8 @@ type Runtime struct {
 	mu                        sync.Mutex
 	closed                    bool
 	workspaces                map[string]*workspace
+	relaySlots                map[string]chan struct{}         // live relays by VM; see maxRelaysPerMachine
+	relayHosts                map[string]map[uint16]*relayHost // shared guest port clients by workspace and port
 	auxVMs                    map[string]struct{}
 	auxCleanup                map[string]struct{}
 	capacityReader            func(context.Context) (int, error)
@@ -1295,6 +1297,7 @@ func (r *Runtime) detachProcessesLocked(ws *workspace) []*guestCommand {
 		preview.close()
 		delete(ws.previews, port)
 	}
+	r.closeRelayHostsLocked(ws.ID)
 	return commands
 }
 

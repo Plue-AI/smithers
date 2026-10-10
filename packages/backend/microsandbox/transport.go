@@ -80,18 +80,71 @@ func (r *Runtime) DialWorkspacePort(ctx context.Context, workspaceID string, req
 	return r.dial(ctx, ws.Machine, request.Port)
 }
 
+// maxRelaysPerMachine bounds the guest port relays (`msb exec --stream ...
+// relay PORT`) this runtime holds open into one VM. Every relay is one client
+// of the VM's msb agent relay, which admits AGENT_RELAY_MAX_CLIENTS = 128
+// clients (msb 0.6.16, crates/protocol/lib/lib.rs) shared with every other
+// `msb exec`: commands, file operations, services and terminals. Real install
+// run 13 (2026-10-09) filled it with relays alone, about 880 relay processes
+// against one VM; the agent then logged "max clients reached, rejecting
+// connection" 4,999 times and every later exec failed "handshake: early eof".
+// A quarter of the cap leaves the rest to commands.
+const maxRelaysPerMachine = 32
+
+// relayWait bounds how long a dial waits for one of its VM's relays.
+const relayWait = 30 * time.Second
+
+// acquireRelay takes one of machine's relay slots, waiting at most wait. The
+// returned release frees it exactly once.
+func (r *Runtime) acquireRelay(ctx context.Context, machine string, wait time.Duration) (func(), error) {
+	r.mu.Lock()
+	if r.relaySlots == nil {
+		r.relaySlots = map[string]chan struct{}{}
+	}
+	slots := r.relaySlots[machine]
+	if slots == nil {
+		slots = make(chan struct{}, maxRelaysPerMachine)
+		r.relaySlots[machine] = slots
+	}
+	r.mu.Unlock()
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	select {
+	case slots <- struct{}{}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-timer.C:
+		return nil, fmt.Errorf("%w: all %d guest relays into %s are in use", ErrUnavailable, maxRelaysPerMachine, machine)
+	}
+	var once sync.Once
+	return func() { once.Do(func() { <-slots }) }, nil
+}
+
+// relaysInUse counts machine's live relay processes.
+func (r *Runtime) relaysInUse(machine string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.relaySlots[machine])
+}
+
 func (r *Runtime) dial(ctx context.Context, machine string, port uint16) (net.Conn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	release, err := r.acquireRelay(ctx, machine, relayWait)
+	if err != nil {
+		return nil, err
+	}
 	stdinReader, stdinWriter, err := os.Pipe()
 	if err != nil {
+		release()
 		return nil, err
 	}
 	stdoutReader, stdoutWriter, err := os.Pipe()
 	if err != nil {
 		_ = stdinReader.Close()
 		_ = stdinWriter.Close()
+		release()
 		return nil, err
 	}
 	cmd := r.cli.command(guestArgs(machine, nil, true, "relay", strconv.Itoa(int(port)))...)
@@ -100,6 +153,7 @@ func (r *Runtime) dial(ctx context.Context, machine string, port uint16) (net.Co
 		for _, file := range []*os.File{stdinReader, stdinWriter, stdoutReader, stdoutWriter} {
 			_ = file.Close()
 		}
+		release()
 		return nil, fmt.Errorf("%w: open guest port relay: %v", ErrUnavailable, err)
 	}
 	_ = stdinReader.Close()
@@ -107,23 +161,103 @@ func (r *Runtime) dial(ctx context.Context, machine string, port uint16) (net.Co
 	conn := &relayConn{cmd: cmd, reader: stdoutReader, writer: stdinWriter, done: make(chan struct{}), port: port}
 	go func() {
 		_ = cmd.Wait()
+		// The slot follows the process, so a relay msb refused frees it as
+		// soon as it exits, whether or not its connection was closed yet.
+		release()
 		close(conn.done)
 	}()
 	return conn, nil
 }
 
-// httpClient returns a client whose every connection is a relay into one
-// workspace's guest port; the URL host is ignored.
-func (r *Runtime) httpClient(workspaceID string, port uint16) *http.Client {
+// relayHost is the one HTTP client this runtime keeps for a workspace's guest
+// port, so callers reuse its pooled relays instead of spawning new ones, and
+// that port's managed host probe backoff.
+type relayHost struct {
+	client  *http.Client
+	mu      sync.Mutex
+	failure error
+	retryAt time.Time
+	backoff time.Duration
+}
+
+// relayHost returns the workspace port's shared client, creating it once.
+func (r *Runtime) relayHost(workspaceID string, port uint16) *relayHost {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.relayHosts == nil {
+		r.relayHosts = map[string]map[uint16]*relayHost{}
+	}
+	ports := r.relayHosts[workspaceID]
+	if ports == nil {
+		ports = map[uint16]*relayHost{}
+		r.relayHosts[workspaceID] = ports
+	}
+	if host := ports[port]; host != nil {
+		return host
+	}
 	transport := &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 			return r.DialWorkspacePort(ctx, workspaceID, workspaceapi.PortRequest{Port: port, Purpose: workspaceapi.PortPurposeFlowRuntime})
 		},
+		// Requests past the cap wait for a pooled relay rather than dial.
+		MaxConnsPerHost:     maxRelaysPerMachine,
 		MaxIdleConnsPerHost: 4,
-		IdleConnTimeout:     90 * time.Second,
+		IdleConnTimeout:     30 * time.Second,
 		ForceAttemptHTTP2:   false,
 	}
-	return &http.Client{Transport: transport}
+	host := &relayHost{client: &http.Client{Transport: transport}}
+	ports[port] = host
+	return host
+}
+
+// closeRelayHostsLocked drops a stopped workspace's clients. Closing a relay
+// can wait for its process, so idle relays close outside the runtime lock.
+func (r *Runtime) closeRelayHostsLocked(workspaceID string) {
+	for _, host := range r.relayHosts[workspaceID] {
+		go host.client.CloseIdleConnections()
+	}
+	delete(r.relayHosts, workspaceID)
+}
+
+// httpClient returns a client whose every connection is a relay into one
+// workspace's guest port; the URL host is ignored.
+func (r *Runtime) httpClient(workspaceID string, port uint16) *http.Client {
+	return r.relayHost(workspaceID, port).client
+}
+
+// nextProbeBackoff doubles a failed managed host probe's backoff from 500 ms
+// to a 30 s ceiling.
+func nextProbeBackoff(previous time.Duration) time.Duration {
+	if previous == 0 {
+		return 500 * time.Millisecond
+	}
+	return min(previous*2, 30*time.Second)
+}
+
+// pending returns the last failure while its backoff lasts.
+func (h *relayHost) pending() error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if time.Now().Before(h.retryAt) {
+		return h.failure
+	}
+	return nil
+}
+
+// settle records a probe's result. Concurrent failures after one window grow
+// the backoff once.
+func (h *relayHost) settle(err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err == nil {
+		h.failure, h.retryAt, h.backoff = nil, time.Time{}, 0
+		return
+	}
+	if time.Now().Before(h.retryAt) {
+		return
+	}
+	h.backoff = nextProbeBackoff(h.backoff)
+	h.failure, h.retryAt = err, time.Now().Add(h.backoff)
 }
 
 // startBridges lets the guest reach the backend's own loopback listeners at
@@ -313,6 +447,9 @@ func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec
 		return workspaceapi.ManagedHostConnection{}, err
 	}
 
+	// A freshly started host is probed now, whatever an earlier host on this
+	// port left behind.
+	r.relayHost(workspaceID, port).settle(nil)
 	connection, err := r.probeManagedHost(readyCtx, workspaceID, spec, port)
 	if err != nil {
 		_ = r.StopService(context.Background(), workspaceID, spec.Name)
@@ -322,9 +459,14 @@ func (r *Runtime) StartManagedHost(ctx context.Context, workspaceID string, spec
 }
 
 func (r *Runtime) probeManagedHost(ctx context.Context, workspaceID string, spec workspaceapi.ManagedHostSpec, port uint16) (workspaceapi.ManagedHostConnection, error) {
+	host := r.relayHost(workspaceID, port)
 	connection := workspaceapi.ManagedHostConnection{
 		Endpoint:   "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(int(port))),
-		HTTPClient: r.httpClient(workspaceID, port),
+		HTTPClient: host.client,
+	}
+	// A host that just failed is not dialed again until its backoff passes.
+	if err := host.pending(); err != nil {
+		return workspaceapi.ManagedHostConnection{}, fmt.Errorf("probe managed host identity: %w", err)
 	}
 	timeout := spec.ReadyTimeout
 	if timeout <= 0 {
@@ -333,6 +475,10 @@ func (r *Runtime) probeManagedHost(ctx context.Context, workspaceID string, spec
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	observed, err := spec.Probe.ProbeManagedHost(probeCtx, connection)
+	if err == nil || ctx.Err() == nil {
+		// A caller's own cancellation says nothing about the host.
+		host.settle(err)
+	}
 	if err != nil {
 		return workspaceapi.ManagedHostConnection{}, fmt.Errorf("probe managed host identity: %w", err)
 	}
