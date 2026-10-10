@@ -139,7 +139,8 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		if err != nil {
 			return err
 		}
-		tokenPath, uid := match[1], match[3]
+		tokenPath = match[1]
+		uid := match[3]
 		if match[2] != "url" {
 			return fmt.Errorf("terminal environment %q: want SMITHERS_TOKEN unset and SMITHERS_URL set", match[2])
 		}
@@ -276,7 +277,7 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		return nil
 	})
 	r.step("9 Close revokes", "close the terminal WebSocket; GET /api/user with its token", "401 within 5 s; the token file is gone", "T-TRM-02, T-ACC-04", func() error {
-		if term == nil || token == "" {
+		if term == nil || token == "" || tokenPath == "" {
 			return fmt.Errorf("blocked by Terminal opens")
 		}
 		probe := func() (int, error) {
