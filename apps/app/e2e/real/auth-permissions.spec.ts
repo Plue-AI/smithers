@@ -28,11 +28,11 @@ const authCookieNames = async (context: BrowserContext, baseURL: string): Promis
 authenticatedTest("the selected mode retains its authenticated session through document, bootstrap, and reload", scenario("auth.mode-session-cookie-persistence", {
   capabilities: ["identity"],
   coverage: [
-    "action:account.show", "host:local", "host:production", "path:persistence", "door:slash", "door:user-only",
+    "action:settings", "host:local", "host:production", "path:persistence", "door:slash", "door:user-only",
     "dimension:mode-auth-session", "dimension:document-bootstrap-cookie-persistence",
     "evidence:session-readback-and-cookie-names"
   ],
-  description: "Use the mode-selected browser profile or single-owner credential envelope, then require the same authenticated identity and browser cookies after product document, bootstrap, and reload reads."
+  description: "Use the mode-selected browser profile or single-owner credential envelope, then require the same authenticated identity and browser cookies after product document, bootstrap, and reload reads, and the owner's Settings controls to render before and after reload."
 }), async ({ page, context, request }, testInfo) => {
   const baseURL = String(testInfo.project.use.baseURL)
   const origin = new URL(baseURL).origin
@@ -51,14 +51,16 @@ authenticatedTest("the selected mode retains its authenticated session through d
   expect(await readAuthenticatedSession(page)).toEqual(expected)
   expect((await context.cookies(origin)).map(({ name }) => name).sort()).toEqual(beforeCookies)
 
+  // Account lives inside Settings (mvp.md Appendix B). Its address controls render for the signed-in owner only.
   await openComposer(page)
-  await command(page, "/account.show")
-  await expect(page.locator('.smithers-card[data-kind="account"]').last().getByTestId("account-login"))
-    .toContainText(`@${expected!.login}`)
+  await command(page, "/settings")
+  const ownerControls = page.locator('.smithers-card[data-kind="settings"]').last().getByRole("group", { name: "Who can reach it" })
+  await expect(ownerControls).toBeVisible()
 
   await reloadApp(page)
   expect(await readAuthenticatedSession(page)).toEqual(expected)
   expect((await context.cookies(origin)).map(({ name }) => name).sort()).toEqual(beforeCookies)
+  await expect(ownerControls).toBeVisible()
   await testInfo.attach("mode-auth-session", {
     body: Buffer.from(JSON.stringify({ login: expected?.login, cookieNames: beforeCookies, host: bootstrapBody.host }, null, 2)),
     contentType: "application/json"

@@ -96,7 +96,9 @@ describe("deployment mode matrix", () => {
 
   test("enumerates four modes over one obligation catalog", () => {
     expect(Object.keys(MODE_DESCRIPTORS)).toEqual([...DEPLOYMENT_MODES])
-    expect(MATRIX_OBLIGATIONS.length).toBeGreaterThan(10)
+    expect(MATRIX_OBLIGATIONS.map(({ id }) => id)).toEqual([
+      "signed-in", "github-import", "workspace", "terminal", "flow", "issue", "reload", "approval", "error-surfaced"
+    ])
     expect(new Set(MATRIX_OBLIGATIONS.map(({ id }) => id)).size).toBe(MATRIX_OBLIGATIONS.length)
     expect(DEPLOYMENT_MODES.map((mode) => [mode, MODE_DESCRIPTORS[mode].legacyHost])).toEqual([
       ["web-selfhost", "local"], ["web-plue", "production"],
@@ -307,7 +309,8 @@ describe("deployment mode matrix", () => {
     const hosts = new Map(report.scenarios.map(({ id, coverage }) => [id, coverage.filter((token) => token.startsWith("host:"))]))
     const selfhost = new Set(owedScenarioIds("web-selfhost"))
     const shared = owedScenarioIds("web-plue").filter((id) => selfhost.has(id))
-    expect(shared.length).toBeGreaterThan(10)
+    // Every scenario but Plue's GitHub import is owed by both providers.
+    expect(shared).toEqual(MATRIX_SCENARIO_IDS.filter((id) => id !== "repositories.github-import-direct-readback"))
     expect(shared.filter((id) => !hosts.get(id)?.includes("host:local") || !hosts.get(id)?.includes("host:production"))).toEqual([])
     const declared = new Map(report.scenarios.map(({ id, capabilities }) => [id, [...capabilities].sort()]))
     expect(MATRIX_OBLIGATIONS.flatMap(({ scenarios }) => scenarios)

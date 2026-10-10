@@ -17,5 +17,7 @@ export const RETIRED_SCENARIOS = [
   { id: "landings.local-change-land", actions: ["prs.land"], reason: "M-05, M-39: imported local changes are not TODOs; /merge takes a TODO, not a PR number and repository; todo-merge.spec.ts owns the reference-host replacement" },
   { id: "landings.change-card-land", actions: ["change.land"], reason: "M-39: legacy Change Land removed; person-reviewed TODO merge replacement remains owed" },
   { id: "runs.live-steering-durable-reconnect", actions: ["runs.steer"], reason: "Appendix B: /todo.steer Tn replaces TODO steering; this arbitrary flow run has no TODO identity, owner smithers-b8 owes replacement evidence (#2290)" },
+  { id: "repositories.product-create-readback", actions: ["repo.create"], reason: "mvp.md §8 and Appendix B: /repo.create is deferred (one repository per install; hidden, code kept); setup (J1) brings the install its repository, which the matrix scenarios now use (#3779)" },
+  { id: "repositories.local-git-push-file-readback", actions: ["repo.create"], reason: "mvp.md §8: /repo.create is deferred; §6.3 and M-22: people push to GitHub, and an install's own Git refuses main, so a push into it is no member door (#3779)" },
   { id: "repository.branches-commits-readback", actions: ["branches.list", "commits.list", "commits.read"], reason: "Appendix B: /branches with history inside Branch replaces deleted commit cards (260cb49720); owner smithers-b8 owes current Branch keyboard/readback evidence (#2290)" },
 ] as const

@@ -36,37 +36,46 @@ function joinDefault(root: string, child: string): string {
 }
 
 // Reviewed baseline for #2560. A removed owed action remains accounted for once it has a real scenario.
+// Actions that left the catalog (mvp.md Appendix A renames, #3434) or moved to the mvp.md §8/§16 deferral
+// left this baseline with it; the MVP doors owed since the frontrun are reviewed here too (#3779).
 {
   const baseline = {
     browser: [
       "app.hint.dismiss", "card.history.back", "card.history.forward", "chat", "chat.dictate",
       "chat.queue",
       "chat.queue.edit", "chat.queue.remove", "chat.queue.restore", "chat.reload",
-      "cloud.prompt", "flow.plan.select", "flow.plan.tab", "flow.repo.choose", "history.view", "input.mode",
+      "cloud.prompt", "flow.plan.select", "flow.plan.tab", "input.mode",
       "palette.actions", "palette.recent", "runs.coding.select", "runs.graph.execution", "runs.graph.follow", "runs.graph.select",
       "runs.graph.tab", "storage.recovery.export", "storage.recovery.reset", "sync.ops.show-more",
       "toast.dismiss", "wiki.pane", "wiki.view" ],
     diagnostics: [
       "admin.reset", "debug.backend", "debug.errors", "debug.events", "debug.net",
-      "debug.reset", "debug.seams", "debug.snapshot", "debug.verbose",
+      "debug.reset", "debug.snapshot", "debug.verbose",
     ],
     owed: [
-      // Cut setup/signup specs no longer exercise these retained host actions.
-      "approvals.open", "billing.plans", "billing.portal", "billing.upgrade", "history.todo",
-      "agent.list",
-      "branches.list", "change.checks", "change.pins", "change.resolve",
+      "change.resolve",
       "code.definition", "code.diagnostics",
-      "code.hover", "commits.list", "commits.read", "egress.session", "env.remove-token", "env.set", "env.view", "files.list", "files.open-diff", "files.read", "findings.not-useful", "findings.please-fix",
-      "flow.plan", "flow.run.retry", "github.app.choose", "github.app.open",
-      "github.mirror-sync", "github.mirror.retry-ref", "github.reconcile", "history.bootstrap", "prs.triage", "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new",
-      "wiki.cloud.rename", "wiki.history", "wiki.space", "prs",
-      "repo.choose", "repo.tree", "repo.update", "repos.import.retry", "review.ack",
+      "code.hover", "egress.session", "findings.not-useful", "findings.please-fix",
+      "flow.plan",
+      "github.mirror-sync", "github.mirror.retry-ref", "history.bootstrap", "wiki.attach", "wiki.cloud.delete", "wiki.cloud.new",
+      "wiki.cloud.rename", "wiki.history", "wiki.space",
+      "review.ack",
       "review.done", "review.reopen", "review.since-mine", "review.unrequest", "runs.signal", "search.changes", "search.files", "search.history",
-      "search.issues", "search.runs", "search.secrets", "secrets.connect.codex",
-      "secrets.move", "search.wiki", "secrets.scope",
-      "history.parallel", "history.show", "triggers.approve",
-      "triggers.pause", "triggers.resume", "triggers.run", "box.images", "box.list", "box.session.destroy", // Added without a scenario since the review, or left without one by the MVP cut (#3385).
-      "egress.allow", "form.submit", "history.land", "runs.continue", "secrets.bind",
+      "search.issues", "search.runs", "search.secrets",
+      "search.wiki",
+      "box.images", "box.session.destroy", // Added without a scenario since the review, or left without one by the MVP cut (#3385).
+      "egress.allow", "form.submit", "runs.continue",
+    ],
+    /** MVP doors and frontrun additions owed outside the families (deferrals.ts). */
+    doors: [
+      "agent", "branch.bring-in", "branch.discard-foreign", "file.compare", "file.follow-rename", "file.reapply",
+      "file.restore-deleted", "learning.accept", "learning.dismiss", "main.reset-to-github", "merge.confirm", "model.edit",
+      "model.list", "model.new", "model.remove", "model.save", "model.show", "model.test", "monitor", "order.ok",
+      "settings.model.set", "todo.preapprove", "todo.takeover", "todo.unapprove", "agent.edit", "auth.email",
+      "background.dismiss", "background.retry", "branch.add-to-stack", "branch.archive", "branch.fork", "branch.rebase",
+      "confirm.cancel", "debug-api", "docs", "draft.discard", "flow.source", "github", "issue.comment", "issues",
+      "notifications.allow", "run", "run.inspect", "ssh", "stack", "stack.move", "todo.amend", "todo.drop",
+      "todo.from-issue", "todo.resume", "todo.retry-current-flow", "todo.stop", "wiki.page", "wiki.save",
     ],
   } as const
   const covered = new Set(report.scenarios.flatMap((scenario) => scenario.actions))
@@ -76,7 +85,7 @@ function joinDefault(root: string, child: string): string {
   const owedByFamily = Object.values(OWED_ACTIONS_BY_FAMILY).flat()
   assert.deepEqual([...owedByFamily].sort(), baseline.owed.filter((action) => !covered.has(action)).sort())
   for (const group of ["browser", "diagnostics", "owed"] as const) {
-    const expected = group === "owed" ? owedByFamily : baseline[group]
+    const expected = group === "owed" ? [...owedByFamily, ...baseline.doors.filter((action) => !covered.has(action))] : baseline[group]
     assert.deepEqual([...UNSCENARIOED_ACTIONS[group]].sort(), [...expected].sort(), `${group} registry parity`)
   }
 }

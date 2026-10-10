@@ -4,32 +4,16 @@ import { spawn } from "node:child_process"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import type { APIRequestContext, Page, Response } from "@playwright/test"
+import type { APIRequestContext, Page } from "@playwright/test"
 import { expect, realApi } from "../support/test"
-import { finishFirstVisit } from "../support/first-visit"
-import { runSlash } from "../issues/local"
 import { withOwnerAuthRetry } from "../auth-permissions/owner-session"
 import { readAuthenticatedSession } from "../auth-permissions/profile"
 import { repositoryApiPath } from "../repositories-github/production"
 
 export type OwnedRepository = { readonly name: string; readonly fullName: string; readonly path: string }
 
-/** Exercise the registered repo.create flow and observe its real response and card. */
-export const createRepositoryThroughUi = async (page: Page, name: string): Promise<Response> => {
-  await finishFirstVisit(page)
-  const created = page.waitForResponse((response) => response.request().method() === "POST" && new URL(response.url()).pathname === "/api/user/repos", { timeout: 15_000 })
-  await runSlash(page, `/repo.create ${name}`)
-  const response = await created
-  expect(response.request().postDataJSON()).toEqual({ name, private: true, auto_init: true })
-  expect(response.status(), `create ${name}: ${await response.text()}`).toBe(201)
-  const body = await response.json() as { readonly full_name?: string }
-  expect(body.full_name).toEqual(expect.any(String))
-  await expect(page.getByTestId("repository-choice").getByText(`Created ${body.full_name}`, { exact: true })).toBeVisible()
-  return response
-}
-
 export const withOwnedRepository = async <T>(
-  page: Page, request: APIRequestContext, use: (repo: OwnedRepository) => Promise<T>, creation: "api" | "ui" = "api"
+  page: Page, request: APIRequestContext, use: (repo: OwnedRepository) => Promise<T>
 ): Promise<T> => {
   const owner = await readAuthenticatedSession(page)
   expect(owner, "the matrix requires an authenticated product owner").toBeDefined()
@@ -39,11 +23,9 @@ export const withOwnedRepository = async <T>(
   let bodyFailed = false
   let bodyError: unknown
   try {
-    const created = creation === "ui"
-      ? await createRepositoryThroughUi(page, name)
-      : await realApi(page, request, "POST", "/api/user/repos", {
-          name, private: true, auto_init: true, default_bookmark: "main"
-        })
+    const created = await realApi(page, request, "POST", "/api/user/repos", {
+      name, private: true, auto_init: true, default_bookmark: "main"
+    })
     expect(created.status(), `create ${fullName}: ${await created.text()}`).toBe(201)
     expect(await created.json()).toMatchObject({ name, full_name: fullName, private: true, default_bookmark: "main" })
     return await use({ name, fullName, path })
@@ -66,6 +48,31 @@ export const withOwnedRepository = async <T>(
       throw cleanupError
     }
   }
+}
+
+/**
+ * The one repository an install wraps (mvp.md §2 rule 2), when the mode's
+ * launcher names it (SMITHERS_REAL_INSTALL_REPOSITORY). An install adds no
+ * repository and deletes none: /repo.create is deferred (§8, Appendix B).
+ */
+export const installRepository = (): OwnedRepository | undefined => {
+  const fullName = process.env.SMITHERS_REAL_INSTALL_REPOSITORY?.trim()
+  if (!fullName) return undefined
+  const [owner, name, extra] = fullName.split("/")
+  if (!owner || !name || extra !== undefined) throw new Error(`SMITHERS_REAL_INSTALL_REPOSITORY must be owner/name: ${fullName}`)
+  return { name, fullName, path: repositoryApiPath(fullName) }
+}
+
+/** A matrix scenario's repository: the install's own on an install, else one this scenario creates and deletes. */
+export const withProductRepository = async <T>(
+  page: Page, request: APIRequestContext, use: (repo: OwnedRepository) => Promise<T>
+): Promise<T> => {
+  const installed = installRepository()
+  if (installed === undefined) return withOwnedRepository(page, request, use)
+  const read = await realApi(page, request, "GET", installed.path)
+  expect(read.status(), `read the install's repository ${installed.fullName}`).toBe(200)
+  expect(await read.json()).toMatchObject({ full_name: installed.fullName, default_bookmark: "main" })
+  return use(installed)
 }
 
 const runGit = async (cwd: string, args: readonly string[], token?: string): Promise<string> => {
@@ -135,12 +142,6 @@ const pushFiles = async (
     await runGit(work, ["push", "--force", "origin", branch], token)
     return commit
   } finally { await rm(root, { recursive: true, force: true }) }
-}
-
-export const pushLocalFixture = async (page: Page, request: APIRequestContext, repo: OwnedRepository): Promise<{ readonly commit: string; readonly marker: string }> => {
-  const marker = `fixture-${randomUUID()}`
-  const commit = await pushFiles(page, request, repo, "fixture", "Add local fixture", { "fixture.txt": `${marker}\n` })
-  return { commit, marker }
 }
 
 /** A fresh jj change id: 32 reverse-hex letters (`z` for 0 … `k` for f). */

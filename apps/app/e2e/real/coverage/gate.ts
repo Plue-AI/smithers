@@ -449,6 +449,11 @@ const walkSpecs = (dir: string): string[] => readdirSync(dir, { withFileTypes: t
   return entry.isDirectory() ? walkSpecs(path) : SPEC.test(entry.name) ? [path] : []
 })
 
+/** Each real scenario's declared hosts, read from the specs under realDir as the gate reads them. */
+export const declaredScenarioHosts = (realDir: string): ReadonlyMap<string, readonly RealHost[]> =>
+  new Map(scenarioDeclarations(walkSpecs(realDir).filter((file) => !file.includes(join("coverage", "fixtures"))))
+    .map(({ id, hosts }) => [id, hosts]))
+
 /** Process/worker entry points need not be imported by their launcher. Scan all
  * owned suite helpers too; the coverage tool's own parser fixtures are excluded. */
 const walkHelpers = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {

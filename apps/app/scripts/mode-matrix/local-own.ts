@@ -1,11 +1,15 @@
-import { fixtureProtocolId } from "../../e2e/real/support/values"
-import { createHash, randomBytes, randomUUID } from "node:crypto"
+import { randomBytes, randomUUID, createHash } from "node:crypto"
+import { execFileSync } from "node:child_process"
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { createServer } from "node:net"
 import { homedir, tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import type { ExecutionReceipt, ModeConfig } from "../../e2e/real/coverage/matrix"
+import { PROVIDER_MODEL } from "../../e2e/real/support/model-provider-behaviors"
+import { launchModelProvider, type ModelProvider } from "../../e2e/real/support/model-provider-process"
+import { githubBases, modelBase, setupLine } from "../run-local-no-github"
 import { executeCommand } from "./command-execution"
+import { walkSetup, type InstallBrowser } from "./install-setup"
 
 export interface LocalOwnSession {
   readonly modeConfig: ModeConfig
@@ -73,13 +77,25 @@ const waitFor = async (url: string, child: ReturnType<typeof Bun.spawn>): Promis
   throw new Error(`local process did not serve ${url}`)
 }
 
-export const localOwnRequest = async (origin: string, publicOrigin: string, path: string, init?: RequestInit): Promise<Record<string, unknown>> => {
-  const headers = new Headers(init?.headers)
-  headers.set("X-Forwarded-Host", new URL(publicOrigin).host)
-  const response = await fetch(new URL(path, origin), { ...init, headers })
-  const body = await response.text()
-  if (!response.ok) throw new Error(`${path} returned ${response.status}: ${body}`)
-  return JSON.parse(body) as Record<string, unknown>
+/** Copies a child's stdout to ours line by line, handing each line to `line` first. */
+const relayLines = (stream: ReadableStream<Uint8Array>, line: (text: string) => void): void => {
+  void (async () => {
+    const decoder = new TextDecoder()
+    const reader = stream.getReader()
+    let rest = ""
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      rest += decoder.decode(value, { stream: true })
+      let at: number
+      while ((at = rest.indexOf("\n")) >= 0) {
+        const text = rest.slice(0, at)
+        rest = rest.slice(at + 1)
+        line(text)
+        process.stdout.write(`${text}\n`)
+      }
+    }
+  })().catch((error: unknown) => { console.error(error) })
 }
 
 /** Runs only the test binary's serving entry, with no test deadline. */
@@ -92,6 +108,43 @@ const stop = async (child: ReturnType<typeof Bun.spawn> | undefined): Promise<vo
   await child.exited
 }
 
+/**
+ * The repository GitHub holds for the install: the fake's `<owner>/demo`, a
+ * bare repository the fake serves over smart HTTP. A Makefile gives the
+ * machine image its detected build and test checks (mvp.md J1 step 4).
+ */
+const seedGitHubRepository = (gitRoot: string, owner: string): void => {
+  const seed = join(gitRoot, "seed")
+  const bare = join(gitRoot, owner, "demo.git")
+  mkdirSync(seed, { recursive: true })
+  mkdirSync(dirname(bare), { recursive: true })
+  const git = (args: readonly string[]) => execFileSync("git", args, {
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null" }, stdio: "pipe"
+  })
+  git(["init", "-q", "-b", "main", seed])
+  writeFileSync(join(seed, "README.md"), "# demo\n\nThe mode matrix's install repository.\n")
+  writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n")
+  writeFileSync(join(seed, "Makefile"), "build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n")
+  git(["-C", seed, "add", "."])
+  git(["-C", seed, "-c", "user.name=Owner", "-c", "user.email=owner@example.test", "commit", "-q", "-m", "Initial commit"])
+  git(["clone", "-q", "--bare", seed, bare])
+  rmSync(seed, { recursive: true, force: true })
+}
+
+/** Starts the GitHub fake for `owner` and answers its origin. */
+const startGitHubFake = async (binary: string, gitRoot: string, owner: string): Promise<{ readonly child: ReturnType<typeof Bun.spawn>; readonly url: string }> => {
+  const child = Bun.spawn([binary, "--addr", "127.0.0.1:0", "--git-root", gitRoot, "--owner", owner], { stdin: "ignore", stdout: "pipe", stderr: "inherit" })
+  let ready!: (url: string) => void
+  const announced = new Promise<string>((resolveURL) => { ready = resolveURL })
+  relayLines(child.stdout, (line) => { if (line.startsWith("ready ")) ready(line.slice("ready ".length)) })
+  const url = await Promise.race([
+    announced,
+    child.exited.then((code) => { throw new Error(`githubfake exited ${code} before it was ready`) }),
+    Bun.sleep(30_000).then(() => { throw new Error("githubfake did not announce its address") })
+  ])
+  return { child, url }
+}
+
 export const startLocalOwn = async (rootDir: string, revision: string, outputDir: string): Promise<LocalOwnSession> => {
   if (!/^[0-9a-f]{40,64}$/.test(revision)) throw new Error("local-own requires an exact revision")
   const postgresBin = postgres18Bin()
@@ -99,13 +152,17 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
   const root = mkdtempSync(join(tmpdir(), "smithers-local-own-"))
   const appDir = resolve(rootDir, "apps/app")
   const backendBinary = join(root, "smithers-test-backend")
+  const fakeBinary = join(root, "githubfake")
   const hostDir = join(root, "hosts")
   const manifest = join(hostDir, "flow-hosts.json")
   const dataRoot = join(root, "state")
+  const gitRoot = join(root, "github")
   mkdirSync(hostDir)
   mkdirSync(dataRoot)
   let backend: ReturnType<typeof Bun.spawn> | undefined
   let vite: ReturnType<typeof Bun.spawn> | undefined
+  let fake: ReturnType<typeof Bun.spawn> | undefined
+  let models: ModelProvider | undefined
   const run = async (label: string, args: readonly string[]): Promise<void> => {
     const result = await executeCommand(args, rootDir)
     if (result.exitCode !== 0) throw new Error(`${label} failed: ${(result.stderr || result.stdout).slice(-2_000)}`)
@@ -113,6 +170,8 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
   const close = async (): Promise<void> => {
     await stop(vite)
     await stop(backend)
+    await stop(fake)
+    await models?.close()
     rmSync(root, { recursive: true, force: true })
   }
   try {
@@ -131,15 +190,24 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     // production composition with trusted-process workspaces, compiled only
     // into the apps/backend test binary (apps/backend/test_backend_test.go).
     await run("build local test backend", ["go", "test", "-c", "-trimpath", "-ldflags", `-X github.com/smithersai/smithers/packages/backend/internal/compose.BuildSHA=${revision}`, "-o", backendBinary, "./apps/backend"])
+    await run("build GitHub fake", ["go", "build", "-o", fakeBinary, "./packages/backend/cmd/githubfake"])
     await run("build coding host", ["node", "flows/coding/build.mjs", join(hostDir, "smithers-coding-host")])
     await run("build model host", ["node", "apps/model-host/build.mjs", join(hostDir, "smithers-model-host")])
     await run("write Flow host manifest", ["node", "distribution/flow-host-manifest.mjs", manifest, join(hostDir, "smithers-coding-host")])
+
+    // GitHub and every model provider are the install's loopback fakes, as in the no-GitHub walk.
+    const owner = `matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`
+    const repository = `${owner}/demo`
+    seedGitHubRepository(gitRoot, owner)
+    const github = await startGitHubFake(fakeBinary, gitRoot, owner)
+    fake = github.child
+    const modelKey = randomBytes(24).toString("hex")
+    models = await launchModelProvider({ key: modelKey })
+
     const backendPort = await availablePort()
     const webPort = await availablePort()
     const backendOrigin = `http://127.0.0.1:${backendPort}`
     const origin = `http://127.0.0.1:${webPort}`
-    const username = `matrix${randomUUID().replaceAll("-", "").slice(0, 12)}`
-    const gatewayApiKey = fixtureProtocolId(`matrix-flow-${randomUUID()}`)
     const backendEnv = {
       ...process.env,
       PORT: String(backendPort),
@@ -148,58 +216,40 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       SMITHERS_FLOW_HOST_MANIFEST: manifest,
       SMITHERS_MODEL_HOST_BUNDLE: join(hostDir, "smithers-model-host"),
       SMITHERS_NODE_BINARY: nodeBinary,
-      AI_GATEWAY_API_KEY: gatewayApiKey,
       SMITHERS_FFI_LIBRARY_PATH: ffiLibrary,
       SMITHERS_WORKSPACE_JJ_EXPORT_BINARY: join(dirname(ffiLibrary), "smithers-jj-export"),
       SMITHERS_PUBLIC_URL: origin,
-      SMITHERS_TEST_BACKEND_SERVE: "1"
+      SMITHERS_TEST_BACKEND_SERVE: "1",
+      ...githubBases(github.url),
+      ...modelBase(models.origin)
     }
+    let setupURL: string | undefined
     const startBackend = async (): Promise<void> => {
-      backend = Bun.spawn([backendBinary, ...testBackendArgs], { cwd: rootDir, env: backendEnv, stdin: "ignore", stdout: "inherit", stderr: "inherit" })
-      await waitFor(`${backendOrigin}/readyz`, backend)
+      const child = Bun.spawn([backendBinary, ...testBackendArgs], { cwd: rootDir, env: backendEnv, stdin: "ignore", stdout: "pipe", stderr: "inherit" })
+      backend = child
+      relayLines(child.stdout, (line) => { setupURL = setupLine(line) ?? setupURL })
+      await waitFor(`${backendOrigin}/readyz`, child)
     }
     await startBackend()
-    // Test-only database fixtures mirror compose/members_integration_test.go.
-    // The native install owns this state directory and its PostgreSQL process.
-    const files = (path: string): string[] => readdirSync(path, { withFileTypes: true }).flatMap(entry =>
-      entry.isDirectory() ? files(join(path, entry.name)) : [join(path, entry.name)])
-    const pidFile = files(dataRoot).find(path => path.endsWith("/postmaster.pid"))
-    if (!pidFile) throw new Error("local-own PostgreSQL pid file unavailable")
-    const pgPort = readFileSync(pidFile, "utf8").split("\n")[3]!
-    const pgPassword = readFileSync(join(dirname(dirname(pidFile)), "password"), "utf8")
-    const token = `smithers_${randomBytes(20).toString("hex")}`
-    const sessionCookie = randomBytes(32).toString("hex")
-    const repository = fixtureProtocolId(`matrix-${randomUUID().slice(0, 8)}`)
-    const hash = (value: string) => createHash("sha256").update(value).digest("hex")
-    const seed = Bun.spawnSync([join(postgresBin, "psql"), "-h", "127.0.0.1", "-p", pgPort,
-      "-U", "smithers", "-d", "postgres", "-v", "ON_ERROR_STOP=1"], {
-      env: { ...process.env, PGPASSWORD: pgPassword }, stdout: "pipe", stderr: "pipe",
-      stdin: new TextEncoder().encode(`BEGIN;
-        INSERT INTO users(username,lower_username,display_name) VALUES ('${username}','${username}','Owner');
-        INSERT INTO self_host_owners(user_id) SELECT id FROM users WHERE username='${username}';
-        INSERT INTO install_settings(key,value) VALUES
-          ('github.repository',jsonb_build_object('owner_login','${username}','repository_name','${repository}','repository_id',101)),
-          ('owner.access',jsonb_build_object('owner_login','${username}','repository_name','${repository}','repository_id',101,'last_access_check_at',to_char(now() AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS"Z"')));
-        INSERT INTO access_tokens(user_id,name,token_hash,token_last_eight,scopes,expires_at)
-          SELECT id,'local-matrix','${hash(token)}','${token.slice(-8)}','all',now()+interval '1 hour'
-          FROM users WHERE username='${username}';
-        INSERT INTO auth_sessions(session_key,user_id,username,expires_at)
-          SELECT '${hash(sessionCookie)}',id,username,now()+interval '1 hour' FROM users WHERE username='${username}';
-        COMMIT;`)
+    const deadline = Date.now() + 30_000
+    while (setupURL === undefined && Date.now() < deadline) await Bun.sleep(100)
+    if (setupURL === undefined) throw new Error("local-own backend printed no setup link")
+    const owned: InstallBrowser = await walkSetup({
+      backend: backendOrigin, origin, setupURL, fakeURL: github.url, owner, modelKey,
+      codingModel: PROVIDER_MODEL.answers
     })
-    if (seed.exitCode !== 0) throw new Error(`local-own owner seed failed: ${new TextDecoder().decode(seed.stderr)}`)
-    const csrf = randomBytes(32).toString("hex")
-    await localOwnRequest(backendOrigin, origin, "/api/user/repos", {
-      method: "POST", headers: { "content-type": "application/json", cookie: `smithers_session=${sessionCookie}; __csrf=${csrf}`, "X-CSRF-Token": csrf, origin },
-      body: JSON.stringify({ name: repository, private: true, auto_init: true })
-    })
+    const sessionCookie = owned.cookie("smithers_session")!
+    const repositoryPath = `/api/repos/${repository}`
+    const created = JSON.parse((await owned.expect("GET", repositoryPath, 200)).text) as { readonly full_name?: string }
+    if (created.full_name !== repository) throw new Error(`setup mirrored ${created.full_name}, not ${repository}`)
+
     const secrets = join(dataRoot, "config", "secrets.json")
     const beforeVolume = createHash("sha256").update(readFileSync(secrets)).digest("hex")
     await stop(backend)
     backend = undefined
     await startBackend()
-    const restored = await localOwnRequest(backendOrigin, origin, `/api/repos/${username}/${repository}`, { headers: { authorization: `token ${token}` } })
-    if (restored.full_name !== `${username}/${repository}`) throw new Error("local-own restart lost its repository")
+    const restored = JSON.parse((await owned.expect("GET", repositoryPath, 200)).text) as { readonly full_name?: string }
+    if (restored.full_name !== repository) throw new Error("local-own restart lost its repository")
     const afterVolume = createHash("sha256").update(readFileSync(secrets)).digest("hex")
     if (beforeVolume !== afterVolume) throw new Error("local-own restart changed owner secrets")
     vite = Bun.spawn([nodeBinary, join(appDir, "node_modules", "vite", "bin", "vite.js"), "--configLoader", "runner", "--host", "127.0.0.1", "--port", String(webPort), "--strictPort"], {
@@ -211,7 +261,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
       mode: "local-own", revision, origin, endpoint: origin, ready: true, startedRoles: ["local-ui", "app", "postgres"],
       freshLaunch: true, restarted: true, dataPreserved: true,
       persistenceProof: {
-        database: { before: `${username}/${repository}`, after: String(restored.full_name) },
+        database: { before: String(created.full_name), after: String(restored.full_name) },
         dataVolume: { before: beforeVolume, after: afterVolume }
       },
       observedAt: new Date().toISOString()
@@ -220,7 +270,8 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     const authEnvironment = "SMITHERS_LOCAL_OWNER_SESSION"
     return {
       modeConfig: { mode: "local-own", origin, endpoint: origin, auth: { kind: "owner-session", environment: authEnvironment }, executionReceipt: receiptPath },
-      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username, sessionCookie }), SMITHERS_LOCAL_GIT_ORIGIN: backendOrigin }, close
+      runtimeEnvironment: { [authEnvironment]: JSON.stringify({ username: owner, sessionCookie }), SMITHERS_LOCAL_INSTALL_REPOSITORY: repository },
+      close
     }
   } catch (error) {
     await close()

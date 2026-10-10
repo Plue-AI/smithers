@@ -4,7 +4,7 @@ import { authenticatedTest } from "./auth-permissions/profile"
 import { awaitBoot, expect, productUrl, realApi } from "./support/test"
 import { runSlash } from "./issues/local"
 import { finishFirstVisit } from "./support/first-visit"
-import { pushMainFiles, runningWorkspace, withOwnedRepository } from "./portable/owned-repository"
+import { installRepository, pushMainFiles, runningWorkspace, withOwnedRepository, withProductRepository } from "./portable/owned-repository"
 import { readWorkspaceText } from "./run-inspection/seeded-flow"
 
 authenticatedTest.setTimeout(420_000)
@@ -94,11 +94,11 @@ authenticatedTest("an owned repository runs a declared Flow on its box and expos
   })
 })
 
-authenticatedTest("a flow list with no box of the repository asks for one instead of answering empty", scenario("flows.product-no-box", {
+authenticatedTest("a flow list with no machine for the repository asks for one instead of answering empty", scenario("flows.product-no-box", {
   capabilities: ["identity", "cloud"],
   coverage: ["action:flows", "host:local", "host:production", "path:error", "door:slash", "dimension:no-box", "evidence:failure-toast-and-no-relay-call"]
 }), async ({ page, request }) => {
-  await withOwnedRepository(page, request, async (repo) => {
+  await withProductRepository(page, request, async (repo) => {
     const relayed: Array<string> = []
     page.on("request", (sent) => {
       if (new URL(sent.url()).pathname.startsWith("/api/workflow/")) relayed.push(sent.url())
@@ -107,8 +107,10 @@ authenticatedTest("a flow list with no box of the repository asks for one instea
     await page.goto(productUrl(page, `/${repo.fullName}`), { waitUntil: "domcontentloaded" })
     await awaitBoot(page, "navigate", startedAt)
     await finishFirstVisit(page)
-    await runSlash(page, `/flow.list ${repo.fullName}`)
-    await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: `Open a box of ${repo.fullName} first` })).toBeVisible()
+    await runSlash(page, `/flows ${repo.fullName}`)
+    // An install runs a repository's flows on a branch's machine (mvp.md §6.12); Smithers Cloud on a box of it.
+    const refusal = installRepository() === undefined ? `Open a box of ${repo.fullName} first` : "Open a branch first."
+    await expect(page.locator('.notice[data-tone="failed"]').filter({ hasText: refusal })).toBeVisible()
     expect(relayed).toEqual([])
   })
 })

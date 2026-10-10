@@ -68,8 +68,8 @@ test("config write failure closes all acquired sessions once and retains the ori
   expect(run.status).toBe(1)
 }, 60_000)
 
-test("local-own forwards its seeded owner session and Git origin to the matrix runner", () => {
-  const dir = mkdtempSync(join(tmpdir(), "matrix-seeded-owner-"))
+test("local-own forwards its signed-in owner session and install repository to the matrix runner", () => {
+  const dir = mkdtempSync(join(tmpdir(), "matrix-signed-in-owner-"))
   dirs.push(dir)
   const run = runCli(dir, ["audit", "--modes", "local-own", "--output-dir", join(dir, "output")])
   expect(run.status).toBe(0)
@@ -78,6 +78,6 @@ test("local-own forwards its seeded owner session and Git origin to the matrix r
   expect(JSON.parse(run.matrixEnvironment!.MATRIX_TEST_AUTH!)).toEqual({
     username: "owner", sessionCookie: "b".repeat(64)
   })
-  expect(run.matrixEnvironment!.SMITHERS_LOCAL_GIT_ORIGIN).toBe("http://127.0.0.1:3001")
+  expect(run.matrixEnvironment!.SMITHERS_LOCAL_INSTALL_REPOSITORY).toBe("owner/demo")
   expect(readFileSync(join(dir, "output", "config.json"), "utf8")).not.toContain("sessionCookie")
 }, 60_000)

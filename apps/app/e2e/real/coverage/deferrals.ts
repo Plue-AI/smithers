@@ -116,9 +116,7 @@ export const UNSCENARIOED_ACTIONS: Readonly<Record<Deferral, readonly string[]>>
     "draft.discard",
     "flow.source",
     "github",
-    "issue",
     "issue.comment",
-    "issue.new",
     "issues",
     // DARK (#3558): activation awaits the T-APP-07 entry provider and synchronous person dispatch.
     "notifications.allow",

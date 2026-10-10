@@ -37,7 +37,7 @@ mock.module("./mode-matrix/source-revision", () => ({ sourceRevision: async () =
 mock.module("./mode-matrix/local-own", () => ({
   startLocalOwn: async () => {
     acquisitions.push("local")
-    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: { MATRIX_TEST_AUTH: JSON.stringify({ username: "owner", sessionCookie: "b".repeat(64) }), SMITHERS_LOCAL_GIT_ORIGIN: "http://127.0.0.1:3001" }, close: async () => { closes.push("local"); if (failClose) throw new Error("close failed") } }
+    return { modeConfig: modeConfig("local-own"), runtimeEnvironment: { MATRIX_TEST_AUTH: JSON.stringify({ username: "owner", sessionCookie: "b".repeat(64) }), SMITHERS_LOCAL_INSTALL_REPOSITORY: "owner/demo" }, close: async () => { closes.push("local"); if (failClose) throw new Error("close failed") } }
   }
 }))
 mock.module("./mode-matrix/plue-target", () => ({
@@ -49,7 +49,7 @@ mock.module("./mode-matrix/plue-target", () => ({
 const spawn = Bun.spawn
 Bun.spawn = ((argv: string[], options: { env?: Record<string, string> }) => {
   if (argv[0] === "bun" && argv[1] === "scripts/run-mode-matrix.ts") {
-    matrixEnvironment = { MATRIX_TEST_AUTH: options.env?.MATRIX_TEST_AUTH ?? "", SMITHERS_LOCAL_GIT_ORIGIN: options.env?.SMITHERS_LOCAL_GIT_ORIGIN ?? "" }
+    matrixEnvironment = { MATRIX_TEST_AUTH: options.env?.MATRIX_TEST_AUTH ?? "", SMITHERS_LOCAL_INSTALL_REPOSITORY: options.env?.SMITHERS_LOCAL_INSTALL_REPOSITORY ?? "" }
     return { exited: Promise.resolve(0) }
   }
   return spawn(argv, options)
