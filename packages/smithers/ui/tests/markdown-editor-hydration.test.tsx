@@ -14,7 +14,12 @@ import type * as MarkdownEditorModuleNs from "../src/adapters/markdown-editor/Ma
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const originalRect = HTMLElement.prototype.getBoundingClientRect;
+// happy-dom declares the method on Element.prototype, so HTMLElement.prototype
+// usually has no own copy. Restoring by assignment would leave one behind and
+// shadow every later stub of Element.prototype in the same process: the
+// anchored-scroll case in code-view.test.tsx read 0 instead of 690 whenever
+// this file ran first.
+const ownRect = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getBoundingClientRect");
 let editor: typeof MarkdownEditorModuleNs;
 
 beforeAll(async () => {
@@ -26,7 +31,8 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  HTMLElement.prototype.getBoundingClientRect = originalRect;
+  if (ownRect === undefined) delete (HTMLElement.prototype as Partial<HTMLElement>).getBoundingClientRect;
+  else Object.defineProperty(HTMLElement.prototype, "getBoundingClientRect", ownRect);
 });
 
 describe("MarkdownEditor hydration", () => {
