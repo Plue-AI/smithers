@@ -20,7 +20,7 @@ export const initialize = Effect.gen(function*() {
   const sql = yield* SqlClient.SqlClient
   // A read-only observer reads the schema it finds and installs nothing.
   if (Dialect.isReadOnly(sql)) return
-  yield* sql`
+  const create = sql`
     CREATE TABLE IF NOT EXISTS flows_journal_generations (
       run_id TEXT PRIMARY KEY NOT NULL CHECK (length(run_id) > 0),
       generation ${Dialect.integer(sql)} NOT NULL CHECK (${
@@ -31,6 +31,12 @@ export const initialize = Effect.gen(function*() {
   } AND after_seq >= -1 AND after_seq <= 9007199254740991)
     )
   `
+  // The journal layer and time travel's migration both run this, side by side
+  // on a host that builds them together. PostgreSQL serializes only what opens
+  // a transaction, which takes the schema's writer lock first: two bare
+  // CREATE TABLE IF NOT EXISTS statements race in the catalog, and the loser
+  // fails on `pg_type_typname_nsp_index`.
+  yield* sql.onDialectOrElse({ pg: () => sql.withTransaction(create), orElse: () => create })
 })
 
 const journals = new WeakMap<SqlClient.SqlClient, Set<(runIds: ReadonlyArray<string>) => void>>()
