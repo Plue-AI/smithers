@@ -107,7 +107,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	}
 	t.Run("direct entry binds the stored subject", func(t *testing.T) {
 		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
-		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+		requestCtx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+		defer cancel()
+		ctx := middleware.ContextWithAuthInfo(requestCtx, info)
 		var decisions []string
 		ctx = services.WithAuthorizationObserver(ctx, func(command string) { decisions = append(decisions, command) })
 		input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "direct-change", CommitID: "direct-commit"}
@@ -149,7 +151,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
-			ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+			requestCtx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+			defer cancel()
+			ctx := middleware.ContextWithAuthInfo(requestCtx, info)
 			count := 0
 			ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
 			input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "stale", CommitID: "stale"}
@@ -186,7 +190,9 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 	}
 	t.Run("revoked after decision", func(t *testing.T) {
 		info := &middleware.AuthInfo{User: &f.owner, IsTokenAuth: true, TokenSystemIssued: true, TokenID: stored.TokenID, TokenHash: hex.EncodeToString(sum[:]), RawScopes: scopes, Scopes: middleware.ParseTokenScopes(scopes)}
-		ctx := middleware.ContextWithAuthInfo(f.ctx, info)
+		requestCtx, cancel := context.WithTimeout(f.ctx, 5*time.Second)
+		defer cancel()
+		ctx := middleware.ContextWithAuthInfo(requestCtx, info)
 		count := 0
 		ctx = services.WithAuthorizationObserver(ctx, func(string) { count++ })
 		input := services.ReportWorkspaceHeadInput{WorkspaceID: own.ID, RepositoryID: f.repoID, UserID: f.owner.ID, TokenWorkspaceID: own.ID, ChangeID: "revoked", CommitID: "revoked"}

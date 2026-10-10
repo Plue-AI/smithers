@@ -31,24 +31,17 @@ func RejectTenantProvisioning(next http.Handler) http.Handler {
 	})
 }
 
-// RejectDeferredRepositoryRoutes keeps trigger management and cloud session
+// RejectDeferredRepositoryRoutes keeps deferred repository jobs and cloud session
 // audit doors absent before credential lookup: an absent
 // install route is a 404 for every caller, including workers and anonymous users.
 func RejectDeferredRepositoryRoutes(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 		repoJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "repos" && parts[4] == "repository-jobs"
-		gatewayJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "gateways" && parts[3] == "repository-jobs" &&
-			(len(parts) == 5 || (len(parts) >= 6 && (parts[5] == "manual" || parts[5] == "trials" || parts[5] == "check-receipts")))
+		gatewayJobs := len(parts) >= 5 && parts[0] == "api" && parts[1] == "gateways" && parts[3] == "repository-jobs"
 		cloudSessionAudit := len(parts) == 7 && parts[0] == "api" && parts[1] == "repos" && parts[4] == "agent-sessions" && parts[6] == "egress"
 		if repoJobs || gatewayJobs || cloudSessionAudit {
 			pkgerrors.WriteError(w, pkgerrors.NotFound("not found"))
-			return
-		}
-		// T-ACC-03 must bind system grants and live install membership before
-		// retained callbacks can run. The install has no such provider yet.
-		if len(parts) >= 5 && parts[0] == "api" && parts[1] == "gateways" && parts[3] == "repository-jobs" {
-			pkgerrors.WriteError(w, pkgerrors.Forbidden("system authority is unavailable"))
 			return
 		}
 		next.ServeHTTP(w, r)

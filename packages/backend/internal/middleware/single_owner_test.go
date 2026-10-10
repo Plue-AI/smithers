@@ -58,7 +58,7 @@ func TestRejectDeferredBoundariesBeforeEffects(t *testing.T) {
 	}
 }
 
-func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
+func TestRejectDeferredRepositoryJobCallbacks(t *testing.T) {
 	effects := 0
 	handler := RejectDeferredRepositoryRoutes(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { effects++ }))
 	for _, path := range []string{
@@ -66,7 +66,7 @@ func TestRejectUnboundRepositoryJobCallbacks(t *testing.T) {
 	} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, path, nil))
-		assert.Equal(t, http.StatusForbidden, rec.Code, path)
+		assert.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 	assert.Zero(t, effects)
 }

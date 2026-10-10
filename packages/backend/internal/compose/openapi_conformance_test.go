@@ -747,6 +747,7 @@ func TestDeferredRoutesComposition(t *testing.T) {
 		"post /api/repos/{owner}/{repo}/repository-jobs/{job}/approvals",
 		"put /api/gateways/{hostID}/repository-jobs/{job}",
 		"put /api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}",
+		"put /api/gateways/{hostID}/repository-jobs/{job}/comments/{step}",
 		"get /api/billing", "get /api/billing/plans", "get /api/billing/balance",
 		"post /api/billing/checkout", "post /api/billing/portal", "post /api/billing/refresh", "post /api/billing/webhook",
 		"get /api/orgs/{org}/billing", "post /api/orgs/{org}/billing/checkout",
@@ -765,7 +766,7 @@ func TestDeferredRoutesComposition(t *testing.T) {
 				require.Equal(t, mode == config.AuthModeMultitenant, served[operation].path != "", operation)
 				require.Equal(t, "plue", mappingValue(mappingValue(mappingValue(paths, parts[1]), parts[0]), "x-composition").Value, operation)
 				if mode == config.AuthModeSelfHosted {
-					path := strings.NewReplacer("{owner}", "will", "{repo}", "app", "{job}", "ci", "{hostID}", "host", "{requestID}", "request", "{org}", "team").Replace(parts[1])
+					path := strings.NewReplacer("{owner}", "will", "{repo}", "app", "{job}", "ci", "{hostID}", "host", "{requestID}", "request", "{org}", "team", "{step}", "reply").Replace(parts[1])
 					for _, credential := range []string{"", "owner", "maintainer", "member", "delegated", "worker"} {
 						req := httptest.NewRequest(strings.ToUpper(parts[0]), path, nil)
 						if credential != "" {
@@ -799,14 +800,13 @@ func TestDeferredTriggerAliasesAndDarkCallbacks(t *testing.T) {
 		router.ServeHTTP(rec, httptest.NewRequest(request.method, request.path, nil))
 		require.Equal(t, http.StatusNotFound, rec.Code, request.path)
 	}
-	// Non-nil production handlers have no services: crossing the dark guard would
-	// panic or perform IO. Missing membership/system authority must stop first.
+	// Deferred replies have no install route, even with a composed handler.
 	for _, path := range []string{
 		"/api/gateways/host/repository-jobs/ci/comments/step",
 	} {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest("PUT", path, nil))
-		require.Equal(t, http.StatusForbidden, rec.Code, path)
+		require.Equal(t, http.StatusNotFound, rec.Code, path)
 	}
 }
 
@@ -889,4 +889,16 @@ func TestInstallRouteAuthorizationCoverage(t *testing.T) {
 		count++
 	}
 	t.Logf("%d served install API routes have explicit authorization bindings", count)
+}
+
+func TestInstallGitHubAuthorizationOpenAPIResponses(t *testing.T) {
+	paths := loadOpenAPIPaths(t)
+	for _, door := range []struct{ method, path string }{
+		{"get", "/api/github/sync"}, {"post", "/api/github/sync"}, {"get", "/api/github/synced-repos"},
+	} {
+		operation := mappingValue(mappingValue(paths, door.path), door.method)
+		require.NotNil(t, operation, door.path)
+		responses := mappingValue(operation, "responses")
+		require.Equal(t, "#/components/responses/AuthorizationForbidden", mappingValue(mappingValue(responses, "403"), "$ref").Value, door.path)
+	}
 }

@@ -34,6 +34,8 @@ paths:
                     format: date-time
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AuthorizationForbidden'
         '503':
           description: Sync dependencies unavailable; no effects
           content:
@@ -79,6 +81,8 @@ paths:
                     enum: [accepted]
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/AuthorizationForbidden'
         '503':
           description: Sync dependencies unavailable; no effects
           content:
@@ -173,7 +177,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          $ref: '#/components/responses/Forbidden'
+          $ref: '#/components/responses/AuthorizationForbidden'
         '404':
           $ref: '#/components/responses/NotFound'
         '422':

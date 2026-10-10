@@ -214,7 +214,7 @@ func (h invokeTestSources) GetBookmark(ctx context.Context, owner, repo, name st
 // are composed. Refusal must not create or change trigger state.
 // The host-binding contract alone grants no install callback authority. This
 // test double deliberately accepts its coarse binding, so the composed router
-// must reject missing hidden system authority before consulting it.
+// must keep the deferred reply door absent before consulting it.
 type deferredCallbackHost struct {
 	calls  int
 	target services.BoxHostTarget
@@ -329,8 +329,8 @@ func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 				require.Equal(t, http.StatusNotFound, rec.Code, "%s %s: %s", tc.method, tc.path, rec.Body.String())
 				require.Equal(t, before, snapshot(), "%s %s changed trigger state", tc.method, tc.path)
 			}
-			// A syntactically valid retained reply still has no hidden system
-			// grant. Every credential class must refuse before host lookup and
+			// Replies belong to Install (Appendix C) and remain deferred.
+			// Every credential class gets 404 before host lookup and
 			// before the repository-job service opens its transaction.
 			body, err := json.Marshal(services.RepositoryJobCommentInput{
 				Repo: "deferredowner/app", WorkspaceID: workspace, Revision: 1,
@@ -348,8 +348,7 @@ func TestDeferredTriggerManagementHTTPPostgres(t *testing.T) {
 			}
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, req)
-			require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-			require.Contains(t, rec.Body.String(), "system authority is unavailable")
+			require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 			require.Zero(t, hosts.calls, "a coarse host binding cannot substitute for the missing system grant")
 			require.Equal(t, before, snapshot(), "a refused callback changed trigger state")
 		})

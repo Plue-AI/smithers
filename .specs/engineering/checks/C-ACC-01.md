@@ -83,3 +83,24 @@ refuses the retained publisher. Owner/Maintainer/Member rows also prove
 queued credential expiry, publisher replacement, workspace deletion and
 member suspension/removal. Guest publication is substituted; these receipts
 do not qualify a real microVM or the full retained-effect matrix.
+
+T-ACC-03 / T-CUT-03 callback reconciliation (`done-l11`): Appendix C places
+`repository/publish-reply` and `repository/PublishReply` on Install, deferred
+under MVP §14. The 8a reconciliation preserved in commit dd65055010 moves
+Install work out of the machine host. Consequently the comment callback is
+absent on the install (404), alongside trials/check receipts and trigger
+management; Plue retains the callback and its existing service. No retained
+repository-job HTTP callback requires a new install grant provider.
+`TestDeferredTriggerManagementHTTPPostgres` exercises the production install
+router with PostgreSQL and owner/maintainer/member/delegated/run/machine and
+anonymous credentials, verifies zero host lookups and unchanged job state.
+`TestDeferredRoutesComposition` checks install absence, Plue retention and the
+OpenAPI composition tag. `TestInstallGitHubAuthorizationOpenAPIResponses`
+pins the authorization envelope for GitHub sync read/retry and synced repos.
+The reference-host C-J1-04 receipt remains required for T-ACC-03 completion.
+
+The lane audit's workspace-head hang is already fixed by 681ebe327e (shared
+transaction). `TestInstallWorkspaceHeadCommandPostgres` now models the real
+`smithers-machines` service owner and its sole writer share, with a five-second
+bound on direct service calls. The old ordinary-member ownership transfer must
+remain refused; it is not an install-machine grant.

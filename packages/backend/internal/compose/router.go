@@ -740,7 +740,9 @@ func buildRouter(
 			if config.IsMultitenant(cfg.Auth) {
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/trials/{requestID}", repositoryJobHandler.PutRepositoryJobTrial)
 			}
-			r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
+			if config.IsMultitenant(cfg.Auth) {
+				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}", repositoryJobHandler.PutRepositoryJobComment)
+			}
 			if !config.IsSingleOwner(cfg.Auth) {
 				r.With(gateWorkflows).Put("/api/gateways/{hostID}/repository-jobs/{job}/manual/{requestID}", repositoryJobHandler.PutRepositoryJobManual)
 			}

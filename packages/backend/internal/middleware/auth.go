@@ -794,7 +794,6 @@ var installMemberRoutes = []struct {
 	{http.MethodPost, "denied", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/snapshot$`)},
 	{http.MethodPost, "terminal", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+/workspaces/[^/]+/command-runs$`)},
 	{http.MethodPut, "denied", regexp.MustCompile(`^/api/orgs/[^/]+/teams/[^/]+/repos/[^/]+/[^/]+$`)},
-	{http.MethodPut, "denied", regexp.MustCompile(`^/api/gateways/[^/]+/repository-jobs/[^/]+/comments/[^/]+$`)},
 	{http.MethodPatch, "repo.update", regexp.MustCompile(`^/api/repos/[^/]+/[^/]+$`)},
 	{http.MethodPost, "self", regexp.MustCompile(`^/api/model/openai/.+$`)},
 	{http.MethodDelete, "denied", regexp.MustCompile(`^/api/orgs/[^/]+/teams/[^/]+/members/[^/]+$`)},
