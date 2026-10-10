@@ -319,21 +319,11 @@ path = "lib.rs"
 	} {
 		t.Setenv(name, value)
 	}
-	// The coding host binds its lane's checkout through the native helper and
-	// implements on the platform seat the scripted model answers. The
-	// platform's AI Gateway key below serves only Jev, so the review's default
-	// second-vendor seat (vercel:...) would be refused; the operator pins the
-	// review to the seat the scripted model answers.
-	codingModel, reviewModel := "cerebras:gpt-oss-120b", "cerebras:gpt-oss-120b"
-	if keyPrefix == "j10-review-" {
-		// The member review runs as a Mac install does: no operator pins a
-		// model, so its hosts take the coding role Model access wrote. A host
-		// whose launcher skips the install's configuration then exits at
-		// start, as run 16's review host did (#3783). The pins hid that.
-		codingModel, reviewModel = "", ""
-	}
-	t.Setenv("SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL", codingModel)
-	t.Setenv("SMITHERS_WORKSPACE_CODING_REVIEW_MODEL", reviewModel)
+	// Every journey resolves its flow hosts' models from the coding seat saved
+	// through Model access, as an install does. Clear ambient operator overrides
+	// too: a missing install configuration must fail here rather than inherit a pin.
+	t.Setenv("SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL", "")
+	t.Setenv("SMITHERS_WORKSPACE_CODING_REVIEW_MODEL", "")
 	if r.deferredDoors {
 		origin, err := url.Parse(os.Getenv("SMITHERS_DEFERRED_PROVIDER_ORIGIN"))
 		require.NoError(t, err)
@@ -355,6 +345,18 @@ path = "lib.rs"
 	build.Dir = r.root
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, string(output))
+	// Rehearsal host supply audit (#3792): the process adapters translate the
+	// installed node/host/jj paths to temporary binaries and supply PATH plus
+	// the coding binding file. Coding bindings provision their exporter;
+	// review and learning get it only after InstallWorkspaceSourceExporter.
+	// They copy delegated credentials from the real host builder, never invent
+	// a model, product API origin, landing token, or daemon admission credential.
+	// Scripted provider keys/upstreams below replace paid external transport;
+	// the real proxy still meters calls and Model access chooses the seats.
+	// Synthetic capacity/admission and Linux namespaces stand in for the Mac
+	// microVM; the file writer fixture stands in for its guest broker. Keep
+	// those until reference-host journeys prove their real replacements (the
+	// writer removal made TODO journeys fail at read_only_cap, 9f99b7caf3).
 	processRuntime, err := process.New(process.Config{Root: processRoot, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
 	require.NoError(t, err)
 	r.processRuntime = processRuntime
