@@ -6,16 +6,16 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
+	"testing"
 	"time"
 )
 
 // j7Scratch is the scratch branch J7 row 10 forks from T2: its name, its
 // machine, T2's verified head H2 it starts from, the base C1 that head is
-// measured from, the Git door's token rows 11 and 12 use, and the commit S
-// row 12 pushes on it.
+// measured from, the Git door's token row 11 uses, and the commit S
+// add-to-stack captures from its edited working tree.
 type j7Scratch struct {
 	name, machine, head, base, token, edit string
 }
@@ -199,51 +199,14 @@ func (r *rehearsal) scratchOffGitHub(scratch *j7Scratch) error {
 	return nil
 }
 
-// editScratch is row 12, the rehearsal's stand-in for a terminal edit: the
-// owner pushes a commit S on the scratch branch through the Git door, and
-// the branch's head moves to S, a descendant of H2.
+// editScratch writes through the editor door, so capture observes the working tree.
 func (r *rehearsal) editScratch(scratch *j7Scratch) error {
-	if scratch.token == "" {
-		return fmt.Errorf("row 11 minted no Git door token")
-	}
-	work := filepath.Join(r.t.TempDir(), "scratch")
-	if _, err := r.gitDoor(scratch.token, "clone", "-q", "--branch", scratch.name, r.origin+"/rehearsal-owner/app.git", work); err != nil {
+	path := "/api/repos/" + rehearsalRepository + "/workspaces/" + scratch.machine + "/files/content?path=src/retry.ts"
+	body, _ := json.Marshal(map[string]string{"base_digest": "absent", "content": "export const backoff = (n: number) => 2 ** n * 100\n"})
+	if _, err := r.expect("PUT", path, string(body), 200); err != nil {
 		return err
 	}
-	if head, err := r.gitDoor(scratch.token, "-C", work, "rev-parse", "HEAD"); err != nil || head != scratch.head {
-		return fmt.Errorf("the scratch branch checks out %s, want H2 %s: %v", short7(head), short7(scratch.head), err)
-	}
-	if err := os.MkdirAll(filepath.Join(work, "src"), 0700); err != nil {
-		return err
-	}
-	if err := os.WriteFile(filepath.Join(work, "src", "retry.ts"), []byte("export const backoff = (n: number) => 2 ** n * 100\n"), 0600); err != nil {
-		return err
-	}
-	for _, args := range [][]string{{"add", "src/retry.ts"}, {"commit", "-q", "-m", "try exponential backoff"}, {"push", "-q", "origin", "HEAD:refs/heads/" + scratch.name}} {
-		if _, err := r.gitDoor(scratch.token, append([]string{"-C", work}, args...)...); err != nil {
-			return err
-		}
-	}
-	s, err := r.gitDoor(scratch.token, "-C", work, "rev-parse", "HEAD")
-	if err != nil {
-		return err
-	}
-	if _, err := r.gitDoor(scratch.token, "-C", work, "merge-base", "--is-ancestor", scratch.head, s); err != nil {
-		return fmt.Errorf("S %s does not descend from H2 %s: %w", short7(s), short7(scratch.head), err)
-	}
-	branch, err := r.j7Branch(scratch.name)
-	if err != nil {
-		return err
-	}
-	if branch.Head != s || branch.ForkedFrom == nil || branch.ForkedFrom.Commit != scratch.head {
-		return fmt.Errorf("%s's head is %s (forked from %+v), want S %s", scratch.name, short7(branch.Head), branch.ForkedFrom, short7(s))
-	}
-	if refs, err := r.githubGit("for-each-ref", "--format=%(refname)", "refs/heads/scratch"); err != nil || refs != "" {
-		return fmt.Errorf("GitHub has %q after the push: %v", refs, err)
-	}
-	scratch.edit = s
-	r.actual = fmt.Sprintf("200 %s head %s -> S %s (parent H2); forked_from.commit stays %s; GitHub still has no scratch ref",
-		scratch.name, short7(scratch.head), short7(s), short7(branch.ForkedFrom.Commit))
+	r.actual = "200 scratch editor write; src/retry.ts awaits capture"
 	return nil
 }
 
@@ -269,7 +232,7 @@ func diffPaths(diff string) []string {
 // then reaches review with a PR holding that change; row 15 drops T2 only
 // once the TODO's run has ended.
 func (r *rehearsal) addScratch(t1, t2, tn, t3 int64, scratch *j7Scratch, added *j7Added) error {
-	if scratch.edit == "" || scratch.machine == "" {
+	if scratch.machine == "" {
 		return fmt.Errorf("rows 10-12 left no edited scratch branch")
 	}
 	var status, head string
@@ -289,11 +252,17 @@ func (r *rehearsal) addScratch(t1, t2, tn, t3 int64, scratch *j7Scratch, added *
 		return fmt.Errorf("Add to stack: HTTP %d %s (the scratch machine %s is %s at %s)", code, data, scratch.machine, status, short7(head))
 	}
 	added.n = receipt.N
-	want := []int64{t1, t2, added.n}
+	want := []int64{}
+	if t1 > 0 {
+		want = append(want, t1)
+	}
+	want = append(want, t2, added.n)
 	if tn > 0 {
 		want = append(want, tn)
 	}
-	want = append(want, t3)
+	if t3 > 0 {
+		want = append(want, t3)
+	}
 	list, err := r.todoList()
 	if err != nil {
 		return err
@@ -334,8 +303,9 @@ func (r *rehearsal) addScratch(t1, t2, tn, t3 int64, scratch *j7Scratch, added *
 		return fmt.Errorf("T%d's revisions are %s, want one add-to-stack revision with a seed", added.n, data)
 	}
 	seed := card.PromptRevisions[0].Seed
+	scratch.edit = seed.Captured
 	paths := diffPaths(seed.Diff)
-	if seed.Base != scratch.base || seed.Captured != scratch.edit || !slices.Contains(paths, "t2.md") || !slices.Contains(paths, "src/retry.ts") {
+	if seed.Base != scratch.base || (seed.Captured == "" || seed.Captured == scratch.head) || !slices.Contains(paths, "t2.md") || !slices.Contains(paths, "src/retry.ts") {
 		return fmt.Errorf("T%d's seed is base %s, captured %s, paths %v; want C1 %s, S %s, t2.md and src/retry.ts", added.n, short7(seed.Base), short7(seed.Captured), paths, short7(scratch.base), short7(scratch.edit))
 	}
 	if card.Branch == nil || card.Branch.ID != scratch.machine || !strings.HasPrefix(card.Branch.Name, "smithers/") {
@@ -364,6 +334,9 @@ func (r *rehearsal) addScratch(t1, t2, tn, t3 int64, scratch *j7Scratch, added *
 	if added.tree, err = r.githubGit("rev-parse", pull.Head.SHA+"^{tree}"); err != nil {
 		return err
 	}
+	if content, err := r.githubGit("show", pull.Head.SHA+":src/retry.ts"); err != nil || content != "export const backoff = (n: number) => 2 ** n * 100" {
+		return fmt.Errorf("PR lost scratch content: %q: %v", content, err)
+	}
 	added.head = pull.Head.SHA
 	r.actual = fmt.Sprintf("202 T%d; order %v; revision 1 add-to-stack seeds %v from C1 %s (S %s); %s on machine %s, no PR at once; in review, PR #%d head %s changes %v",
 		added.n, placed, paths, short7(seed.Base), short7(seed.Captured), card.Branch.Name, card.Branch.ID, pull.Number, short7(pull.Head.SHA), files)
@@ -378,7 +351,13 @@ func (r *rehearsal) keepsT2(t1, t2 int64, added *j7Added) error {
 	if added.n == 0 || added.tree == "" {
 		return fmt.Errorf("row 13 left no added TODO in review")
 	}
-	c1, err := r.candidate(t1)
+	var c1 j7Candidate
+	var err error
+	if t1 > 0 {
+		c1, err = r.candidate(t1)
+	} else {
+		err = r.pool.QueryRow(r.ctx, `SELECT landed_main FROM mythical_stacks`).Scan(&c1.Head)
+	}
 	if err != nil {
 		return err
 	}
@@ -430,4 +409,48 @@ func (r *rehearsal) keepsT2(t1, t2 int64, added *j7Added) error {
 	r.actual = fmt.Sprintf("200 T%d in_review on C1 %s, tree %s unchanged (head %s -> %s); item diff %v; PR #%d includes %v, changes %v",
 		added.n, short7(c1.Head), short7(tree), short7(added.head), short7(card.PR.Head), items, pull.Number, card.PR.IncludedItems, files)
 	return nil
+}
+
+// The capture/adoption boundary also runs independently of J7's placement and
+// conflict scenarios, so a failure cannot hide behind a held predecessor.
+func TestJ7ScratchCaptureRehearsal(t *testing.T) {
+	r := newRehearsal(t, "SMITHERS_J7_REHEARSAL", "C-J7-capture", "j7-capture-")
+	if !r.install("Install") {
+		return
+	}
+	var source int64
+	var scratch j7Scratch
+	var added j7Added
+	if !r.step("Source in review", "POST TODO; GET TODO", "source reaches review", "T-MCH-08", func() error {
+		var err error
+		source, err = r.file("Source retry", "[FILE t2.md] Keep the source retry note")
+		if err != nil {
+			return err
+		}
+		_, err = r.waitTodoWithin(source, 8*time.Minute, "in_review")
+		return err
+	}) {
+		return
+	}
+	if !r.step("Fork and edit", "POST branches; PUT files/content", "forked machine captures an editor file", "T-MCH-08", func() error {
+		candidate, err := r.candidate(source)
+		if err != nil {
+			return err
+		}
+		raw, err := r.expect("POST", "/api/branches", fmt.Sprintf(`{"from":"T%d","name":"try-retry"}`, source), 201)
+		if err != nil {
+			return err
+		}
+		var branch j7Branch
+		if err := json.Unmarshal(raw, &branch); err != nil {
+			return err
+		}
+		scratch = j7Scratch{name: branch.Name, machine: branch.Machine.ID, head: candidate.Head, base: candidate.Base}
+		return r.editScratch(&scratch)
+	}) {
+		return
+	}
+	r.step("Add to stack", "POST add-to-stack; GET TODO; GitHub PR", "reviewed PR retains the source and captured editor file", "T-MCH-08", func() error {
+		return r.addScratch(0, source, 0, 0, &scratch, &added)
+	})
 }

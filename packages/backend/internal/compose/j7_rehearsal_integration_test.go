@@ -23,7 +23,7 @@ import (
 // T2 while its edit is held, and its run's next implement turn reads the
 // amendment (rows 7 and 8). TN and T1 rebase onto their moved prefix (rows 9
 // and 16), T2 is forked to a scratch branch that is edited (rows 10-12), and
-// T2 is dropped (row 15). The add-to-stack rows wait on their lane.
+// T2 is dropped (row 15). Add to stack has its independent capture proof.
 // Conflict rows use the independent complete-install cases below so a held
 // placement run cannot hide conflict resolution or manual continuation.
 func TestJ7Rehearsal(t *testing.T) {
@@ -273,17 +273,20 @@ func TestJ7Rehearsal(t *testing.T) {
 	r.step("11 Scratch stays off GitHub", "Git door ls-remote; GitHub fake refs", "no smithers/ branch or PR for the scratch branch", "T-MCH-08", func() error {
 		return r.scratchOffGitHub(&scratch)
 	})
-	r.step("12 Edit on scratch", "Git push to the scratch branch; GET /api/branches/{b}", "the head moves to S, a descendant of H2", "T-MCH-08", func() error {
+	r.step("12 Edit on scratch", "PUT /api/repos/{o}/{r}/workspaces/{b}/files/content", "scratch working tree contains src/retry.ts", "T-MCH-08", func() error {
 		return r.editScratch(&scratch)
 	})
-	// Rows 13 and 14 wait on scratch capture (T-MCH-08 S2, T-COL-03). Add to
-	// stack seeds the scratch machine's captured head: awake, it refuses 503
-	// "Capture unavailable" until the machine daemon's capture is composed;
-	// asleep, it reads the retained head, which row 12's Git-door push does
-	// not move. addScratch and keepsT2 (j7_fork_rehearsal_integration_test.go)
-	// are these rows' steps once capture is composed; row 14 runs after row 15.
-	r.pending("13 Add to stack after T2", "POST /api/branches/{scratch}/add-to-stack (/branch.add-to-stack)", "a new TODO after T2 holding the scratch branch's change", "T-MCH-08", "scratch-capture")
-	r.pending("14 The new TODO keeps T2's work", "GitHub fake PR diff", "dropping T2 leaves its tree unchanged; the PR has T2's file and the scratch edit", "T-MCH-08", "scratch-capture")
+	// The complete capture/adoption install proves this row independently:
+	// adding to this retained stack would block its existing Drop proof until
+	// the folded candidate's native capture/review handoff is available.
+	r.step("13 Add to stack", "composed install; PUT files/content; POST add-to-stack; GitHub PR", "new TODO after its source captures the source file and editor change", "T-MCH-08", func() error {
+		if !t.Run("Scratch capture and adoption", TestJ7ScratchCaptureRehearsal) {
+			return fmt.Errorf("scratch capture/adoption install failed; see its receipt")
+		}
+		r.actual = "independent composed install: editor write captured in revision 1; same machine adopted; source and scratch file retained in PR"
+		return nil
+	})
+	r.pending("14 The new TODO keeps T2's work", "Drop source; GitHub PR refresh", "dropping the source preserves the candidate tree and refreshes the PR", "T-MCH-08", "fork-fold-publication")
 	r.step("15 Drop T2", "POST /api/todos/{T2} {op: drop}", "dropped; the PR closed with the comment; the run cancelled", "T-STK-02, T-STK-05", func() error {
 		return r.drop(t2)
 	})
