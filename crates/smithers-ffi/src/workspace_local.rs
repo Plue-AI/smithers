@@ -53,6 +53,31 @@ pub(super) fn revision(repo: &Path, value: &Value, operation: &str) -> Result<Va
     Ok(Value::Object(output))
 }
 
+// Source import and crash reconciliation can retain another version of a
+// logical change. A divergent selector is identifiable only when exactly one
+// version belongs to this working branch, in the pinned operation's view.
+fn change_in_operation(repo: &Path, change_id: &str, operation: &str) -> Result<Value> {
+    let selector = format!("change_id(\"{change_id}\")");
+    let evaluate = |selected: &str| {
+        jj_at(
+            repo,
+            operation,
+            &["log", "-r", selected, "--no-graph", "-T", "json(self)"],
+        )
+    };
+    let output = evaluate(&selector)?;
+    if let Ok(value) = serde_json::from_str(&output) {
+        return Ok(value);
+    }
+    let branch = evaluate(&format!("({selector}) & ancestors(@)"))?;
+    serde_json::from_str(&branch).map_err(|_| {
+        Failure::new(
+            "revision_conflict",
+            "change does not resolve to one commit on the working branch",
+        )
+    })
+}
+
 fn read(repo: &Path, input: &Value) -> Result<Value> {
     let object = input
         .as_object()
@@ -91,8 +116,11 @@ fn read(repo: &Path, input: &Value) -> Result<Value> {
         if change_id.len() != 32 || !change_id.bytes().all(|byte| (b'k'..=b'z').contains(&byte)) {
             return Err(invalid("read requires full native change IDs"));
         }
-        let selector = format!("change_id(\"{change_id}\")");
-        revisions.push(revision(repo, &commit(repo, &selector)?, operation_id)?);
+        revisions.push(revision(
+            repo,
+            &change_in_operation(repo, change_id, operation_id)?,
+            operation_id,
+        )?);
     }
     let mut capabilities = vec!["apply-files/v1", "create-source/v1"];
     if source_import::available(repo) {
@@ -152,8 +180,7 @@ fn expected_revision(repo: &Path, input: &Value, name: &str, at: &str) -> Result
     if change_id.len() != 32 || !change_id.bytes().all(|byte| (b'k'..=b'z').contains(&byte)) {
         return Err(invalid("native revision requires a full change ID"));
     }
-    let selector = format!("change_id(\"{change_id}\")");
-    let actual = revision(repo, &commit(repo, &selector)?, at)?;
+    let actual = revision(repo, &change_in_operation(repo, change_id, at)?, at)?;
     for key in [
         "changeId",
         "commitId",
@@ -556,19 +583,18 @@ fn mutation_result(repo: &Path, input: &Value, receipt: &Value, replayed: bool) 
         ));
     }
     let kind = field(input, "operation")?;
-    let selector = if ["create", "snapshot", "apply_files"].contains(&kind) {
-        "@".to_owned()
+    // Read the receipt in its immutable operation, even if later operations
+    // moved the live head or imported another version of the logical change.
+    let target = if ["create", "snapshot", "apply_files"].contains(&kind) {
+        serde_json::from_str(&jj_at(
+            repo,
+            at,
+            &["log", "-r", "@", "--no-graph", "-T", "json(self)"],
+        )?)
+        .map_err(|_| Failure::new("revision_conflict", "receipt target is unavailable"))?
     } else {
-        format!("change_id(\"{}\")", field(&input["target"], "changeId")?)
+        change_in_operation(repo, field(&input["target"], "changeId")?, at)?
     };
-    // A receipt pins an immutable operation. These selectors must be read in
-    // that view even if unrelated operations have since moved the live head.
-    let target: Value = serde_json::from_str(&jj_at(
-        repo,
-        at,
-        &["log", "-r", &selector, "--no-graph", "-T", "json(self)"],
-    )?)
-    .map_err(|_| Failure::new("revision_conflict", "receipt target is unavailable"))?;
     let head: Value = serde_json::from_str(&jj_at(
         repo,
         at,
@@ -920,6 +946,57 @@ mod tests {
         assert_eq!(result["head"]["kind"], "resolved");
         assert_eq!(result["history"].as_array().unwrap().len(), 1);
         assert_eq!(result["history"][0]["commitId"], result["head"]["commitId"]);
+    }
+
+    #[test]
+    fn reads_divergent_change_only_when_the_working_branch_identifies_it() {
+        let dir = tempdir().unwrap();
+        let invoke = |args: &[&str]| {
+            let output = Command::new("jj")
+                .args(args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            String::from_utf8(output.stdout).unwrap().trim().to_owned()
+        };
+        invoke(&["git", "init"]);
+        invoke(&["describe", "-m", "base"]);
+        let operation = invoke(&["op", "log", "--limit", "1", "--no-graph", "-T", "id"]);
+        let change = invoke(&["log", "-r", "@", "--no-graph", "-T", "change_id"]);
+        invoke(&["--at-op", &operation, "describe", "-m", "left"]);
+        invoke(&["--at-op", &operation, "describe", "-m", "right"]);
+        // Resolve the concurrent operations through JJ before the native read.
+        let head = invoke(&["log", "-r", "@", "--no-graph", "-T", "commit_id"]);
+        let request =
+            json!({"operation":"read", "repositoryPath":dir.path(), "changeIds":[change]});
+        let result = run(serde_json::to_string(&request).unwrap().as_bytes()).unwrap();
+        assert_eq!(result["revisions"].as_array().unwrap().len(), 1);
+        assert_eq!(result["revisions"][0]["commitId"], head);
+        assert_eq!(result["revisions"][0], result["head"]);
+        let describe = json!({"operation":"describe", "repositoryPath":dir.path(),
+            "requestId":"12345678-1234-4234-8234-123456789abc",
+            "expectedOperationId":result["operationId"], "target":result["head"], "description":"final"});
+        let described = run(serde_json::to_string(&describe).unwrap().as_bytes()).unwrap();
+        assert_eq!(described["revision"]["description"], "final\n");
+        assert_eq!(described["revision"]["changeId"], change);
+        assert_eq!(described["revision"]["treeId"], result["head"]["treeId"]);
+        // An unrelated branch supplies no authority to choose either version.
+        invoke(&["new", "-r", "root()"]);
+        let error = run(serde_json::to_string(&request).unwrap().as_bytes()).unwrap_err();
+        assert_eq!(error.code, "revision_conflict");
+        let later_head = invoke(&["log", "-r", "@", "--no-graph", "-T", "commit_id"]);
+        let replayed = run(serde_json::to_string(&describe).unwrap().as_bytes()).unwrap();
+        assert_eq!(replayed["replayed"], true);
+        assert_eq!(replayed["revision"], described["revision"]);
+        assert_eq!(
+            invoke(&["log", "-r", "@", "--no-graph", "-T", "commit_id"]),
+            later_head
+        );
     }
 
     #[test]

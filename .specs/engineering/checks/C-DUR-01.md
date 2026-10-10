@@ -49,7 +49,7 @@ control; a skipped, unreached or partially executed campaign fails qualification
 | --- | --- | --- |
 | K1 | PostgreSQL trigger holds the first completed plan projection before commit; kill its coding host. | Route and planner requests remain single; completed run steps retain their keys, outcomes and completion times. |
 | K2 | Recorded provider holds the implement model response; kill its coding host. | The identical request is issued at most twice total; later conversation messages are separate requests. |
-| K3 | Scratch repository's `pnpm test` runs through the immutable-source check and waits on an external check fixture. | Two check calls total and one accepted result; no finished route or plan repeats. |
+| K3 | On the reference microVM, the scratch repository's `pnpm test` runs through the immutable-source check and waits on an external check fixture. The Linux base-image rehearsal uses `make test` and an export-local file handshake at the same crossing, keeping sockets denied; it does not qualify the pnpm image layer. | Four test calls: interrupted execution, one replay, final-history check, and the separate verifier (E-19); one accepted primary result, and no finished route or plan repeats. |
 | K4 | Served TODO has a real question. | Same run, question ID and since; POST answer settles the retained question. |
 | K5 | At K2, SIGKILL only the owned PostgreSQL 18 cluster and restart it on its existing data directory. | Original run and pin remain, finished steps do not repeat, and terminal TODO facts precede the served state. |
 

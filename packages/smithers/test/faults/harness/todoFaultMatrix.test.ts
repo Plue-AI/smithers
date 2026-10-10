@@ -79,3 +79,16 @@ test("model retries are counted by the identical in-flight request", () => {
       .toThrow("in-flight model request repeated more than once")
   }
 })
+
+// Recovery repeats the interrupted check once; final-history and verification
+// are separate required launches under E-19, each running its own check.
+test("check crossings retain four executions and one accepted primary result", () => {
+  for (const point of ["K3", "M2"]) {
+    expect(todoRecoveryExpected[point]).toEqual({
+      completedRouteCalls: 1,
+      newAttempts: 0,
+      checkCalls: 4,
+      acceptedCheckResults: 1
+    })
+  }
+})

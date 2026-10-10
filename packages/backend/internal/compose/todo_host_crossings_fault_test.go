@@ -5,6 +5,7 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -98,6 +99,9 @@ func runTodoHostRecordedCrossingBody(t *testing.T, r *rehearsal, crossing string
 	}
 	number, err := r.file("Recover interrupted TODO", prompt)
 	require.NoError(t, err)
+	if point == "K3" && r.processRuntime != nil {
+		defer watchTodoFaultCheck(t, r, number, services)()
+	}
 	var projectionPID int
 	if point == "K1" {
 		require.Eventually(t, func() bool {
@@ -108,7 +112,7 @@ func runTodoHostRecordedCrossingBody(t *testing.T, r *rehearsal, crossing string
 		select {
 		case <-services.checkReached:
 		case <-time.After(4 * time.Minute):
-			t.Fatal("pnpm test never reached its recorded immutable-source crossing")
+			t.Fatal("test never reached its recorded immutable-source crossing")
 		}
 		require.EqualValues(t, 1, services.checkCalls.Load())
 	} else if point == "K4" {
@@ -141,6 +145,20 @@ func runTodoHostRecordedCrossingBody(t *testing.T, r *rehearsal, crossing string
 	require.NoError(t, err)
 	require.Len(t, beforeMonitor.Attempts, 1)
 	save("before-run", beforeMonitor)
+	primaryCheckKey := ""
+	if point == "K3" {
+		// The monitor includes the check wrapper, its child, and later checks.
+		// Bind the oracle to the first running primary check before the kill.
+		for _, step := range beforeMonitor.Attempts[0].Steps {
+			if step.Label == "Ran checks" && step.State == "running" {
+				primaryCheckKey = strings.TrimSuffix(step.Key, "#1")
+				require.NotEqual(t, step.Key, primaryCheckKey)
+				require.Empty(t, step.Output)
+				break
+			}
+		}
+		require.NotEmpty(t, primaryCheckKey)
+	}
 	var heldMessages []byte
 	if point == "K2" || point == "K5" {
 		turns, err := r.modelTurns()
@@ -195,9 +213,12 @@ export default Flow.make("todo", { description: "D2 must never run", capabilitie
 		if worker != nil {
 			recovered := githubKillWorker(t, r, r.fake.URL, r.repositoryRoot, time.Minute)
 			defer recovered.close()
-		} else {
+		} else if point != "K3" {
 			r.restartBackend()
 		}
+		// K3 kills the coding host during a check. Its dispatcher restarts
+		// that service on the retained machine; the backend and native daemon
+		// stay up. Their own kill points qualify their separate recovery.
 	}
 	if point == "K4" {
 		recovered, err := r.waitTodoWithin(number, time.Minute, "needs_you")
@@ -247,7 +268,9 @@ export default Flow.make("todo", { description: "D2 must never run", capabilitie
 	if point != "K4" {
 		require.Equal(t, 1, steps["coding/draft-plan"], "the completed plan must not be redispatched")
 		if point == "K3" {
-			require.EqualValues(t, 2, services.checkCalls.Load(), "sealed check must rerun exactly once")
+			// The interrupted check runs twice; final-history and the separately
+			// launched verifier each run their own check (E-19).
+			require.EqualValues(t, 4, services.checkCalls.Load(), "replay plus final-history and verification checks")
 			require.Equal(t, "in_review", after.State, "the rerun must produce one passing check result")
 		}
 		if len(heldMessages) > 0 {
@@ -317,20 +340,22 @@ export default Flow.make("todo", { description: "D2 must never run", capabilitie
 		results := 0
 		for _, step := range afterMonitor.Attempts[0].Steps {
 			var preview string
-			if step.Label != "Ran checks" || json.Unmarshal(step.Output, &preview) != nil {
+			if !strings.HasPrefix(step.Key, primaryCheckKey+"#") || json.Unmarshal(step.Output, &preview) != nil {
 				continue
 			}
 			receipt := j11Receipt.FindStringSubmatch(preview)
 			if len(receipt) == 3 && receipt[1] == "test" {
 				require.Equal(t, "passed", receipt[2])
+				require.Equal(t, primaryCheckKey+"#2", step.Key, "the interrupted primary check must replay exactly once")
+				require.Equal(t, "completed", step.State)
 				results++
 			}
 		}
-		require.Equal(t, 1, results, "exactly one pnpm test receipt must be accepted")
+		require.Equal(t, 1, results, "exactly one test receipt must be accepted")
 	}
 	observation := map[string]any{"point": crossing, "subject": "todo", "completedRouteCalls": 1, "newAttempts": 0, "terminal": after.State}
 	if point == "K3" {
-		observation["checkCalls"] = 2
+		observation["checkCalls"] = services.checkCalls.Load()
 		observation["acceptedCheckResults"] = 1
 	}
 	if modelRequestCalls > 0 {
@@ -402,6 +427,52 @@ func prepareTodoFaultServices(t *testing.T, r *rehearsal) *todoFaultServices {
 	return fixture
 }
 
+// The native check sandbox closes all sockets. Control its real subprocess
+// through new files in its disposable immutable export, never by opening the
+// network or modifying tracked source. The microVM keeps the HTTP fixture.
+func watchTodoFaultCheck(t *testing.T, r *rehearsal, number int64, fixture *todoFaultServices) func() {
+	t.Helper()
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		seen := map[string]bool{}
+		var checkRoot string
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if checkRoot == "" {
+					workspace, _, err := r.todoHostBinding(number)
+					if err != nil {
+						continue
+					}
+					observed, err := r.processRuntime.InspectWorkspace(t.Context(), workspace)
+					if err != nil {
+						continue
+					}
+					checkRoot = filepath.Join(observed.Root, ".jj", "smithers-checks")
+				}
+				_ = filepath.WalkDir(checkRoot, func(path string, entry fs.DirEntry, err error) error {
+					if err != nil || entry.IsDir() || entry.Name() != ".fault-check-started" || seen[path] {
+						return nil
+					}
+					seen[path] = true
+					if fixture.checkCalls.Add(1) == 1 {
+						close(fixture.checkReached)
+					} else if err := os.WriteFile(filepath.Join(filepath.Dir(path), ".fault-check-release"), []byte("passed"), 0600); err != nil {
+						t.Errorf("release recorded check: %v", err)
+					}
+					return nil
+				})
+			}
+		}
+	}()
+	return func() { close(stop); <-done }
+}
+
 func seedTodoFaultCheck(t *testing.T, r *rehearsal, machine bool) {
 	t.Helper()
 	endpoint := r.origin + "/fault/check"
@@ -409,11 +480,19 @@ func seedTodoFaultCheck(t *testing.T, r *rehearsal, machine bool) {
 		endpoint = strings.Replace(endpoint, "127.0.0.1", "host.microsandbox.internal", 1)
 	}
 	seed := filepath.Join(r.gitRoot, "seed")
-	require.NoError(t, os.Remove(filepath.Join(seed, "Makefile")))
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"node fault-check.mjs","lint":"node -e \"process.exit(0)\""}}`), 0600))
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\nimporters:\n  .: {}\n"), 0600))
-	script := fmt.Sprintf("const response = await fetch(%q);\nif (!response.ok || await response.text() !== 'passed') throw new Error('check failed');\n", endpoint)
-	require.NoError(t, os.WriteFile(filepath.Join(seed, "fault-check.mjs"), []byte(script), 0600))
+	if machine {
+		require.NoError(t, os.Remove(filepath.Join(seed, "Makefile")))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "package.json"), []byte(`{"packageManager":"pnpm@9.15.4","scripts":{"test":"node fault-check.mjs","lint":"node -e \"process.exit(0)\""}}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "pnpm-lock.yaml"), []byte("lockfileVersion: '9.0'\nimporters:\n  .: {}\n"), 0600))
+		script := fmt.Sprintf("const response = await fetch(%q);\nif (!response.ok || await response.text() !== 'passed') throw new Error('check failed');\n", endpoint)
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "fault-check.mjs"), []byte(script), 0600))
+	} else {
+		// The host rehearsal cannot build a toolchain image. Exercise the same
+		// immutable check crossing with the base image's Makefile detector.
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "Makefile"), []byte("test:\n\t/usr/bin/python3 fault-check.py\n"), 0600))
+		script := "from pathlib import Path\nfrom time import sleep\nPath('.fault-check-started').write_text('started')\nwhile not Path('.fault-check-release').exists():\n    sleep(0.05)\nassert Path('.fault-check-release').read_text() == 'passed'\n"
+		require.NoError(t, os.WriteFile(filepath.Join(seed, "fault-check.py"), []byte(script), 0600))
+	}
 	git := func(args ...string) string {
 		command := exec.Command("/usr/bin/git", append([]string{"-C", seed}, args...)...)
 		output, err := command.CombinedOutput()
@@ -421,7 +500,7 @@ func seedTodoFaultCheck(t *testing.T, r *rehearsal, machine bool) {
 		return strings.TrimSpace(string(output))
 	}
 	git("add", "-A")
-	git("-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Recorded pnpm test crossing")
+	git("-c", "user.name=Rehearsal", "-c", "user.email=owner@example.test", "commit", "-m", "Recorded immutable test crossing")
 	git("push", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "HEAD:refs/heads/main")
 	r.mainCommit = git("rev-parse", "HEAD")
 }

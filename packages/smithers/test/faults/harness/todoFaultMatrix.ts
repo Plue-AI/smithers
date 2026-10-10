@@ -8,11 +8,11 @@ export const machineTodoPoints = ["M1", "M2", "M3", "M4"] as const
 export const todoRecoveryExpected: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
   K1: { completedRouteCalls: 1, newAttempts: 0 },
   K2: { completedRouteCalls: 1, newAttempts: 0 },
-  K3: { completedRouteCalls: 1, newAttempts: 0, checkCalls: 2, acceptedCheckResults: 1 },
+  K3: { completedRouteCalls: 1, newAttempts: 0, checkCalls: 4, acceptedCheckResults: 1 },
   K4: { completedRouteCalls: 1, newAttempts: 0, waitPreserved: true },
   K5: { completedRouteCalls: 1, newAttempts: 0 },
   M1: { completedRouteCalls: 1, newAttempts: 0 },
-  M2: { completedRouteCalls: 1, newAttempts: 0, checkCalls: 2, acceptedCheckResults: 1 },
+  M2: { completedRouteCalls: 1, newAttempts: 0, checkCalls: 4, acceptedCheckResults: 1 },
   M3: { completedStepCalls: 1, effectiveWrites: 1, lookups: 2, newAttempts: 0 },
   M4: { stepsReRun: 0, automaticKeylessRepeats: 0, retryAttempts: 1, hostCanaryAbsent: true }
 }
