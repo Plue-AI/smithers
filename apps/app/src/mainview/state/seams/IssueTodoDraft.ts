@@ -1,4 +1,4 @@
-import { issueTodoDraftRequest, readIssueTodoDraft } from "../../../../../../packages/smithers/src/IssueTodoDraft.ts"
+import { issueTodoDraftRequest, readIssueTodoDraft } from "@smthrs/cli/IssueTodoDraft"
 import type { IssueDraftSource } from "./TodoSeam"
 import type { SeamContext } from "./SeamContext"
 import { readErrorMessage } from "./SeamContext"

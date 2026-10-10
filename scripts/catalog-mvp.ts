@@ -2,9 +2,9 @@
 import { readFileSync, writeFileSync, renameSync } from "node:fs"
 import { resolve } from "node:path"
 import { Schema } from "effect"
-import { baseFlows, adminFlows, type CommandActions } from "../apps/app/src/mainview/flows/Flows"
-import { httpProjections } from "../packages/smithers/ui/src/app-operations/http"
-import { nameOf } from "../apps/app/src/mainview/flows/registry"
+import { baseFlows, adminFlows, type CommandActions } from "smithers-app/mainview/flows/Flows"
+import { httpProjections } from "@smthrs/ui/app-operations/http"
+import { nameOf } from "smithers-app/mainview/flows/registry"
 import { generateHostReference } from "./catalog-host"
 
 const root = resolve(import.meta.dir, "..")

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { readdirSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import { FLOW_NAMES } from "./FlowName"
-import { httpProjections } from "../../../../../packages/smithers/ui/src/app-operations/http"
+import { httpProjections } from "@smthrs/ui/app-operations/http"
 
 /*
  * The FlowName union is the card seam's vocabulary, so it has to stay the

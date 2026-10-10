@@ -1138,6 +1138,38 @@
     },
     {
       "name": "@smthrs/cli",
+      "subpath": "./BackendCommands",
+      "development": "./src/BackendCommands.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/BackendCommands.d.ts",
+          "default": "./dist/esm/BackendCommands.js"
+        },
+        "require": {
+          "types": "./dist/cjs/BackendCommands.d.ts",
+          "default": "./dist/cjs/BackendCommands.js"
+        }
+      },
+      "reason": "The argument and option schemas of the backend commands the CLI mounts, so the catalog generator writes the host command reference from the same table instead of reaching into src/internal (#3765). Read-only schemas; no handler, transport or credentials."
+    },
+    {
+      "name": "@smthrs/cli",
+      "subpath": "./IssueTodoDraft",
+      "development": "./src/IssueTodoDraft.ts",
+      "published": {
+        "import": {
+          "types": "./dist/esm/IssueTodoDraft.d.ts",
+          "default": "./dist/esm/IssueTodoDraft.js"
+        },
+        "require": {
+          "types": "./dist/cjs/IssueTodoDraft.d.ts",
+          "default": "./dist/cjs/IssueTodoDraft.js"
+        }
+      },
+      "reason": "The tool-free issue-to-TODO drafting request and its refusing reader, shared by the installed CLI and the app's TODO seam (#3457), so the app imports it by package name instead of reaching into src/ (#3765). Pure: no model call, transport or credentials."
+    },
+    {
+      "name": "@smthrs/cli",
       "subpath": "./CatalogRequest",
       "development": "./src/CatalogRequest.ts",
       "published": {

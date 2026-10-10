@@ -95,6 +95,9 @@ importers:
       '@smthrs/targets':
         specifier: workspace:*
         version: link:packages/smithers/build/targets
+      '@smthrs/ui':
+        specifier: workspace:*
+        version: link:packages/smithers/ui
       '@types/node':
         specifier: 26.4.1
         version: 26.4.1
@@ -140,6 +143,9 @@ importers:
       semver:
         specifier: 7.8.5
         version: 7.8.5
+      smithers-app:
+        specifier: workspace:*
+        version: link:apps/app
       tinyglobby:
         specifier: 0.2.17
         version: 0.2.17
@@ -185,6 +191,9 @@ importers:
       '@smthrs/chain':
         specifier: workspace:*
         version: link:../../packages/smithers/agent/chain
+      '@smthrs/cli':
+        specifier: workspace:*
+        version: link:../../packages/smithers
       '@smthrs/core':
         specifier: workspace:*
         version: link:../../packages/smithers/flows/core

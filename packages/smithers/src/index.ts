@@ -190,3 +190,13 @@ export * as Catalog from "./Catalog.ts"
  * @since 1.0.0
  */
 export * as CatalogRequest from "./CatalogRequest.ts"
+/**
+ * @category commands
+ * @since 1.0.0
+ */
+export * as BackendCommands from "./BackendCommands.ts"
+/**
+ * @category commands
+ * @since 1.0.0
+ */
+export * as IssueTodoDraft from "./IssueTodoDraft.ts"

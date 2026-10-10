@@ -41,9 +41,14 @@ import * as CliError from "./CliError.ts"
 
 import * as Environment_ from "./Environment.ts"
 
-import { layerEgressHttpClient, native } from "./internal/NodeControlHost.ts"
+import { layerEgressHttpClient, native, platform as nodePlatform } from "./internal/NodeControlHost.ts"
 
-import type { EngineDurable, ModuleRegistration } from "./internal/NativeControl.ts"
+import {
+  type EngineDurable,
+  make as makeNative,
+  type ModuleRegistration,
+  type Platform as NativePlatform
+} from "./internal/NativeControl.ts"
 
 import * as CommandStatus from "./internal/CommandStatus.ts"
 import { errorCode } from "./internal/ErrorCode.ts"
@@ -295,6 +300,34 @@ export {
   layerRebuildableRequestExecutor,
   rebuildableTransport
 } from "./internal/NodeControlHost.ts"
+
+/**
+ * The service adapters a native control composition is built from: the host
+ * file system, crypto, databases, flow runtime, jj, HTTP client, model
+ * transport and gateway.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type Platform = NativePlatform
+
+/**
+ * The Node adapters this host composes. Spread it and replace one adapter to
+ * build a variant host with {@link make}.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const platform: Platform = nodePlatform
+
+/**
+ * Builds a native control composition from a {@link Platform}. This host's own
+ * composition is `make(platform)`.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const make = makeNative
 
 /**
  * The static stance a judged run on this host is taught:

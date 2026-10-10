@@ -124,7 +124,9 @@
       "default": "./vendor/opentui-native/runtime.node.mjs"
     },
     "./CatalogRequest": "./src/CatalogRequest.ts",
-    "./Catalog": "./src/Catalog.ts"
+    "./Catalog": "./src/Catalog.ts",
+    "./BackendCommands": "./src/BackendCommands.ts",
+    "./IssueTodoDraft": "./src/IssueTodoDraft.ts"
   },
   "files": [
     "bin/**/*.mjs",
@@ -786,6 +788,26 @@
         "require": {
           "types": "./dist/cjs/Catalog.d.ts",
           "default": "./dist/cjs/Catalog.js"
+        }
+      },
+      "./BackendCommands": {
+        "import": {
+          "types": "./dist/esm/BackendCommands.d.ts",
+          "default": "./dist/esm/BackendCommands.js"
+        },
+        "require": {
+          "types": "./dist/cjs/BackendCommands.d.ts",
+          "default": "./dist/cjs/BackendCommands.js"
+        }
+      },
+      "./IssueTodoDraft": {
+        "import": {
+          "types": "./dist/esm/IssueTodoDraft.d.ts",
+          "default": "./dist/esm/IssueTodoDraft.js"
+        },
+        "require": {
+          "types": "./dist/cjs/IssueTodoDraft.d.ts",
+          "default": "./dist/cjs/IssueTodoDraft.js"
         }
       }
     }

@@ -18,8 +18,8 @@ if (args[0] === "--app-id" && args.length > 1) {
   assertCatalogPolicy(auditRuntimeTags(productionTags()))
 } else if (args.length === 0 || (args[0] === "--app-cli" && args.length === 1)) {
   const [{ FLOW_NAMES }, { generateCatalog }, { httpProjections }] = await Promise.all([
-    import("../apps/app/src/mainview/flows/FlowName"), import("./catalog-mvp"),
-    import("../packages/smithers/ui/src/app-operations/http")
+    import("smithers-app/mainview/flows/FlowName"), import("./catalog-mvp"),
+    import("@smthrs/ui/app-operations/http")
   ])
   // HTTP projections are operation bindings, not registered browser flow ids.
   const httpOnly = new Set(httpProjections.map(row => row.name))

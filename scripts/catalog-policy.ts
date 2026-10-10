@@ -1,6 +1,6 @@
 /** Reviewed literal policy. Never infer permissions from a shipped implementation. */
-import appendixB from "../apps/app/src/mainview/flows/fixtures/AppendixBPolicy.json" with { type: "json" }
-import appendixC from "../apps/app/src/mainview/flows/fixtures/AppendixC.json" with { type: "json" }
+import appendixB from "smithers-app/mainview/flows/fixtures/AppendixBPolicy.json" with { type: "json" }
+import appendixC from "smithers-app/mainview/flows/fixtures/AppendixC.json" with { type: "json" }
 import cli from "../packages/smithers/test/CatalogCli.fixture.json" with { type: "json" }
 
 export type Violation = {

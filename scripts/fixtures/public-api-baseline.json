@@ -2109,12 +2109,33 @@
             "types": "./dist/cjs/Catalog.d.ts",
             "default": "./dist/cjs/Catalog.js"
           }
+        },
+        "./BackendCommands": {
+          "import": {
+            "types": "./dist/esm/BackendCommands.d.ts",
+            "default": "./dist/esm/BackendCommands.js"
+          },
+          "require": {
+            "types": "./dist/cjs/BackendCommands.d.ts",
+            "default": "./dist/cjs/BackendCommands.js"
+          }
+        },
+        "./IssueTodoDraft": {
+          "import": {
+            "types": "./dist/esm/IssueTodoDraft.d.ts",
+            "default": "./dist/esm/IssueTodoDraft.js"
+          },
+          "require": {
+            "types": "./dist/cjs/IssueTodoDraft.d.ts",
+            "default": "./dist/cjs/IssueTodoDraft.js"
+          }
         }
       },
       "declarations": {
         "Agents.d.ts": "5a31d23fb5ffd79961dacfcebc820825f4589606bd86743b52893258300369db",
         "Application.d.ts": "fbd303d59104653b62ff46917f62d8a1226c92000946d3203c5004452300e68b",
         "Audience.d.ts": "b86624146cb972ea6874414bcd68d01b9e9a075507d331a11011465e9b73c277",
+        "BackendCommands.d.ts": "468568d831922aaccd3e497a44fac7c39072c3396b13ebab72d022202e8fedd6",
         "Bug.d.ts": "e917f661cfe56a75b01e9b65dd18e8aa4b8b5b8725322c4b27d7b26b07bb121d",
         "BunControl.d.ts": "55e472e129cb311c3ba68ae410d0165556e840ed334b00f6297454138409b590",
         "Catalog.d.ts": "0bff2303be0caab57b83150cd403a4560ecdd47bdb9a72968c5ec4162ed8bf64",
@@ -2136,7 +2157,7 @@
         "Init.d.ts": "3263ab7c5be7691bdc8784e3b83af77e8c92ebb88568881273d3f4d89e57a6c9",
         "IssueTodoDraft.d.ts": "f17d5529c3115ad5b4961f130f5fe8eebcc7eaf1980f1aac14cecc111d14a15e",
         "Legacy.d.ts": "f5fe9a37255fed3fb3b98ce9c7aaad2cf6f4da25f8f9bbf27e2ba5bb3eea25cd",
-        "NodeControl.d.ts": "09ed65513372b82fb82e38032b355bbb5364ad1aa99dcda6b3c23646b7ab957c",
+        "NodeControl.d.ts": "bef7ea9892c032c6b0ec2454cf9ba2a31831886632bf54d78fef2e985fdd3f5b",
         "NodeOutput.d.ts": "1d022e6f58e890c281c1c9f3bea8358068837491932824567a0a01ed42953549",
         "Output.d.ts": "24dfb305a0c95909e8f6ad8d24e341c0124718401d699955fb05172bbd2d2bb6",
         "Project.d.ts": "2a554d3fab4ee13aac413048c4bb5c80dbbab1ab1afe2b0961ce82f0316cd221",
@@ -2193,7 +2214,7 @@
         "history/Verify.d.ts": "99b9f5d8a8b3d751ceb0141f13984f80fbd53eec4aa0e9dade43138cc354d334",
         "history/Workspace.d.ts": "d7574ec15179f2056b3a04bd83c16577e7dc877edf5d3b37136f8a3dac70e1e9",
         "history/migrations/0001_applied_audits.d.ts": "1bb1793ad66bc92436656b0aee1e7151e139f2e34f6b848803de69be628f142d",
-        "index.d.ts": "3bd98b05ed1048fb017fbd152693945aed1f01fb251c03ca3a8ca976b47e214b",
+        "index.d.ts": "862f4494de05c97be8690094f726c73d592a01dbe91066a9cb8c74b6bba081df",
         "internal/ApprovalScope.d.ts": "9a37a62dfdd579a39aef7e3537aed180c6057aee197601ce63d3089b5560e03f",
         "internal/AuthoredRebuild.d.ts": "98fcb28918fcab1782182221533e9f175ba8254ae2f18b49d2973bb906c2d44a",
         "internal/AuthoredSources.d.ts": "19be9168e6bed3836237fdd969e31301d76db3a6a8816d7c0b67c450dc5a0c72",

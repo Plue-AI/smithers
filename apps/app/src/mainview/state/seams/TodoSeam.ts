@@ -54,8 +54,8 @@ export interface TodoReceipt {
   readonly outcome?: { readonly status: "ok" | "failed"; readonly detail: string }
 }
 /** What Make TODO drafts from: one GitHub issue and its discussion, as its issue card read them. */
-export type { IssueDraftSource } from "../../../../../../packages/smithers/src/IssueTodoDraft.ts"
-import type { IssueDraftSource } from "../../../../../../packages/smithers/src/IssueTodoDraft.ts"
+export type { IssueDraftSource } from "@smthrs/cli/IssueTodoDraft"
+import type { IssueDraftSource } from "@smthrs/cli/IssueTodoDraft"
 /** The Draft's prompt: the issue's body, then each comment quoted under its author. */
 const issuePrompt = (source: IssueDraftSource): string => [source.body.trim(), ...source.comments.flatMap(comment => comment.body.trim()
   ? [`@${comment.author ?? "someone"}:\n${comment.body.trim().split("\n").map(line => `> ${line}`).join("\n")}`] : [])]

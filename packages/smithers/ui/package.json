@@ -96,6 +96,11 @@
       "import": "./src/app-operations/wiki.ts",
       "default": "./src/app-operations/wiki.ts"
     },
+    "./app-operations/http": {
+      "types": "./src/app-operations/http.ts",
+      "import": "./src/app-operations/http.ts",
+      "default": "./src/app-operations/http.ts"
+    },
     "./command-line": {
       "types": "./src/command-line.ts",
       "import": "./src/command-line.ts",

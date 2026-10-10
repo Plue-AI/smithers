@@ -3,13 +3,12 @@
  * Native receipt/landing and evaluator ports are fixtures: this is registry
  * evidence, not installed-host or guest-execution acceptance.
  */
+import * as NodeControl from "@smthrs/cli/NodeControl"
 import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Layer, type Scope } from "effect"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { platform } from "../packages/smithers/src/internal/NodeControlHost.ts"
-import * as NativeControl from "../packages/smithers/src/internal/NativeControl.ts"
 import * as Host from "../flows/coding/host.ts"
 import { Landing } from "../flows/coding/landing.ts"
 import { makeHostJudge } from "../flows/test/fixtures/scripted-judge.ts"
@@ -73,14 +72,14 @@ export const withProductionRegistries = async <A>(
           Object.defineProperty(runtime, "register", { ...descriptor, value: observed })
           yield* Effect.addFinalizer(() => Effect.sync(() => { Object.defineProperty(runtime, "register", descriptor) }))
         }))
-        const observedPlatform: NativeControl.Platform = {
-          ...platform, evaluator: makeHostJudge().layer,
+        const observedPlatform: NodeControl.Platform = {
+          ...NodeControl.platform, evaluator: makeHostJudge().layer,
           runtime: (options, boundary, sandbox, registrations, ...registry) =>
-            platform.runtime(options, boundary, sandbox, registrations.pipe(Layer.provideMerge(observer)), ...registry)
+            NodeControl.platform.runtime(options, boundary, sandbox, registrations.pipe(Layer.provideMerge(observer)), ...registry)
         }
         const stateRoot = resolve(temporary, `${host}-state`)
         const layer = host === "native"
-          ? NativeControl.make(observedPlatform).layerHost({ root: repositoryPath, stateRoot, credential: "registry-fixture" }, extraRegistrations as NativeControl.ModuleRegistration | undefined)
+          ? NodeControl.make(observedPlatform).layerHost({ root: repositoryPath, stateRoot, credential: "registry-fixture" }, extraRegistrations as NodeControl.ModuleRegistration | undefined)
           : Host.layer(observedPlatform, {
             repositoryPath, stateRoot, helperPath, retainedRepositoryJobs, sourcePublication: "local-only", systemFlows,
             gatewayId: "11111111-1111-4111-8111-111111111111", credential: "registry-fixture", implementationModel: "openai:gpt-6-luna",

@@ -1,5 +1,5 @@
 /** Host reference from exported command schemas; never invokes a host handler. */
-import { definitions } from "../packages/smithers/src/internal/backend/Definitions.ts"
+import { definitions } from "@smthrs/cli/BackendCommands"
 
 export const generateHostReference = (): string => {
   const rows = Object.entries(definitions).filter(([name]) => name.startsWith("host ")).map(([name, definition]) => {
