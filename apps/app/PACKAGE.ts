@@ -208,11 +208,11 @@ const conformance = Smithers.NodeTest({
  * ~20 min of earlier gate steps and the server and site steps inside
  * apps-deploy.yml's 75-minute job.
  *
- * Exclusive: wildcard `test` and `ci` selections omit it, and CI's apps-e2e
- * job names it by label.
+ * Exclusive: wildcard `test` and `ci` selections omit these tiers. CI names
+ * three shard targets; the unsharded target remains the local rehearsal.
  */
-const browserE2e = Smithers.NodeTest({
-  runner: Smithers.entrypoint(Smithers.file("scripts/run-pr-e2e.mjs")),
+const browserTier = (shard?: string) => Smithers.NodeTest({
+  runner: Smithers.entrypoint(Smithers.file("scripts/run-pr-e2e.mjs"), shard ? [shard] : []),
   timeout: "45m",
   srcs: [sources, componentSources, styleSources, harnessSources, suiteSources, ...buildConfigs,
     Smithers.file("playwright.config.ts"), Smithers.file("playwright.site.config.ts"), Smithers.file("playwright.graph.config.ts"),
@@ -224,6 +224,11 @@ const browserE2e = Smithers.NodeTest({
   exclusive: true,
   cwd
 })
+
+const browserE2e = browserTier()
+const browserE2eShard1 = browserTier("1")
+const browserE2eShard2 = browserTier("2")
+const browserE2eShard3 = browserTier("3")
 
 /**
  * Install tier: the Playwright tests tagged @install, which start a real
@@ -630,5 +635,5 @@ const securityReview = Smithers.SecurityReview({
 })
 
 export const Package = Smithers.Package({
-  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, installE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, journeyFlowSourceRun, journeyWikiDecisionFollow, journeyBranchPresence, journeyDuplicateLaunch, journeyFileCoedit, journeyHome, journeyTodoMergeOrder, journeyTodoPlacement, journeyTodoSteer, journeyFlowActivation, journeyLearning, journeyAgentTerminal, journeyTerminalSignin, journeyFileGone, journeyGitHubSyncHealth, journeyForkAddToStack, journeySshBranch, journeyInstallOrigins, journeyFileIntelligence, journeyForkDropInstall, journeyGitHubForeignPush, journeyGitHubMainMovedRebase, proofRecord, proofPage, webSources, ...securityReview }
+  targets: { distributionInputs, crateInputs, proofMockInputs, docsInputs, serverBundle, solidCodegenInputs, check, unitTests, conformance, browserE2e, browserE2eShard1, browserE2eShard2, browserE2eShard3, installE2e, viewStories, journeyJ1Activation, journeyJ1Release, journeyKeyboard, journeyFreshRepository, journeyWikiGeneratedRefresh, journeyWikiCoedit, journeySetup, journeyWikiObsidian, journeyTodoFromIssue, journeyTodoNeedsYou, journeyTodoEvidence, journeyTodoMerge, journeyAskRepository, journeyTodoStackActions, journeyGitHubMerge, journeyGitHubMergeContinuation, journeyGitHubPRShape, journeyFlowSourceRun, journeyWikiDecisionFollow, journeyBranchPresence, journeyDuplicateLaunch, journeyFileCoedit, journeyHome, journeyTodoMergeOrder, journeyTodoPlacement, journeyTodoSteer, journeyFlowActivation, journeyLearning, journeyAgentTerminal, journeyTerminalSignin, journeyFileGone, journeyGitHubSyncHealth, journeyForkAddToStack, journeySshBranch, journeyInstallOrigins, journeyFileIntelligence, journeyForkDropInstall, journeyGitHubForeignPush, journeyGitHubMainMovedRebase, proofRecord, proofPage, webSources, ...securityReview }
 })

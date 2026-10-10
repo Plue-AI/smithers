@@ -28108,6 +28108,291 @@
     }
   },
   {
+    "label": "//apps/app:browserE2eShard1",
+    "package": "apps/app",
+    "name": "browserE2eShard1",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-pr-e2e.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.tsx",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.css",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/tailwind.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/postcss.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.site.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.graph.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.showcase.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/bunfig.toml"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/require-toolchain.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:browserE2eShard2",
+    "package": "apps/app",
+    "name": "browserE2eShard2",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-pr-e2e.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.tsx",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.css",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/tailwind.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/postcss.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.site.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.graph.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.showcase.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/bunfig.toml"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/require-toolchain.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//apps/app:browserE2eShard3",
+    "package": "apps/app",
+    "name": "browserE2eShard3",
+    "rule": "NodeTest",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "apps/app/scripts/run-pr-e2e.mjs"
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.tsx",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/src/**/*.css",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/scripts/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "apps/app/e2e/**/*",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/vite.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/tailwind.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/postcss.config.js"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.site.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.graph.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/playwright.showcase.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/package.json"
+      },
+      {
+        "kind": "file",
+        "path": "pnpm-lock.yaml"
+      },
+      {
+        "kind": "file",
+        "path": "apps/app/bunfig.toml"
+      },
+      {
+        "kind": "file",
+        "path": "package.json"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/require-toolchain.mjs"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "apps/app/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//apps/app:check",
     "package": "apps/app",
     "name": "check",

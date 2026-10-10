@@ -1,3 +1,4 @@
+import { spawnSync } from "../../scripts/test-child"
 import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync, symlinkSync } from "node:fs"
@@ -234,9 +235,9 @@ describe("native backend ownership", () => {
       "console.log(\"stopped\")"
     ].join("\n"))
     const started = Date.now()
-    const child = Bun.spawn([process.execPath, script], { stdout: "pipe", stderr: "pipe" })
-    expect(await child.exited).toBe(0)
-    expect(await new Response(child.stdout).text()).toContain("stopped")
+    const child = spawnSync(process.execPath, [script], { encoding: "utf8", timeout: 10_000 })
+    expect(child.status).toBe(0)
+    expect(child.stdout).toContain("stopped")
     expect(Date.now() - started).toBeLessThan(10_000)
   }, 40_000)
 

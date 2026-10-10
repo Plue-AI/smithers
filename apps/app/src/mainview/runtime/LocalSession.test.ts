@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { spawnSync } from "node:child_process"
+import { spawnSync } from "../../../scripts/test-child"
 import { fileURLToPath } from "node:url"
 import { LOCAL_SESSION_HEADER, LOCAL_SESSION_META } from "@smthrs/rpc/LocalSession"
 import { createAppFetch, localSocketProtocols } from "./LocalSession"

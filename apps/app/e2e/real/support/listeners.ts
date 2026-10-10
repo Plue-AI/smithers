@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { spawnSync } from "../../../scripts/test-child"
 import { request } from "node:http"
 import { connect as tcpConnect } from "node:net"
 
@@ -72,7 +72,7 @@ export const descendants = (root: number, table: string): number[] => {
 export const processTree = (root: number): number[] => {
   const ps = spawnSync("/bin/ps", ["-axo", "pid=,ppid="], { encoding: "utf8" })
   if (ps.error || ps.status !== 0) throw ps.error ?? new Error(`ps exited ${ps.status}: ${ps.stderr}`)
-  return descendants(root, ps.stdout).filter(pid => pid !== ps.pid)
+  return descendants(root, ps.stdout).filter(pid => pid !== ps.pid && pid !== (ps as typeof ps & { supervisorPid?: number }).supervisorPid)
 }
 
 /** Whether a listener accepts loopback connections only. */

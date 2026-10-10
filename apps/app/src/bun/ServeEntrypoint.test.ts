@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from '../../scripts/test-child'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'bun:test'
 // Erased by Bun, but keeps the isolated fixture inside the app's typecheck.

@@ -420,7 +420,7 @@ describe("ci conformance", () => {
     for (const [id, job] of Object.entries(ci.jobs)) {
       assert.equal(job.if, undefined, `${id} must run on pushes and pull requests`)
       for (const step of job.steps) {
-        const artifact = /^(?:Collect|Upload) (?:ci-test-tier-evidence|apps-e2e-artifacts|smthrs results)$/.test(step.name ?? "")
+        const artifact = /^(?:Collect|Upload) (?:ci-test-tier-evidence|apps-e2e-artifacts|apps-browser-[123]-artifacts|smthrs results)$/.test(step.name ?? "")
         // A gate runs after an earlier red gate, never after failed setup (#2071).
         const gate = step.run?.startsWith("pnpm exec smthrs ") === true
         assert.equal(

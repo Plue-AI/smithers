@@ -32,16 +32,17 @@ jobs:
   gate:
     name: apps gates
     runs-on: ubuntu-latest
-    # Measured 2026-10-09 (runs 37976842700, 37987394687): setup, UI
-    # typecheck, unit tests and conformance ~20 min; the browser suite ~40
-    # for 585 T1 tests (T1 alone ~33 min on ubuntu-latest, 13.4 on a 16-core
-    # Mac; 45m target timeout); server and site ~8: ~68 typical.
-    # The TUI suites stay in ci.yml only: smithers.sh doesn't ship the TUI, so
-    # a TUI red can't make a site deploy unsafe (#3483).
+    # Browser tiers run on separate checkouts, so their dist/test-results do
+    # not race. Shard 3 also runs showcase/site/graph; each browser target has
+    # a 45m budget (expected ~12/~12/~18m). Other app gates run once, in row 1.
     timeout-minutes: 100
     env:
       SMITHERS_CACHE_URL: ${{ secrets.SMITHERS_CACHE_URL }}
       SMITHERS_CACHE_READ_TOKEN: ${{ secrets.SMITHERS_CACHE_READ_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser-shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86
@@ -85,6 +86,7 @@ jobs:
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
       - name: UI typecheck
+        if: matrix.browser-shard == 1
         run: pnpm exec smthrs build '//apps/app:check' --verbose
       # The unit suite's keyboard and focus support tests launch real Chromium
       # and WebKit, and the browser end-to-end step needs Chromium; install both
@@ -92,25 +94,36 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm --filter smithers-app exec playwright install --with-deps chromium webkit
       - name: UI unit tests
+        if: matrix.browser-shard == 1
         # Bun writes the JUnit report but does not create its directory.
         run: |
           mkdir -p apps/app/test-results
           pnpm exec smthrs test '//apps/app:unitTests' --verbose --full-output
       - name: Upload UI unit-test report
-        if: always()
+        if: always() && matrix.browser-shard == 1
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: apps-deploy-unit-tests
+          name: apps-deploy-unit-tests-${{ matrix.browser-shard }}
           path: apps/app/test-results/unit-tests.xml
           retention-days: 7
           if-no-files-found: warn
       - name: UI conformance lint
+        if: matrix.browser-shard == 1
         run: pnpm exec smthrs test '//apps/app:conformance' --verbose
-      - name: UI browser end-to-end suite
-        run: pnpm exec smthrs test '//apps/app:browserE2e' --verbose
+      - name: UI browser end-to-end shard 1
+        if: matrix.browser-shard == 1
+        run: pnpm exec smthrs test '//apps/app:browserE2eShard1' --verbose
+      - name: UI browser end-to-end shard 2
+        if: matrix.browser-shard == 2
+        run: pnpm exec smthrs test '//apps/app:browserE2eShard2' --verbose
+      - name: UI browser end-to-end shard 3
+        if: matrix.browser-shard == 3
+        run: pnpm exec smthrs test '//apps/app:browserE2eShard3' --verbose
       - name: Server typecheck and tests
+        if: matrix.browser-shard == 1
         run: pnpm exec smthrs ci '//apps/server/...' --verbose
       - name: Site build and tests
+        if: matrix.browser-shard == 1
         run: pnpm exec smthrs ci '//apps/site/...' --verbose
       - name: Collect e2e artifacts
         if: failure()
@@ -124,7 +137,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: apps-deploy-e2e-artifacts
+          name: apps-deploy-e2e-artifacts-${{ matrix.browser-shard }}
           path: ${{ runner.temp }}/e2e-artifacts
           if-no-files-found: ignore
 

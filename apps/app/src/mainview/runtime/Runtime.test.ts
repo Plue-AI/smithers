@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { spawnSync } from "node:child_process"
+import { spawnSync } from "../../../scripts/test-child"
 import { fileURLToPath } from "node:url"
 import type { AppBootstrap } from "@smthrs/rpc/AppBootstrap"
 import { APP_BOOTSTRAP_PATH } from "@smthrs/rpc/AppBootstrap"

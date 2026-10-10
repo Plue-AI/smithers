@@ -609,6 +609,9 @@ const ci = Smithers.GithubCiGen({
     "scripts",
     "docs",
     "apps-e2e",
+    "apps-browser-1",
+    "apps-browser-2",
+    "apps-browser-3",
     "rust",
     "wasm-repro",
     "browser",
@@ -822,8 +825,7 @@ const ci = Smithers.GithubCiGen({
       id: "apps-e2e",
       name: "apps e2e (Playwright T1)",
       runsOn: ubuntu,
-      // Setup ~2 min, check 1, unit tests 7, conformance 1, then browserE2e ~22 min under its 30m
-      // target timeout and the TUI ~10 (run 36369423415): ~43 typical, ~52 worst.
+      // UI units and conformance plus the TUI; browsers run in their own jobs.
       timeoutMinutes: 70,
       toolchain: Smithers.CiToolchain.Needs({
         cargoBinaries: nativeFilesystem,
@@ -849,7 +851,6 @@ const ci = Smithers.GithubCiGen({
         // The literal pin left the unit gate when `src/` became app source
         // only; it is its own lint target over `apps/app/lint/conformance`.
         { name: "UI conformance lint", verb: Smithers.Verb.Test, pattern: "//apps/app:conformance" },
-        { name: "UI browser end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2e" },
         // The terminal UI's typecheck, lint, format check and Bun suite. Its
         // shell-change capture runs the native helper this job installs.
         { name: "TUI typecheck, lint and tests", verb: Smithers.Verb.Ci, pattern: "//apps/tui/..." },
@@ -857,6 +858,75 @@ const ci = Smithers.GithubCiGen({
         // them and each runs here by label.
         { name: "TUI end-to-end suite", verb: Smithers.Verb.Test, pattern: "//apps/tui:e2eTests" }
       ]
+    },
+    {
+      id: "apps-browser-1",
+      name: "UI browser end-to-end shard 1",
+      runsOn: ubuntu,
+      timeoutMinutes: 45,
+      toolchain: Smithers.CiToolchain.Needs({
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        artifacts: Smithers.CiToolchain.Artifacts({
+          artifact: "apps-browser-1-artifacts",
+          sources: [
+            { from: "/tmp/smithers-*.png" },
+            { from: "apps/reports", as: "reports" },
+            { from: "apps/app/test-results", as: "playwright-test-results" },
+            { from: "apps/app/playwright-report", as: "playwright-report" }
+          ]
+        })
+      }),
+      steps: [{ name: "UI browser end-to-end shard 1", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2eShard1" }]
+    },
+    {
+      id: "apps-browser-2",
+      name: "UI browser end-to-end shard 2",
+      runsOn: ubuntu,
+      timeoutMinutes: 45,
+      toolchain: Smithers.CiToolchain.Needs({
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        artifacts: Smithers.CiToolchain.Artifacts({
+          artifact: "apps-browser-2-artifacts",
+          sources: [
+            { from: "/tmp/smithers-*.png" },
+            { from: "apps/reports", as: "reports" },
+            { from: "apps/app/test-results", as: "playwright-test-results" },
+            { from: "apps/app/playwright-report", as: "playwright-report" }
+          ]
+        })
+      }),
+      steps: [{ name: "UI browser end-to-end shard 2", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2eShard2" }]
+    },
+    {
+      id: "apps-browser-3",
+      name: "UI browser end-to-end shard 3",
+      runsOn: ubuntu,
+      timeoutMinutes: 45,
+      toolchain: Smithers.CiToolchain.Needs({
+        cargoBinaries: nativeFilesystem,
+        runtimes: [node, bun],
+        jj,
+        ripgrep,
+        apt: bubblewrap,
+        artifacts: Smithers.CiToolchain.Artifacts({
+          artifact: "apps-browser-3-artifacts",
+          sources: [
+            { from: "/tmp/smithers-*.png" },
+            { from: "apps/reports", as: "reports" },
+            { from: "apps/app/test-results", as: "playwright-test-results" },
+            { from: "apps/app/playwright-report", as: "playwright-report" }
+          ]
+        })
+      }),
+      steps: [{ name: "UI browser end-to-end shard 3", verb: Smithers.Verb.Test, pattern: "//apps/app:browserE2eShard3" }]
     },
     {
       id: "rust",

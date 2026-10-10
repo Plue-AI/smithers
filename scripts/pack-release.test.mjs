@@ -271,7 +271,7 @@ test("every gate in ci.yml also runs in release.yml", () => {
   // silently landing outside the release's proof. The jobs release.yml
   // does not mirror: `browser` runs `//scripts:webBundleContract`, which
   // `//scripts/...` already covers; `packages` runs `test '//packages/...'`,
-  // which `ci '//packages/...'` already covers; `apps-e2e` needs the runner's
+  // which `ci '//packages/...'` already covers; `apps-browser-1/2/3` need their runners'
   // Chrome; the native Rust crate remains in `rust`, while the shipped FFI
   // and Go backend jobs are mirrored. Release mirrors `wasm-repro` so the
   // committed artifact is rebuilt and byte-compared before packing.
@@ -282,6 +282,9 @@ test("every gate in ci.yml also runs in release.yml", () => {
     "scripts",
     "docs",
     "apps-e2e",
+    "apps-browser-1",
+    "apps-browser-2",
+    "apps-browser-3",
     "rust",
     "rust-ffi",
     "wasm-repro",

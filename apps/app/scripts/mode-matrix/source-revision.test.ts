@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { spawnSync } from "../test-child"
 import { sourceRevision } from "./source-revision"
 
 const roots: string[] = []
@@ -10,8 +11,8 @@ afterEach(() => {
 })
 
 const jj = (root: string, ...args: string[]): string => {
-  const result = Bun.spawnSync(["jj", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" })
-  if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr))
+  const result = spawnSync("jj", args, { cwd: root })
+  if (result.status !== 0) throw new Error(new TextDecoder().decode(result.stderr))
   return new TextDecoder().decode(result.stdout).trim()
 }
 
@@ -33,8 +34,8 @@ test("packaged source revision follows content across jj's empty post-push worki
 }, 30_000)
 
 const git = (root: string, ...args: string[]): string => {
-  const result = Bun.spawnSync(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" })
-  if (result.exitCode !== 0) throw new Error(new TextDecoder().decode(result.stderr))
+  const result = spawnSync("git", args, { cwd: root })
+  if (result.status !== 0) throw new Error(new TextDecoder().decode(result.stderr))
   return new TextDecoder().decode(result.stdout).trim()
 }
 

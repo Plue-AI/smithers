@@ -180,9 +180,19 @@ export const releaseGateSetForHost = (host = process) => {
  */
 export const releaseGateExclusions = [
   {
-    job: "apps-e2e",
-    commands: ["pnpm exec smthrs test '//apps/app:browserE2e' --verbose"],
-    reason: "The Playwright suite needs the browsers the apps-e2e runner installs; the release runs the job's UI typecheck, unit tests and conformance lint."
+    job: "apps-browser-1",
+    commands: ["pnpm exec smthrs test '//apps/app:browserE2eShard1' --verbose"],
+    reason: "Browser shard 1 requires the Playwright browsers installed by its dedicated CI job; release retains UI typecheck, units and conformance."
+  },
+  {
+    job: "apps-browser-2",
+    commands: ["pnpm exec smthrs test '//apps/app:browserE2eShard2' --verbose"],
+    reason: "Browser shard 2 requires the Playwright browsers installed by its dedicated CI job; release retains UI typecheck, units and conformance."
+  },
+  {
+    job: "apps-browser-3",
+    commands: ["pnpm exec smthrs test '//apps/app:browserE2eShard3' --verbose"],
+    reason: "Browser shard 3 requires the Playwright browsers installed by its dedicated CI job; release retains UI typecheck, units and conformance."
   },
   {
     job: "rust",

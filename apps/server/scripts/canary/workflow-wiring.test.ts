@@ -80,7 +80,7 @@ const publishGuard = (workflow: CiWorkflow): string | undefined => {
 const holdsCacheWriteCredential = (job: CiJob): boolean =>
   (job.steps ?? []).some((step) => step.env?.SMITHERS_CACHE_WRITE_TOKEN === "${{ secrets.SMITHERS_CACHE_WRITE_TOKEN }}")
 
-const evidenceNames = ["ci-test-tier-evidence", "apps-e2e-artifacts"]
+const evidenceNames = ["ci-test-tier-evidence", "apps-e2e-artifacts", "apps-browser-1-artifacts", "apps-browser-2-artifacts", "apps-browser-3-artifacts"]
 // GithubCiGen's per-job results upload (#3663): only an upload-artifact step
 // named exactly this, whose artifact name is a smthrs-results-* name.
 const smthrsResults = (step: WorkflowStep): boolean =>
@@ -185,7 +185,7 @@ describe("canary probes are wired into a gate", () => {
     expect(JSON.stringify(deploy.jobs.gate)).not.toContain("CLOUDFLARE_API_TOKEN")
 
     const ci = Bun.YAML.parse(readWorkflow("ci.yml")) as DeployWorkflow
-    const appsE2e = appTargets(ci.jobs["apps-e2e"]!)
+    const appsE2e = ["apps-e2e", "apps-browser-1", "apps-browser-2", "apps-browser-3"].flatMap(job => appTargets(ci.jobs[job]!))
     expect(appsE2e.length).toBeGreaterThanOrEqual(4)
     const gate = appTargets(deploy.jobs.gate)
     // smithers.sh doesn't ship the TUI, so its suites gate CI, not the site deploy (#3483).
@@ -207,10 +207,10 @@ describe("canary probes are wired into a gate", () => {
     expect(steps.filter(step => step.run?.includes("--full-output"))).toEqual([unit])
     const upload = steps.find(step => step.name === "Upload UI unit-test report")!
     expect(steps.indexOf(upload)).toBe(steps.indexOf(unit) + 1)
-    expect(upload.if).toBe("always()")
+    expect(upload.if).toBe("always() && matrix.browser-shard == 1")
     expect(upload.uses).toBe("actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02")
     expect(upload.with).toEqual({
-      name: "apps-deploy-unit-tests",
+      name: "apps-deploy-unit-tests-${{ matrix.browser-shard }}",
       path: "apps/app/test-results/unit-tests.xml",
       "retention-days": 7,
       "if-no-files-found": "warn"

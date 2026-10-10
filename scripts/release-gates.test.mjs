@@ -270,7 +270,7 @@ test("exception and exclusion drift checks use literal tokens and reject dynamic
 })
 
 /** Pin every job so a new one forces a release decision. `on.push` is a trigger, not a job. */
-const ciJobs = ["test", "repository", "scripts", "docs", "apps-e2e", "rust", "rust-ffi", "wasm-repro", "browser", "packages", "go-backend", "go-backend-access"]
+const ciJobs = ["test", "repository", "scripts", "docs", "apps-e2e", "apps-browser-1", "apps-browser-2", "apps-browser-3", "rust", "rust-ffi", "wasm-repro", "browser", "packages", "go-backend", "go-backend-access"]
 
 /** A copy of the release workflow with one more gate step ahead of the build. */
 const withUnlistedStep = (source, name, command) => {
@@ -455,10 +455,10 @@ test("the release proves every CI gate the exclusions do not name, and every exc
   assert.deepEqual(workflowJobs(ci), ciJobs)
   assert.deepEqual(ciGatesMissingFromInventory(releaseGates, ci, releaseGateExclusions), [], "these CI gates run in neither the release nor the exclusions")
   assert.deepEqual(staleExclusions(releaseGates, ci, releaseGateExclusions), [])
-  assert.deepEqual(releaseGateExclusions.map((exclusion) => exclusion.job), ["apps-e2e", "rust", "packages"])
+  assert.deepEqual(releaseGateExclusions.map((exclusion) => exclusion.job), ["apps-browser-1", "apps-browser-2", "apps-browser-3", "rust", "packages"])
   for (const exclusion of releaseGateExclusions) assert.ok(exclusion.reason.length > 40, `${exclusion.job} carries a reason`)
   // Partial exclusions name only what the release omits: the rest of the job is mirrored.
-  assert.deepEqual(releaseGateExclusions.find((exclusion) => exclusion.job === "apps-e2e").commands, ["pnpm exec smthrs test '//apps/app:browserE2e' --verbose"])
+  for (const shard of [1, 2, 3]) assert.deepEqual(releaseGateExclusions.find(exclusion => exclusion.job === `apps-browser-${shard}`).commands, [`pnpm exec smthrs test '//apps/app:browserE2eShard${shard}' --verbose`])
   assert.deepEqual(releaseGateExclusions.find((exclusion) => exclusion.job === "rust").commands, [
     "pnpm exec smthrs lint '//crates/flows-jj/...' --verbose",
     "pnpm exec smthrs test '//crates/flows-jj:cargoTest' --verbose",

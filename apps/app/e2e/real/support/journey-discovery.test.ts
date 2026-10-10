@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { expect, test } from "bun:test"
-import { spawnSync } from "node:child_process"
+import { spawnSync } from "../../../scripts/test-child"
 
 // Collection only: no browser, HTTP request, installed host or check receipt.
 // The actual runner must discover the scenario before its real-install fixtures

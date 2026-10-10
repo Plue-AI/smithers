@@ -999,3 +999,23 @@ test("the actual source verifier refuses a different checkout, unrelated history
     assert.notEqual(missing.status, 0)
     assert.match(missing.stderr, /must be reachable from origin\/main/)
   }))
+
+test('app workflows require all three isolated browser shards before completion', () => {
+  const ci = parseWorkflow(readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8'))
+  for (const shard of [1, 2, 3]) {
+    const job = ci.jobs[`apps-browser-${shard}`]
+    assert.equal(job.if, undefined)
+    assert.equal(job['timeout-minutes'], 45)
+    const step = job.steps.find(step => step.name === `UI browser end-to-end shard ${shard}`)
+    assert.ok(step.run.includes(`'//apps/app:browserE2eShard${shard}'`))
+    assert.equal(step.if, "${{ !cancelled() && steps.setup.conclusion == 'success' }}")
+  }
+  const deploy = parseWorkflow(readFileSync(join(repoRoot, '.github/workflows/apps-deploy.yml'), 'utf8'))
+  assert.deepEqual(deploy.jobs.gate.strategy, { 'fail-fast': false, matrix: { 'browser-shard': [1, 2, 3] } })
+  for (const shard of [1, 2, 3]) {
+    const step = deploy.jobs.gate.steps.find(step => step.name === `UI browser end-to-end shard ${shard}`)
+    assert.ok(step.run.includes(`'//apps/app:browserE2eShard${shard}'`))
+    assert.equal(step.if, `matrix.browser-shard == ${shard}`)
+  }
+  assert.ok([deploy.jobs.deploy.needs].flat().includes('gate'))
+})

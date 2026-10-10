@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { spawnSync } from "node:child_process"
+import { spawnSync } from "../../../scripts/test-child"
 import { fileURLToPath } from "node:url"
 
 // The runtime deliberately caches its client for the page lifetime. Give it a

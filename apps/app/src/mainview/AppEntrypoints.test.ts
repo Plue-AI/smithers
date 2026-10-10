@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawnSync } from '../../scripts/test-child'
 import { fileURLToPath } from 'node:url'
 import { expect, test } from 'bun:test'
 // Erased at runtime: tsc checks the isolated fixtures without loading their Bun mocks here.
