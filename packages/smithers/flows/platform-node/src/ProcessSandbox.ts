@@ -135,6 +135,12 @@ export interface Host {
    * paths. Read aliases are only collected when this probe is supplied.
    */
   readonly realpath?: ((path: string) => string | undefined) | undefined
+  /**
+   * The program a package-manager shim script runs: the absolute path on the
+   * `# cmd-shim-target=` line pnpm's cmd-shim writes, or `undefined` for any
+   * other file. Optional: a host without it treats a shim as the program.
+   */
+  readonly shimTarget?: ((path: string) => string | undefined) | undefined
   readonly uid: number | undefined
   readonly gid: number | undefined
 }
@@ -301,8 +307,24 @@ export const host = (env: Readonly<Record<string, string | undefined>> = ambient
         return undefined
       }
     },
+    shimTarget,
     uid: typeof process.getuid === "function" ? process.getuid() : undefined,
     gid: typeof process.getgid === "function" ? process.getgid() : undefined
+  }
+}
+
+/** A cmd-shim is a page of shell; a larger file is some other program. */
+const shimLimit = 64 * 1024
+
+const shimTarget = (path: string): string | undefined => {
+  try {
+    if (NodeFs.statSync(path).size > shimLimit) return undefined
+    const text = NodeFs.readFileSync(path, "utf8")
+    if (!text.startsWith("#!")) return undefined
+    const target = /^# cmd-shim-target=(.+)$/m.exec(text)?.[1]
+    return target !== undefined && NodePath.isAbsolute(target) ? target : undefined
+  } catch {
+    return undefined
   }
 }
 
@@ -827,6 +849,13 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
  * With no package directory only the real file is bound. A name that resolves
  * nowhere is left for `execvp` to report.
  *
+ * A package-manager shim script is followed like a link. `pnpm self-update`
+ * under `pnpm/action-setup` installs pnpm as a cmd-shim in `$PNPM_HOME/bin`
+ * that runs node on a package in pnpm's global store, a path relative to the
+ * script; binding the script alone left that package missing. When the
+ * program the shim names is executable, the run execs its real file and binds
+ * its package as above.
+ *
  * @since 1.0.0
  * @private
  */
@@ -847,8 +876,12 @@ export const launcher = (
       .map((entry) => hostFacts.executable(NodePath.join(entry, program)))
       .find((candidate) => candidate !== undefined)
   if (found === undefined || granted.some((parent) => insideRoot(parent, found))) return unchanged
-  const real = hostFacts.realpath?.(found) ?? found
-  if (insideRoot(workspaceRoot, found) || insideRoot(workspaceRoot, real)) return unchanged
+  const resolved = hostFacts.realpath?.(found) ?? found
+  const named = hostFacts.shimTarget?.(resolved)
+  const real = named === undefined || hostFacts.executable(named) === undefined
+    ? resolved
+    : hostFacts.realpath?.(named) ?? named
+  if ([found, resolved, real].some((path) => insideRoot(workspaceRoot, path))) return unchanged
   if (granted.some((parent) => insideRoot(parent, real))) return { program: real, reads: [] }
   let directory = NodePath.dirname(real)
   for (let level = 0; level < 3; level++) {

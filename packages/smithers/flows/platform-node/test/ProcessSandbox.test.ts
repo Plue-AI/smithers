@@ -5,7 +5,7 @@
  * native enforcement probe verifies credential denial and explicit grants
  * using only synthetic files; broader end-to-end suites live in @smthrs/build-cli.
  */
-import { spawnSync } from "node:child_process"
+import NodeChildProcess, { spawnSync } from "node:child_process"
 import NodeFs from "node:fs"
 import { syncBuiltinESMExports } from "node:module"
 import * as NodeOs from "node:os"
@@ -1473,6 +1473,62 @@ describe("bubblewrap launcher (#3140)", () => {
     expect(ProcessSandbox.bubblewrap(planned(top), ["tool"], top, "/").join(" ")).toContain("--ro-bind /tool /tool")
   })
 
+  // pnpm as `pnpm/action-setup` installs it since pnpm 11: `pnpm self-update` writes a cmd-shim
+  // script to `$PNPM_HOME/bin` that runs a package in pnpm's global store.
+  describe("a package-manager shim script", () => {
+    const shim = `${setup}/.bin/bin/pnpm`
+    const named = `${setup}/.bin/global/v11/abc/node_modules/pnpm/bin/pnpm.mjs`
+    const pkg = `${setup}/.bin/store/v11/links/pnpm/11.25.0/node_modules/pnpm`
+    const stored = `${pkg}/bin/pnpm.mjs`
+    const shimmed = (overrides: Partial<ProcessSandbox.Host> = {}) =>
+      runner({
+        executable: (name) => name === shim || name === named ? name : undefined,
+        exists: (path) => path === `${pkg}/package.json`,
+        realpath: (path) => path === named ? stored : path,
+        shimTarget: (path) => path === shim ? named : undefined,
+        ...overrides
+      })
+
+    it("execs the real file of the program the shim names and binds that program's package", () => {
+      const facts = shimmed()
+      const argv = ProcessSandbox.bubblewrap(planned(facts), ["pnpm", "--version"], facts, `${setup}/.bin/bin`)
+      expect(tail(argv)).toEqual([stored, "--version"])
+      expect(argv.join(" ")).toContain(`--ro-bind ${pkg} ${pkg}`)
+      expect(argv.join(" ")).not.toContain(`--ro-bind ${shim} `)
+    })
+
+    it("keeps the shim as the program when the file it names cannot be executed", () => {
+      const facts = shimmed({ executable: (name) => name === shim ? name : undefined })
+      const argv = ProcessSandbox.bubblewrap(planned(facts), ["pnpm"], facts, `${setup}/.bin/bin`)
+      expect(tail(argv)).toEqual([shim])
+      expect(argv.join(" ")).toContain(`--ro-bind ${shim} ${shim}`)
+    })
+
+    it("never binds the program a shim names inside the workspace", () => {
+      const local = `${root}/node_modules/pnpm/bin/pnpm.mjs`
+      const facts = shimmed({
+        executable: (name) => name === shim || name === local ? name : undefined,
+        realpath: (path) => path,
+        shimTarget: (path) => path === shim ? local : undefined
+      })
+      const argv = ProcessSandbox.bubblewrap(planned(facts, { reads: [] }), ["pnpm"], facts, `${setup}/.bin/bin`)
+      expect(tail(argv)).toEqual(["pnpm"])
+      expect(argv.join(" ")).not.toContain("node_modules/pnpm")
+    })
+
+    it("execs a named program inside a granted path by its spelling when its real file is unknown", () => {
+      const facts = shimmed({
+        executable: (name) => name === shim || name === "/usr/lib/node_modules/pnpm/bin/pnpm.mjs" ? name : undefined,
+        exists: (path) => path === "/usr",
+        realpath: (path) => path === "/usr/lib/node_modules/pnpm/bin/pnpm.mjs" ? undefined : path,
+        shimTarget: (path) => path === shim ? "/usr/lib/node_modules/pnpm/bin/pnpm.mjs" : undefined
+      })
+      const argv = ProcessSandbox.bubblewrap(planned(facts), ["pnpm"], facts, `${setup}/.bin/bin`)
+      expect(tail(argv)).toEqual(["/usr/lib/node_modules/pnpm/bin/pnpm.mjs"])
+      expect(argv.join(" ")).not.toContain(`${setup}/.bin`)
+    })
+  })
+
   it("leaves a name that resolves nowhere, and a workspace-relative program, for execvp to report", () => {
     const facts = runner()
     expect(tail(ProcessSandbox.bubblewrap(planned(facts), ["missing"], facts, "/usr/bin"))).toEqual(["missing"])
@@ -1529,10 +1585,27 @@ describe("bubblewrap launcher (#3140)", () => {
           env: { ...process.env, PATH: path, ...wrapped.env }
         })
       }
-      const path = [bin, ...(process.env["PATH"] ?? "").split(":"), NodePath.dirname(process.execPath)].join(":")
+      // The same package behind a cmd-shim script, as `pnpm self-update` installs pnpm under
+      // `pnpm/action-setup`: the script runs node on a path relative to itself, outside every grant.
+      const shims = NodePath.join(outside, "pnpm-home/bin")
+      const named = NodePath.join(outside, "pnpm-home/global/node_modules/fake-pm/bin/fake-pm.cjs")
+      NodeFs.mkdirSync(shims, { recursive: true })
+      NodeFs.mkdirSync(NodePath.dirname(NodePath.dirname(NodePath.dirname(named))), { recursive: true })
+      NodeFs.symlinkSync(pkg, NodePath.dirname(NodePath.dirname(named)))
+      NodeFs.writeFileSync(
+        NodePath.join(shims, "shim-pm"),
+        "#!/bin/sh\nbasedir=$(dirname \"$0\")\n"
+          + "exec node \"$basedir/../global/node_modules/fake-pm/bin/fake-pm.cjs\" \"$@\"\n"
+          + `# cmd-shim-target=${named}\n`,
+        { mode: 0o755 }
+      )
+      const path = [bin, shims, ...(process.env["PATH"] ?? "").split(":"), NodePath.dirname(process.execPath)].join(":")
       const fake = run(["fake-pm"], path)
       expect(fake.status, fake.stderr).toBe(0)
       expect(fake.stdout).toBe("fake-pm-ok")
+      const shimmed = run(["shim-pm"], path)
+      expect(shimmed.status, shimmed.stderr).toBe(0)
+      expect(shimmed.stdout).toBe("fake-pm-ok")
       const pnpm = hostFacts.executable("pnpm")
       if (pnpm !== undefined) {
         const real = run(["pnpm", "--version"], path)
@@ -1745,6 +1818,61 @@ describe("sandbox refusal and declaration boundaries", () => {
 })
 
 describe("host runtime lookup boundaries", () => {
+  it("reads a shim's program from the line cmd-shim writes, and no program from any other file", () => {
+    const { base } = writeFixture()
+    try {
+      const write = (name: string, text: string) => {
+        const file = NodePath.join(base, name)
+        NodeFs.writeFileSync(file, text, { mode: 0o755 })
+        return file
+      }
+      const facts = ProcessSandbox.host({})
+      const shim = write(
+        "shim",
+        "#!/bin/sh\nexec node \"$basedir/pm.mjs\" \"$@\"\n# cmd-shim-target=/opt/pm/bin/pm.mjs\n"
+      )
+      expect(facts.shimTarget?.(shim)).toBe("/opt/pm/bin/pm.mjs")
+      expect(facts.shimTarget?.(write("relative", "#!/bin/sh\n# cmd-shim-target=pm.mjs\n"))).toBeUndefined()
+      expect(facts.shimTarget?.(write("plain", "#!/bin/sh\necho pm\n"))).toBeUndefined()
+      expect(facts.shimTarget?.(write("binary", "\u007fELF\n# cmd-shim-target=/opt/pm/bin/pm.mjs\n"))).toBeUndefined()
+      const large = `#!/bin/sh\n${"#".repeat(64 * 1024)}\n# cmd-shim-target=/opt/pm/bin/pm.mjs\n`
+      expect(facts.shimTarget?.(write("large", large))).toBeUndefined()
+      expect(facts.shimTarget?.(NodePath.join(base, "missing"))).toBeUndefined()
+    } finally {
+      NodeFs.rmSync(base, { recursive: true, force: true })
+    }
+  })
+
+  it("asks xcode-select for the developer tree only on macOS with no DEVELOPER_DIR, and survives its absence", () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, "platform")!
+    const calls: Array<ReadonlyArray<unknown>> = []
+    let selected: string | Error = "/Applications/Xcode_26.6.app/Contents/Developer\n"
+    const select = vi.spyOn(NodeChildProcess, "execFileSync").mockImplementation(
+      ((...args: ReadonlyArray<unknown>) => {
+        calls.push(args)
+        if (selected instanceof Error) throw selected
+        return selected
+      }) as typeof NodeChildProcess.execFileSync
+    )
+    syncBuiltinESMExports()
+    try {
+      Object.defineProperty(process, "platform", { ...descriptor, value: "darwin" })
+      expect(ProcessSandbox.host({}).developerDirectory).toBe("/Applications/Xcode_26.6.app/Contents/Developer")
+      expect(calls).toEqual([["/usr/bin/xcode-select", ["-p"], { encoding: "utf8", timeout: 2_000 }]])
+      selected = new Error("xcode-select: error: unable to get active developer directory")
+      expect(ProcessSandbox.host({}).developerDirectory).toBeUndefined()
+      expect(ProcessSandbox.host({ DEVELOPER_DIR: "/Library/Developer/CommandLineTools" }).developerDirectory)
+        .toBe("/Library/Developer/CommandLineTools")
+      Object.defineProperty(process, "platform", { ...descriptor, value: "linux" })
+      expect(ProcessSandbox.host({}).developerDirectory).toBeUndefined()
+      expect(calls).toHaveLength(2)
+    } finally {
+      Object.defineProperty(process, "platform", descriptor)
+      select.mockRestore()
+      syncBuiltinESMExports()
+    }
+  })
+
   it("honors an explicit developer tree and Windows cache environment", () => {
     expect(ProcessSandbox.host({ DEVELOPER_DIR: "/Applications/Selected/Developer" }).developerDirectory).toBe(
       "/Applications/Selected/Developer"

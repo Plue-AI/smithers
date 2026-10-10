@@ -195,6 +195,20 @@ describe("atomic helper configuration admission", () => {
     expect(AtomicFileSystem.helperSpawns()).toBe(before)
   })
 
+  it("resolves the helper a diagnostic reports as an operation would, without spawning it", async () => {
+    const root = await temporary()
+    const binary = join(root, "helper")
+    await writeFile(binary, "#!/bin/sh\nexit 0\n", { mode: 0o755 })
+    const missing = join(root, "missing-helper")
+    const before = AtomicFileSystem.helperSpawns()
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", binary)
+    expect(AtomicFileSystem.resolveHelper()).toBe(binary)
+    vi.stubEnv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", missing)
+    expect(() => AtomicFileSystem.resolveHelper()).toThrow(AtomicFileSystem.AtomicHelperError)
+    expect(() => AtomicFileSystem.resolveHelper()).toThrow(`SMITHERS_WORKSPACE_JJ_EXPORT_BINARY=${missing}`)
+    expect(AtomicFileSystem.helperSpawns()).toBe(before)
+  })
+
   it("gives an explicit executable precedence over the environment override", async () => {
     const root = await temporary()
     const explicit = join(root, "explicit-helper")
