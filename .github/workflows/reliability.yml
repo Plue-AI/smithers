@@ -347,6 +347,28 @@ jobs:
       - name: "Initialize colocated jj repository"
         id: setup
         run: "jj git init --colocate"
+      # The fault matrix's disk case (#3367) boots one Microsandbox microVM
+      # from a cached node:26-trixie image and refuses to pull, so the runner
+      # needs KVM for its user and that image in msb's cache. The step carries
+      # the fault matrix's condition, so it runs exactly when the matrix does.
+      - name: Prepare the fault matrix microVM
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        run: |
+          if [ "$(uname -s)" = Linux ]; then
+            echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+            sudo udevadm control --reload-rules
+            sudo udevadm trigger --name-match=kvm
+          fi
+          msb="$(cd packages/smithers/flows && node -e '
+            const { dirname, join } = require("node:path")
+            const { existsSync, readdirSync } = require("node:fs")
+            const scope = join(dirname(dirname(dirname(require.resolve("microsandbox")))), "@superradcompany")
+            const triple = "microsandbox-" + process.platform + "-" + process.arch
+            const found = readdirSync(scope).filter((name) => (name === triple || name.startsWith(triple + "-")) && existsSync(join(scope, name, "bin", "msb")))
+            if (found.length !== 1) throw new Error("expected one " + triple + " package with bin/msb in " + scope + ", found " + found.length)
+            console.log(join(scope, found[0], "bin", "msb"))
+          ')"
+          "$msb" pull docker.io/library/node:26-trixie
       - name: "Exclusive fault matrix"
         env:
           SMITHERS_TEST_DATABASE_URL: ${{ matrix.host == 'linux' && format('postgres://smithers:fault-fixture@127.0.0.1:{0}/postgres?sslmode=disable', job.services.postgres.ports['5432']) || '' }}

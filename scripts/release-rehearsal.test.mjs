@@ -251,14 +251,15 @@ const candidateSteps = [
   "Report the skipped publication"
 ]
 
-/** Gates that are not build-graph invocations, and the setup two of them need. */
+/** Gates that are not build-graph invocations, and the setup three of them need. */
 const otherGates = [
   "Release changelog section",
   "Install Playwright Chromium and WebKit",
   "Install PostgreSQL 18 for the owned local mode",
   "Real PostgreSQL backup and restore",
   "Distribution release contracts",
-  "Product deployment mode matrix"
+  "Product deployment mode matrix",
+  "Prepare the fault matrix microVM"
 ]
 
 test("only the re-run guard, the lanes, candidate preparation and publication select a path; diagnostics survive failure", () => {
@@ -287,6 +288,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Product deployment mode matrix",
     "Upload product deployment mode matrix receipt",
     "Select the repository's pinned Node",
+    "Prepare the fault matrix microVM",
     "Build all workspaces from clean artifacts",
     "Review declaration API drift",
     "Retrieve native helpers for npm",
