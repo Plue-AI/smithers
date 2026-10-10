@@ -127,7 +127,7 @@ const seedGitHubRepository = (gitRoot: string, owner: string): void => {
   writeFileSync(join(seed, "JOURNEY.md"), "Add a greeting to JOURNEY.md\n")
   writeFileSync(join(seed, "Makefile"), "build:\n\ttest -s JOURNEY.md\n\ntest:\n\tgrep -q . JOURNEY.md\n")
   mkdirSync(join(seed, "flows", "approval-proof"), { recursive: true })
-  writeFileSync(join(seed, "flows", "approval-proof", "flow.mdx"), approvalFlow("00000000-0000-4000-8000-000000000000"))
+  writeFileSync(join(seed, "flows/approval-proof/flow.mdx"), approvalFlow("00000000-0000-4000-8000-000000000000"))
   git(["-C", seed, "add", "."])
   git(["-C", seed, "-c", "user.name=Owner", "-c", "user.email=owner@example.test", "commit", "-q", "-m", "Initial commit"])
   git(["clone", "-q", "--bare", seed, bare])
@@ -261,7 +261,7 @@ export const startLocalOwn = async (rootDir: string, revision: string, outputDir
     // Public activation and the fixture's real retirement receipts both
     // precede its persistence restart. Activation alone may still be capturing
     // the startup machine; private background machines are absent from /workspaces.
-    const databasePort = readFileSync(join(dataRoot, "postgres", "data", "postmaster.pid"), "utf8").split("\n")[3]!.trim()
+    const databasePort = readFileSync(join(dataRoot, "postgres/data/postmaster.pid"), "utf8").split("\n")[3]!.trim()
     const databasePassword = readFileSync(join(dataRoot, "postgres", "password"), "utf8")
     const database = new Bun.SQL(`postgres://smithers:${encodeURIComponent(databasePassword)}@127.0.0.1:${databasePort}/postgres`)
     try {
