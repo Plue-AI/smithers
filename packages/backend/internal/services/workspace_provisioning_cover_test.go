@@ -191,7 +191,6 @@ CREATE TRIGGER cov_refuse_workspace_insert BEFORE INSERT ON workspaces FOR EACH 
 	assert.Empty(t, f.branch(t, "cov/primary"))
 	assert.Empty(t, f.branch(t, "cov/derived"))
 
-
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
 			return db.Workspace{}, errors.New("status failed")
@@ -310,8 +309,13 @@ func TestWorkspaceProvisioning_Cov_VMProvisioningBranches(t *testing.T) {
 				return sandbox.CreateResult{ID: "vm-no-clone"}, nil
 			},
 			execAwaitFn: func(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
-				t.Fatal("no clone command should run without repo owner/name")
-				return sandbox.ExecResult{}, nil
+				// Artifact staging also execs when the host has a jj export
+				// helper (as CI does); only a clone is refused here.
+				if strings.Contains(req.Command, workspaceCloneMarker) {
+					t.Fatal("no clone command should run without repo owner/name")
+				}
+				ok := int32(0)
+				return sandbox.ExecResult{StatusCode: &ok}, nil
 			},
 		}))
 	ws, err := svc.createWorkspaceVM(ctx, sampleDBWorkspace("ws-no-clone"), CreateWorkspaceSessionInput{UserID: 1})

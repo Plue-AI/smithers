@@ -47,8 +47,11 @@ func TestCreateUserRefWorkspaceRefusals(t *testing.T) {
 
 	_, err := newWorkspaceServiceForTests(stack).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeServiceUnavailable)
-	_, err = newWorkspaceServiceForTests(mock, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
+	// A store without the stack contract is refused. The shared mock answers
+	// "no stack", so hide that reader to model such a store.
+	_, err = newWorkspaceServiceForTests(forkStoreWithoutStackReader{mock}, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeInternal)
+	require.Contains(t, err.Error(), "cannot read mythical stacks")
 	stack.stackErr = errors.New("database down")
 	_, err = newWorkspaceServiceForTests(stack, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "main", workspaceCreateMetadata{})
 	requireAPICode(t, err, pkgerrors.CodeInternal)
@@ -74,8 +77,9 @@ func TestCreateUserRefWorkspaceRefusals(t *testing.T) {
 	// A valid retained pin still cannot bypass canonical machine admission.
 	// Creation with real providers is covered at the composed install boundary.
 	beforeValid := len(host.retained)
+	// The refusal keeps its own status (7d00373587), not a 500.
 	_, err = newWorkspaceServiceForTests(stack, WithWorkspaceUserRefs(host)).createUserRefWorkspace(ctx, input, "", workspaceCreateMetadata{})
-	requireAPICode(t, err, pkgerrors.CodeInternal)
+	requireAPICode(t, err, pkgerrors.CodeServiceUnavailable)
 	require.Contains(t, err.Error(), "branch machine providers unavailable")
 	require.Len(t, host.retained, beforeValid+1)
 	require.NotEmpty(t, host.retained[len(host.retained)-1].WorkspaceID)

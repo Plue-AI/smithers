@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,7 +88,13 @@ func TestWorkspaceService_CreateSession_PersistsVMIDWhenCloneFails(t *testing.T)
 			return sandbox.CreateResult{ID: "vm-clone-fail"}, nil
 		},
 		execAwaitFn: func(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
-			// The VM booted fine but the in-VM repo clone failed.
+			// The VM booted fine but the in-VM repo clone failed. Artifact
+			// staging, which runs first when the host has a jj export helper
+			// (as CI does), succeeds: a failure there deletes the VM instead.
+			if !strings.Contains(req.Command, workspaceCloneMarker) {
+				ok := int32(0)
+				return sandbox.ExecResult{StatusCode: &ok}, nil
+			}
 			return sandbox.ExecResult{StatusCode: &cloneFailed, Stderr: "fatal: could not read from remote repository"}, nil
 		},
 	}), WithWorkspaceSandboxMetrics(metrics))
