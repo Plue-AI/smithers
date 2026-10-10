@@ -68,6 +68,12 @@ var ErrManagedHostNotRunning = errors.New("managed host is not running")
 // opportunistically while it is still live.
 var ErrManagedHostIdentityConflict = errors.New("managed host identity conflict")
 
+// ErrMachineBackoff marks a refusal a machine runtime answered from its retry
+// backoff after a failed attempt, without trying again. errors.Is also finds
+// the cached failure it repeats. A caller that bounds failed attempts does
+// not count it as a new one.
+var ErrMachineBackoff = errors.New("machine retry backoff")
+
 // ErrWorkspaceSourceUnavailable means the runtime workspace does not expose a
 // supported immutable repository snapshot. Callers must not substitute a
 // package build revision or fabricate a source identity.

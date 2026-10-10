@@ -177,6 +177,15 @@ func (lease *memoryBindingLease) MarkFailed(_ context.Context, code string) erro
 	lease.store.lastErrorCode = code
 	return nil
 }
+func (lease *memoryBindingLease) MarkDeferred(_ context.Context, code string) error {
+	lease.store.mu.Lock()
+	defer lease.store.mu.Unlock()
+	lease.binding.LastErrorCode = code
+	lease.binding.State = "failed"
+	lease.store.binding = lease.binding
+	lease.store.lastErrorCode = code
+	return nil
+}
 func (*memoryBindingLease) Close() error { return nil }
 
 type identityTransport struct {
@@ -1183,6 +1192,66 @@ func TestResolverFailedStartsAreBoundedAndReleaseRetries(t *testing.T) {
 		})
 	}
 }
+
+// A machine runtime answers a start inside its retry backoff with the cached
+// failure and tries nothing (EnsureMachined, #3773). Run 13's learning machine
+// spent its three starts in 3 s that way. Such a refusal is not a fresh failed
+// start: it keeps the bound, while real failures still exhaust it.
+func TestResolverBackoffRefusalsDoNotSpendTheStartBound(t *testing.T) {
+	resolver, store, base, target := testResolver(t)
+	l := &boundedStartLauncher{snapshotLauncher: &snapshotLauncher{memoryLauncher: base, revision: strings.Repeat("d", 40)}}
+	resolver.launcher = l
+	cause := errors.New("not_ready")
+	real := fmt.Errorf("prepare machine: %w", cause)
+	cached := fmt.Errorf("prepare machine: %w", fmt.Errorf("%w: %w", workspaceapi.ErrMachineBackoff, cause))
+	retryable := func(err error, code string) {
+		t.Helper()
+		var f flowruntime.Failure
+		require.ErrorAs(t, err, &f)
+		require.True(t, f.FlowRuntimeRetryable())
+		require.Equal(t, code, f.FlowRuntimeCode())
+	}
+	base.startErr = real
+	_, err := resolver.ResolveFlowRuntime(t.Context(), target)
+	retryable(err, "runtime_start_failed")
+	require.Equal(t, 1, store.binding.StartFailures)
+	base.startErr = cached
+	for range 2 * MaxStartFailures {
+		_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+		retryable(err, "runtime_start_failed")
+		require.ErrorIs(t, err, cause)
+	}
+	require.Equal(t, 1, store.binding.StartFailures, "a backoff refusal is not a new failed start")
+	require.Equal(t, "failed", store.binding.State, "the next start still fences a new owner")
+	require.Zero(t, l.releases)
+	generation := store.binding.OwnerGeneration
+	base.startErr = real
+	_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+	retryable(err, "runtime_start_failed")
+	require.Greater(t, store.binding.OwnerGeneration, generation)
+	_, err = resolver.ResolveFlowRuntime(t.Context(), target)
+	require.ErrorContains(t, err, "runtime_start_exhausted")
+	require.Equal(t, MaxStartFailures, store.binding.StartFailures)
+	require.Equal(t, 1, l.releases)
+	require.Len(t, base.starts, 2*MaxStartFailures+MaxStartFailures)
+}
+
+// causeOnly carries its cause the way an API error does: Cause, no Unwrap.
+type causeOnly struct{ cause error }
+
+func (e causeOnly) Error() string { return "machine daemon unavailable" }
+func (e causeOnly) Cause() error  { return e.cause }
+
+func TestMachineBackoffIsFoundThroughACauseOnlyError(t *testing.T) {
+	backoff := fmt.Errorf("%w: %w", workspaceapi.ErrMachineBackoff, errors.New("not_ready"))
+	require.True(t, machineBackoff(backoff))
+	require.True(t, machineBackoff(fmt.Errorf("start: %w", causeOnly{backoff})))
+	require.True(t, machineBackoff(failure{code: "runtime_start_failed", cause: causeOnly{causeOnly{backoff}}}))
+	require.False(t, machineBackoff(causeOnly{errors.New("not_ready")}))
+	require.False(t, machineBackoff(causeOnly{}))
+	require.False(t, machineBackoff(nil))
+}
+
 func TestResolverSourceRefreshRecoversBeforeFirstSuccess(t *testing.T) {
 	resolver, store, base, target := testResolver(t)
 	original := resolver.targets

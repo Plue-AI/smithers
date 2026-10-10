@@ -272,6 +272,10 @@ type BindingLease interface {
 	MarkRunning(ctx context.Context, serviceIdentity string) error
 	// MarkFailed records a failed start so the next start fences a new owner.
 	MarkFailed(ctx context.Context, code string) error
+	// MarkDeferred records a start the machine runtime refused from its retry
+	// backoff (workspaceapi.ErrMachineBackoff): the next start still fences a
+	// new owner, and the refusal does not count toward MaxStartFailures.
+	MarkDeferred(ctx context.Context, code string) error
 	Close() error
 }
 

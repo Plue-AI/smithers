@@ -542,6 +542,17 @@ func (resolver *Resolver) startFailed(ctx context.Context, lease BindingLease, b
 	if errors.As(result, &known) {
 		code = known.FlowRuntimeCode()
 	}
+	if machineBackoff(result) && !sourceMismatchCode(code) {
+		// The machine runtime answered from its retry backoff: it repeated a
+		// failure already counted and tried nothing. Fence the owner as for a
+		// failed start, without spending the bound (#3773).
+		if err := lease.MarkDeferred(context.WithoutCancel(ctx), code); err != nil {
+			slog.ErrorContext(ctx, "flow host failure checkpoint failed", "binding_id", binding.ID,
+				"workspace_id", binding.WorkspaceID, "owner_generation", binding.OwnerGeneration, "error", err)
+			return failure{code: "runtime_binding_checkpoint_failed", retryable: true, cause: err}
+		}
+		return failure{code: code, retryable: true, cause: result}
+	}
 	if sourceMismatchCode(code) && (binding.EverStarted || binding.SourceRefreshed) {
 		code = "runtime_source_revision_mismatch_terminal"
 	}
@@ -564,6 +575,23 @@ func (resolver *Resolver) startFailed(ctx context.Context, lease BindingLease, b
 }
 
 const MaxStartFailures = 3
+
+// machineBackoff reports a refusal the machine runtime answered from its
+// retry backoff (workspaceapi.ErrMachineBackoff), also when an API error
+// keeps it only as its Cause.
+func machineBackoff(err error) bool {
+	for depth := 0; err != nil && depth < 8; depth++ {
+		if errors.Is(err, workspaceapi.ErrMachineBackoff) {
+			return true
+		}
+		var caused interface{ Cause() error }
+		if !errors.As(err, &caused) {
+			return false
+		}
+		err = caused.Cause()
+	}
+	return false
+}
 
 func sourceMismatchCode(code string) bool {
 	return code == "source_revision_mismatch" || code == "runtime_source_revision_mismatch"

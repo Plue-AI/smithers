@@ -509,6 +509,24 @@ func (value *lease) MarkFailed(ctx context.Context, code string) error {
 	return nil
 }
 
+func (value *lease) MarkDeferred(ctx context.Context, code string) error {
+	if value == nil || value.closed || value.connection == nil {
+		return errors.New("flow host binding lease is closed")
+	}
+	tag, err := value.connection.Exec(ctx, `UPDATE flow_runtime_host_bindings
+		SET state='failed', last_error_code=$3, updated_at=clock_timestamp()
+		WHERE id=$1 AND owner_generation=$2 AND state <> 'retired'`, value.binding.ID, value.binding.OwnerGeneration, code)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return errors.New("flow host deferred checkpoint lost its owner fence")
+	}
+	value.binding.LastErrorCode = code
+	value.binding.State = "failed"
+	return nil
+}
+
 func (value *lease) Close() error {
 	if value == nil || value.closed {
 		return nil

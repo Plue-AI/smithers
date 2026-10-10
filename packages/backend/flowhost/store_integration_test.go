@@ -571,3 +571,37 @@ func TestPostgresStartFailureBudgetSurvivesNewStore(t *testing.T) {
 	require.True(t, lease.Binding().EverStarted)
 	require.NoError(t, lease.Close())
 }
+
+// A start the machine runtime refused from its retry backoff fences its owner
+// like a failed start but does not spend the start bound (#3773).
+func TestPostgresDeferredStartKeepsTheFailureBudget(t *testing.T) {
+	pool := hostTestPool(t)
+	ctx := t.Context()
+	authority, catalog := hostFixture(t, pool)
+	store, err := NewStore(pool, testCodec{})
+	require.NoError(t, err)
+	lease, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	_, err = lease.PrepareStart(ctx, false)
+	require.NoError(t, err)
+	require.NoError(t, lease.MarkFailed(ctx, "runtime_start_failed"))
+	started, err := lease.PrepareStart(ctx, true)
+	require.NoError(t, err)
+	require.NoError(t, lease.MarkDeferred(ctx, "runtime_start_failed"))
+	require.Equal(t, 1, lease.Binding().StartFailures)
+	require.Equal(t, "failed", lease.Binding().State)
+	var state, code string
+	var failures int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT state,last_error_code,start_failures FROM flow_runtime_host_bindings WHERE id=$1`, started.ID).Scan(&state, &code, &failures))
+	require.Equal(t, []any{"failed", "runtime_start_failed", 1}, []any{state, code, failures})
+	require.NoError(t, lease.Close())
+
+	// The owner fence holds: a lease whose generation a later start replaced
+	// cannot record the deferral.
+	stale, err := store.Acquire(ctx, authority, catalog)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE flow_runtime_host_bindings SET owner_generation=owner_generation+1 WHERE id=$1`, started.ID)
+	require.NoError(t, err)
+	require.ErrorContains(t, stale.MarkDeferred(ctx, "runtime_start_failed"), "lost its owner fence")
+	require.NoError(t, stale.Close())
+}

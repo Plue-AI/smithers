@@ -92,6 +92,26 @@ func TestStormEnsureSingleFlightAndFailureBackoff(t *testing.T) {
 	}
 }
 
+// A refusal inside the backoff repeats the cached failure without a new
+// attempt (#3773). Callers that bound attempts must tell it apart from a
+// fresh failure; errors.Is still finds the cause it repeats.
+func TestStormBackoffRefusalIsMarkedAsCached(t *testing.T) {
+	r, ws, log := stormRuntime(t, false)
+	first := r.EnsureMachined(t.Context(), "branch")
+	require.Error(t, first)
+	require.NotErrorIs(t, first, workspaceapi.ErrMachineBackoff, "a real attempt's failure is a new failure")
+	cached := r.EnsureMachined(t.Context(), "branch")
+	require.ErrorIs(t, cached, workspaceapi.ErrMachineBackoff)
+	ws.daemonAttemptMu.Lock()
+	cause := ws.daemonFailure
+	ws.daemonAttemptMu.Unlock()
+	require.ErrorIs(t, cached, cause)
+	require.Equal(t, first.Error(), cached.Error(), "the refusal reads as the failure it repeats")
+	body, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, 1, strings.Count(string(body), "managed-artifact-check"))
+}
+
 func TestStormDialStartBound(t *testing.T) {
 	r, ws, log := stormRuntime(t, true)
 	started := time.Now()

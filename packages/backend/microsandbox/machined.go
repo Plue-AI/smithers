@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"log/slog"
 	"strings"
 	"time"
@@ -63,7 +64,7 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 	attempt := ws.daemonAttempt
 	if attempt == nil {
 		if time.Now().Before(ws.daemonRetryAt) {
-			err := ws.daemonFailure
+			err := daemonBackoffRefusal{cause: ws.daemonFailure}
 			ws.daemonAttemptMu.Unlock()
 			return err
 		}
@@ -101,6 +102,17 @@ func (r *Runtime) EnsureMachined(ctx context.Context, id string) error {
 type daemonAttempt struct {
 	done chan struct{}
 	err  error
+}
+
+// daemonBackoffRefusal is the failed attempt's error, repeated to a caller
+// inside the backoff without a new attempt. It reads as that failure, and
+// errors.Is finds both the failure and workspaceapi.ErrMachineBackoff, so a
+// caller that bounds failed attempts does not count it again (#3773).
+type daemonBackoffRefusal struct{ cause error }
+
+func (refusal daemonBackoffRefusal) Error() string { return refusal.cause.Error() }
+func (refusal daemonBackoffRefusal) Unwrap() []error {
+	return []error{workspaceapi.ErrMachineBackoff, refusal.cause}
 }
 
 func nextDaemonBackoff(previous time.Duration) time.Duration {
