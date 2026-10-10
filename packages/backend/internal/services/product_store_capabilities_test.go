@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/productstore"
 	"github.com/smithersai/smithers/packages/backend/runtimeports"
@@ -74,6 +75,19 @@ var productStoreCapabilities = map[string]func(any) bool{
 	}],
 	"interface{GetMythicalLane}": storeImplements[interface {
 		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+	}],
+	"interface{GetMythicalItem,GetMythicalLane}": storeImplements[interface {
+		GetMythicalItem(context.Context, pgtype.UUID) (db.MythicalItem, error)
+		GetMythicalLane(context.Context, string) (db.MythicalLane, error)
+	}],
+	"interface{GetBranchWorkspace}": storeImplements[interface {
+		GetBranchWorkspace(context.Context, db.GetBranchWorkspaceParams) (db.Workspace, error)
+	}],
+	"interface{IsWorkflowBackgroundWorkspace}": storeImplements[interface {
+		IsWorkflowBackgroundWorkspace(context.Context, string) (bool, error)
+	}],
+	"interface{ListCollaboratorsByRepo}": storeImplements[interface {
+		ListCollaboratorsByRepo(context.Context, int64) ([]db.Collaborator, error)
 	}],
 	"interface{GetWorkspaceIncludingDeleted}": storeImplements[interface {
 		GetWorkspaceIncludingDeleted(context.Context, string) (db.Workspace, error)
