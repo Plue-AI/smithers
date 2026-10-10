@@ -217,10 +217,14 @@ describe("a host that was killed", () => {
       expect.objectContaining({
         pid: pgid,
         pgid,
-        hostId: "orphan-host",
-        commandDigest: "sh"
+        hostId: "orphan-host"
       })
     ])
+    // The record names the program it started and none of its arguments. The
+    // host confines every spawn (#3140), so that program is the sandbox
+    // launcher wherever one exists, not the `sh` the action asked for.
+    expect(orphans[0]?.commandDigest).toMatch(/^\S+$/)
+    expect(orphans[0]?.commandDigest).not.toContain("sleep")
     expect(orphans[0]?.ownerPid).not.toBe(process.pid)
 
     // And the reaper, given exactly that, ends the group.
