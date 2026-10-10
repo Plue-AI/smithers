@@ -439,10 +439,10 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		memberHash := sha256.Sum256([]byte(memberCookie))
 		_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: member.ID, Username: member.Username, SessionKey: hex.EncodeToString(memberHash[:]), ExpiresAt: time.Now().Add(time.Hour)})
 		require.NoError(t, err)
-		// Native capture changes jj metadata. During the position check, an
-		// authenticated write may refuse without applying anything. A person
+		// Native capture changes jj metadata; outside saves settle asynchronously.
+		// Their preflight may refuse without applying anything. A person
 		// re-reads before retrying; never retry a partial/unknown settlement.
-		retryMetadata := func(t *testing.T, body string, status, actual, attempt int) bool {
+		retryPreflight := func(t *testing.T, body string, status, actual, attempt int) bool {
 			t.Helper()
 			var settled comparedWriteSettlement
 			select {
@@ -452,8 +452,9 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			}
 			var refusal *machined.SessionError
 			if attempt >= 10 || (status == 503 && !strings.Contains(body, `"path":"batch-prefix"`)) || actual != 503 ||
-				!errors.As(settled.err, &refusal) || refusal.Code != "not_ready" ||
-				!strings.Contains(refusal.Detail, "moved-off check required") ||
+				!errors.As(settled.err, &refusal) ||
+				!((refusal.Code == "not_ready" && strings.Contains(refusal.Detail, "moved-off check required")) ||
+					(refusal.Code == "busy" && strings.Contains(refusal.Detail, "outside writes are still settling"))) ||
 				!settled.result.Preflight || len(settled.result.Applied) != 0 || len(settled.result.Raced) != 0 || settled.result.Stale != nil {
 				return false
 			}
@@ -478,10 +479,10 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 				} else {
 					require.NoError(t, err)
 					digest := sha256.Sum256(bytes)
-					require.Equal(t, change.Base, hex.EncodeToString(digest[:]), "refused metadata check changed bytes")
+					require.Equal(t, change.Base, hex.EncodeToString(digest[:]), "refused preflight changed bytes")
 				}
 			}
-			t.Log("re-read unchanged bases after authenticated metadata refusal")
+			t.Log("re-read unchanged bases after authenticated preflight refusal")
 			time.Sleep(250 * time.Millisecond)
 			return true
 		}
@@ -500,7 +501,7 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 				data, err := io.ReadAll(res.Body)
 				require.NoError(t, err)
 				require.NoError(t, res.Body.Close())
-				if method == "PUT" && retryMetadata(t, body, status, res.StatusCode, attempt) {
+				if method == "PUT" && retryPreflight(t, body, status, res.StatusCode, attempt) {
 					continue
 				}
 				require.Equal(t, status, res.StatusCode, string(data))
@@ -531,6 +532,91 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 		disk, err := os.ReadFile(filepath.Join(root, "real.txt"))
 		require.NoError(t, err)
 		require.Equal(t, []byte("world"), disk)
+		// Qualify a new item's capture before the unrelated outside-save campaign
+		// can leave a stale capture requiring reconciliation on this branch.
+		t.Run("capture pending work", func(t *testing.T) {
+			// A person's PUT enters the real daemon; capture drains its outbox
+			// through the install's authenticated consumer before we inspect SQL.
+			settledCapture := func() (machined.CaptureResult, error) {
+				t.Helper()
+				var result machined.CaptureResult
+				var captureErr error
+				require.Eventually(t, func() bool {
+					bursts, docs, err := registry.IdleSafety(ctx, id)
+					if err != nil || !bursts || !docs {
+						return false
+					}
+					result, captureErr = registry.Capture(ctx, id)
+					// A snapshot's jj metadata may still be in the watcher debounce.
+					// Re-enter only after fresh quiet evidence, as sleep requires.
+					return !errors.Is(captureErr, machined.ErrNotReady)
+				}, 10*time.Second, 25*time.Millisecond)
+				return result, captureErr
+			}
+
+			accepted, err := settledCapture()
+			require.NoError(t, err)
+			_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
+			require.NoError(t, err)
+			var item string
+			require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,generation,checks) VALUES($1,'todo','proposed',$2,$3,$4,true,1,1,'{"todo":true}') RETURNING id::text`, row.RepositoryID, id, base, accepted.Head).Scan(&item))
+			state := func(wantVerified bool, wantWake int64, wantTree string) {
+				t.Helper()
+				var verified bool
+				var wakes int64
+				var pending []byte
+				require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_verified,checks->'capture' FROM mythical_items WHERE id=$1`, item).Scan(&verified, &pending))
+				require.Equal(t, wantVerified, verified)
+				require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&wakes))
+				require.Equal(t, wantWake, wakes)
+				if wantTree == "" {
+					require.Empty(t, pending)
+				} else {
+					var work struct {
+						Tree string `json:"tree"`
+					}
+					require.NoError(t, json.Unmarshal(pending, &work))
+					if wantTree != work.Tree {
+						diff, e := exec.Command("/usr/bin/git", "-C", hostRepo, "diff", wantTree, work.Tree, "--", "real.txt").CombinedOutput()
+						require.NoError(t, e)
+						t.Logf("pending capture tree differs: %s", diff)
+					}
+					require.Equal(t, wantTree, work.Tree)
+				}
+			}
+			var initial int64
+			require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&initial))
+			_, err = settledCapture()
+			require.NoError(t, err)
+			state(true, initial, "")
+			var current struct {
+				Content string `json:"content"`
+				Digest  string `json:"digest"`
+			}
+			require.NoError(t, json.Unmarshal(call("GET", cookie, "", 200), &current))
+			body, err := json.Marshal(map[string]string{"content": "pending member edit\n", "base_digest": current.Digest})
+			require.NoError(t, err)
+			call("PUT", memberCookie, string(body), 200)
+			edited, err := settledCapture()
+			require.NoError(t, err)
+			require.NotEqual(t, accepted.Tree, edited.Tree)
+			state(false, initial+1, edited.Tree)
+			// A new capture request is more than replaying the same frame.
+			for range 2 {
+				repeated, err := settledCapture()
+				require.NoError(t, err)
+				if edited.Tree != repeated.Tree {
+					diff, e := exec.Command("/usr/bin/git", "-C", hostRepo, "diff", "--stat", edited.Tree, repeated.Tree).CombinedOutput()
+					require.NoError(t, e)
+					t.Fatalf("capture changed without a write: %s -> %s: %s", edited.Tree, repeated.Tree, diff)
+				}
+				state(false, initial+1, edited.Tree)
+			}
+			// Leave the following independent compare-write campaign its fixed
+			// world digest, using the person's guarded write door.
+			pendingDigest := fmt.Sprintf("%x", sha256.Sum256([]byte("pending member edit\n")))
+			call("PUT", cookie, `{"content":"world","base_digest":"`+pendingDigest+`"}`, 200)
+		})
 		t.Run("batch delete move and later stale through HTTP", func(t *testing.T) {
 			request := func(body string, status int) []byte {
 				t.Helper()
@@ -547,7 +633,7 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 					bodyBytes, err := io.ReadAll(res.Body)
 					require.NoError(t, err)
 					require.NoError(t, res.Body.Close())
-					if retryMetadata(t, body, status, res.StatusCode, attempt) {
+					if retryPreflight(t, body, status, res.StatusCode, attempt) {
 						continue
 					}
 					require.Equal(t, status, res.StatusCode, string(bodyBytes))
@@ -752,63 +838,7 @@ func TestWorkspaceFileContentCompareWrite(t *testing.T) {
 			var receipts int
 			return pool.QueryRow(ctx, "SELECT count(*) FROM machine_event_receipts WHERE workspace_id=$1", id).Scan(&receipts) == nil && receipts > 0
 		}, 10*time.Second, 100*time.Millisecond)
-		t.Run("capture pending work", func(t *testing.T) {
-			// A person's PUT enters the real daemon; capture drains its outbox
-			// through the install's authenticated consumer before we inspect SQL.
-			accepted, err := registry.Capture(ctx, id)
-			require.NoError(t, err)
-			_, err = pool.Exec(ctx, `INSERT INTO mythical_stacks(repository_id,state,landed_main) VALUES($1,'active',$2)`, row.RepositoryID, base)
-			require.NoError(t, err)
-			var item string
-			require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,source,state,workspace_id,candidate_base,candidate_head,candidate_verified,attempt,generation,checks) VALUES($1,'todo','proposed',$2,$3,$4,true,1,1,'{"todo":true}') RETURNING id::text`, row.RepositoryID, id, base, accepted.Head).Scan(&item))
-			state := func(wantVerified bool, wantWake int64, wantTree string) {
-				t.Helper()
-				var verified bool
-				var wakes int64
-				var pending []byte
-				require.NoError(t, pool.QueryRow(ctx, `SELECT candidate_verified,checks->'capture' FROM mythical_items WHERE id=$1`, item).Scan(&verified, &pending))
-				require.Equal(t, wantVerified, verified)
-				require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&wakes))
-				require.Equal(t, wantWake, wakes)
-				if wantTree == "" {
-					require.Empty(t, pending)
-				} else {
-					var work struct {
-						Tree string `json:"tree"`
-					}
-					require.NoError(t, json.Unmarshal(pending, &work))
-					require.Equal(t, wantTree, work.Tree)
-				}
-			}
-			var initial int64
-			require.NoError(t, pool.QueryRow(ctx, `SELECT requested_generation FROM mythical_stacks WHERE repository_id=$1`, row.RepositoryID).Scan(&initial))
-			_, err = registry.Capture(ctx, id)
-			require.NoError(t, err)
-			state(true, initial, "")
-			var current struct {
-				Content string `json:"content"`
-				Digest  string `json:"digest"`
-			}
-			require.NoError(t, json.Unmarshal(call("GET", cookie, "", 200), &current))
-			body, err := json.Marshal(map[string]string{"content": "pending member edit\n", "base_digest": current.Digest})
-			require.NoError(t, err)
-			call("PUT", memberCookie, string(body), 200)
-			edited, err := registry.Capture(ctx, id)
-			require.NoError(t, err)
-			require.NotEqual(t, accepted.Tree, edited.Tree)
-			state(false, initial+1, edited.Tree)
-			// A new capture request is more than replaying the same frame.
-			for range 2 {
-				repeated, err := registry.Capture(ctx, id)
-				require.NoError(t, err)
-				if edited.Tree != repeated.Tree {
-					diff, e := exec.Command("/usr/bin/git", "-C", hostRepo, "diff", "--stat", edited.Tree, repeated.Tree).CombinedOutput()
-					require.NoError(t, e)
-					t.Fatalf("capture changed without a write: %s -> %s: %s", edited.Tree, repeated.Tree, diff)
-				}
-				state(false, initial+1, edited.Tree)
-			}
-		})
+
 		// Restore the fixed oracle used by the subsequent offline refusal.
 		require.NoError(t, os.WriteFile(filepath.Join(root, "real.txt"), []byte("outside"), 0600))
 		// Loss of the authenticated daemon must not expose a process-runtime

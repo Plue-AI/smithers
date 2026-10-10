@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -91,6 +92,8 @@ func baseRunEnv(t *testing.T) map[string]string {
 	return map[string]string{
 		"SMITHERS_DATABASE_URL":                  testDatabaseURL(t),
 		"SMITHERS_BLOB_DATA_DIR":                 t.TempDir(),
+		"SMITHERS_SSH_ADDR":                      "127.0.0.1:0",
+		"SMITHERS_SSH_HOST_KEY_DIR":              t.TempDir(),
 		"SMITHERS_AUTH_MODE":                     "selfhost",
 		"SMITHERS_AUTH_SESSION_SECRET":           "test-secret",
 		"SMITHERS_LFS_SIGNING_SECRET":            "test-lfs-signing-secret",
@@ -477,7 +480,9 @@ func TestRun_ServeError(t *testing.T) {
 
 func TestRun_ServesAndShutsDownGracefully(t *testing.T) {
 	preserveSlog(t)
-	h := startRun(t, baseRunEnv(t))
+	env := baseRunEnv(t)
+	h := startRun(t, env)
+	require.FileExists(t, filepath.Join(env["SMITHERS_SSH_HOST_KEY_DIR"], "ssh_host_ed25519_key"))
 
 	resp, err := h.get("/health")
 	require.NoError(t, err)

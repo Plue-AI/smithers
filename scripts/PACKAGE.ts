@@ -47,6 +47,7 @@ const repositoryInputs = Smithers.Filegroup({ srcs: Object.values(repositoryPack
 const engineeringScriptRegressions = Smithers.NodeTest({
   runner: Smithers.testRunner([
     Smithers.file("//scripts/backend-access-tests.test.mjs"),
+    Smithers.file("//scripts/backend-compose-tests.test.mjs"),
     Smithers.file("//scripts/check-bindings.test.mjs"),
     Smithers.file("//scripts/lane-gates.test.mjs"),
     Smithers.file("//scripts/lane-prerequisites.test.mjs"),

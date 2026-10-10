@@ -127,6 +127,13 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "background_terminal_admission_test.go",
+    "tests": [
+      "TestBackgroundMachineTerminalAdmission"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "branch_machine_members_integration_test.go",
     "tests": [
       "TestBranchMachineMemberAccessAndRevocationInstall",
@@ -155,7 +162,8 @@
     "package": "packages/backend/internal/compose",
     "file": "flow_admission_integration_test.go",
     "tests": [
-      "TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch"
+      "TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch",
+      "TestTodoAndReviewHostsDifferOnlyInLandingAuthorityPostgres"
     ]
   },
   {

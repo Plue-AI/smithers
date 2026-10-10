@@ -402,7 +402,7 @@ const machinedWire = Smithers.Shell.Test({
 // on PATH (`postgres` in the go-backend job, pkgs.postgresql_18 on the Cloud
 // machine); without them the suite fails instead of skipping them.
 const backendGo = Smithers.Shell.Test({
-  shell: rehearsalNativeEnv + "export PATH=\"$PWD/.backend-sqlc:$PATH\"; if [ -z \"${SMITHERS_POSTGRES_TEST_BIN:-}\" ]; then pg_ctl_path=$(command -v pg_ctl) || { echo 'PostgreSQL 18 programs (pg_ctl, initdb, pg_dump, psql) must be on PATH for the backend backup and restore tests' >&2; exit 1; }; export SMITHERS_POSTGRES_TEST_BIN=\"${pg_ctl_path%/*}\"; fi; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; bash scripts/check-sqlc-drift.sh || exit $?; go test -run '^$' ./packages/backend/db/product || exit $?; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; go test -count=1 -timeout 150m ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... >\"$log\" 2>&1; status=$?; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; printf 'go test summary:\\n' >&2; grep -E '^(ok|FAIL)[[:space:]]|^[[:space:]]*--- FAIL|^panic: test timed out|^[[:space:]]+running tests:|^[[:space:]]+Test[^[:space:]]+ \([0-9]' \"$log\" >&2; fi; rm -f \"$log\"; exit $status",
+  shell: rehearsalNativeEnv + "export PATH=\"$PWD/.backend-sqlc:$PATH\"; if [ -z \"${SMITHERS_POSTGRES_TEST_BIN:-}\" ]; then pg_ctl_path=$(command -v pg_ctl) || { echo 'PostgreSQL 18 programs (pg_ctl, initdb, pg_dump, psql) must be on PATH for the backend backup and restore tests' >&2; exit 1; }; export SMITHERS_POSTGRES_TEST_BIN=\"${pg_ctl_path%/*}\"; fi; export SMITHERS_FFI_LIBRARY_PATH=\"$PWD/.native-ffi/target/debug/libsmithers_ffi.so\"; export SMITHERS_WIKI_TEST_FFI=\"$SMITHERS_FFI_LIBRARY_PATH\"; export GOMODCACHE=\"$PWD/.backend-go-modcache\"; bash scripts/check-sqlc-drift.sh || exit $?; go test -run '^$' ./packages/backend/db/product || exit $?; python3 -B -m unittest scripts/test_check_go_boundaries.py packages/backend/db/product/test_adopt_unit.py || exit $?; bash scripts/check-public-backend-boundary.sh || exit $?; sh scripts/test-backend-consumer.sh || exit $?; unformatted=$(gofmt -l packages/backend apps/backend distribution docs/api) || exit $?; test -z \"$unformatted\" || { printf 'gofmt -w needed:\\n%s\\n' \"$unformatted\"; exit 1; }; go build ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; go vet ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/... || exit $?; log=$(mktemp) || exit $?; packages=$(go list ./packages/backend/... ./apps/backend/... ./distribution/... ./docs/api/...) || exit $?; packages=$(printf '%s\\n' \"$packages\" | grep -v '/internal/compose$') || exit $?; go test -p 4 -count=1 -timeout 40m $packages >\"$log\" 2>&1; status=$?; node scripts/backend-compose-tests.mjs >>\"$log\" 2>&1 || status=1; cat \"$log\"; if [ $status -ne 0 ]; then printf 'go test failures:\\n' >&2; grep -E -A30 '^[[:space:]]*--- FAIL|^panic:|^FAIL' \"$log\" | head -n 400 >&2; printf 'go test summary:\\n' >&2; grep -E '^(ok|FAIL)[[:space:]]|^[[:space:]]*--- FAIL|^panic: test timed out|^[[:space:]]+running tests:|^[[:space:]]+Test[^[:space:]]+ \([0-9]' \"$log\" >&2; fi; rm -f \"$log\"; exit $status",
   env: {
     GOFLAGS: "-buildvcs=false -mod=readonly",
     GOMAXPROCS: "2",
@@ -419,6 +419,7 @@ const backendGo = Smithers.Shell.Test({
     Smithers.file("//scripts/check-go-boundaries.py"),
     Smithers.file("//scripts/check-public-backend-boundary.sh"),
     Smithers.file("//scripts/test-backend-consumer.sh"),
+    Smithers.file("//scripts/backend-compose-tests.mjs"),
     Smithers.file("//scripts/test_check_go_boundaries.py"),
     nativeFfiLib,
     modelHostPackage.lib,
@@ -444,10 +445,11 @@ const backendGo = Smithers.Shell.Test({
   ],
   services: [backendPostgres],
   sandbox: { network: "loopback" },
-  // compose runs its 1,170 tests one after another: 72 minutes on four cores
-  // at GOMAXPROCS=2 (nyc-02, 2026-10-10), so the old 40-minute go test limit
-  // failed the package before two thirds of it ran (#3775). services takes 26.
-  timeout: "170m"
+  // Process-wide seams and environment forbid broad t.Parallel in compose.
+  // Four isolated file workers replace the observed 72-minute serial run.
+  // Other packages measured 26 minutes; leave headroom for CI and setup.
+  // Full concurrent elapsed time remains a post-landing CI measurement (#3775).
+  timeout: "100m"
 })
 
 // The access-control tests (member, admission, authorization, credential and

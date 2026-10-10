@@ -40,8 +40,9 @@ import (
 // Real host storage and authenticated install routes, with a test guest.
 // This is not reference-host qualification of native working-copy capture.
 type sleepCountRuntime struct {
-	idleProviders microsandbox.AdmissionIdleProviders
-	idleHolder    string
+	observedBranch string
+	idleProviders  microsandbox.AdmissionIdleProviders
+	idleHolder     string
 	workspace.WorkspaceRuntime
 	workspace.WorkspaceManagedHosts
 	workspace.WorkspaceSourceRevisionResolver
@@ -96,7 +97,9 @@ func (r *sleepCountRuntime) InspectWorkspace(ctx context.Context, id string) (wo
 }
 
 func (r *sleepCountRuntime) StartWorkspace(ctx context.Context, id string) (workspace.Workspace, error) {
-	r.starts.Add(1)
+	if r.observedBranch == "" || id == r.observedBranch {
+		r.starts.Add(1)
+	}
 	return r.WorkspaceRuntime.StartWorkspace(ctx, id)
 }
 
@@ -112,7 +115,9 @@ func (r *sleepCountRuntime) WriteRepositoryReceipt(ctx context.Context, id strin
 	return writer.WriteRepositoryReceipt(ctx, id, content)
 }
 func (r *sleepCountRuntime) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
-	r.reads.Add(1)
+	if r.observedBranch == "" || id == r.observedBranch {
+		r.reads.Add(1)
+	}
 	contents, err := r.WorkspaceRuntime.ReadFile(ctx, id, path)
 	if err == nil && r.read != nil {
 		r.read(path)
@@ -120,7 +125,9 @@ func (r *sleepCountRuntime) ReadFile(ctx context.Context, id, path string) ([]by
 	return contents, err
 }
 func (r *sleepCountRuntime) ListFiles(ctx context.Context, id, path string) ([]workspace.FileEntry, error) {
-	r.reads.Add(1)
+	if r.observedBranch == "" || id == r.observedBranch {
+		r.reads.Add(1)
+	}
 	return r.WorkspaceRuntime.ListFiles(ctx, id, path)
 }
 
@@ -256,7 +263,7 @@ func branchSleepInstall(t *testing.T, scenario string) {
 		require.NoError(t, err)
 		require.NoError(t, runtime.WriteFile(ctx, id, "retained.txt", []byte("final bytes\n"), 0600))
 	}
-	counted := &sleepCountRuntime{WorkspaceRuntime: runtime, WorkspaceManagedHosts: runtime, WorkspaceSourceRevisionResolver: runtime}
+	counted := &sleepCountRuntime{observedBranch: id, WorkspaceRuntime: runtime, WorkspaceManagedHosts: runtime, WorkspaceSourceRevisionResolver: runtime}
 	providers := services.InstallBranchMachineProviders(identity.NewMemberBoundary(q), nil)
 	// Test-only runtime qualification; this is not a C-MCH-03 mini receipt.
 	providers.MicroVM = func(context.Context) error { return nil }
@@ -1031,7 +1038,9 @@ func branchSleepInstall(t *testing.T, scenario string) {
 	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.signal'`).Scan(&signals))
 	require.Equal(t, 1, signals, "the mounted Answer admits exactly one durable signal")
 	// Explicit Wake/Answer above may start a machine or read its working copy.
-	// Cold projection reads must add no effects to that completed activity.
+	// Cold projection reads must add no effects to that branch. The shared
+	// runtime also prepares the stack's flow-loading machine asynchronously;
+	// a start of that different branch is not an effect of these reads.
 	coldStarts, coldReads := counted.starts.Load(), counted.reads.Load()
 	t.Run("cold machine transitions stay visible without a host", func(t *testing.T) {
 		conn, response, err := websocket.Dial(t.Context(), "ws"+strings.TrimPrefix(server.URL, "http")+"/api/live", &websocket.DialOptions{

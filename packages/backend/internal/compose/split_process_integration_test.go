@@ -58,6 +58,8 @@ func splitProcessDatabase(t *testing.T) (repositoryURL string, repositoryHealthC
 		"SMITHERS_LFS_SIGNING_SECRET":            "split-process-lfs-secret",
 		"SMITHERS_WEBHOOK_SECRET_ENCRYPTION_KEY": "split-process-webhook-key",
 		"SMITHERS_BLOB_DATA_DIR":                 t.TempDir(),
+		"SMITHERS_SSH_ADDR":                      "127.0.0.1:0",
+		"SMITHERS_SSH_HOST_KEY_DIR":              t.TempDir(),
 		"SMITHERS_FEATURE_FLAGS_WORKFLOWS":       "false",
 		"SMITHERS_FEATURE_FLAGS_SANDBOXES":       "false",
 		"SMITHERS_FEATURE_FLAGS_WORKSPACES":      "false",

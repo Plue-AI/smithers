@@ -73,6 +73,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/backend-compose-tests.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/test_check_go_boundaries.py"
       },
       {
@@ -65061,6 +65065,10 @@
       {
         "kind": "file",
         "path": "scripts/backend-access-tests.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/backend-compose-tests.test.mjs"
       },
       {
         "kind": "file",
