@@ -467,6 +467,9 @@ export const makeCli = (
   project(Cli.toCommands.get(cli as never)!, discoveryTree)
   retainInstallDiscovery(cli, discoveryTree)
   // Appendix A person-only commands belong in human help, never skills or MCP.
+  // The API playground (M-36) is the exception: it is an in-app surface, and
+  // its CLI door only authorizes (#3559), so it stays invocable and out of
+  // every discovery tree (#3434).
   const humanDiscovery = makeBuildCli({
     ...config,
     cliName: "smthrs",
@@ -480,7 +483,7 @@ export const makeCli = (
   project(Cli.toCommands.get(cli as never)!, humanTree, [], [
     ...doors,
     ...catalogCommands.filter((row) =>
-      row.actors.includes("person") &&
+      row.actors.includes("person") && row.name !== "debug-api" &&
       (row.visibility === "core" || row.visibility === "advanced")
     ).map((row) => row.cli!.join(" "))
   ])
