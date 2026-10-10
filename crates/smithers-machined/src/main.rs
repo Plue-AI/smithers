@@ -12,6 +12,10 @@ fn main() {
         Some("session-exec") => {
             smithers_machined::session_environment::run(&args[1..]).map(|()| true)
         }
+        // The coding agent's command runner, inside its own local PTY session
+        // after the broker's identity drop (T-TRM-05).
+        #[cfg(target_os = "linux")]
+        Some("agent-run") => smithers_machined::agent_run::run(&args[1..]).map(|()| true),
         #[cfg(target_os = "linux")]
         Some("daemon") => smithers_machined::installed::run().map(|()| true),
         #[cfg(target_os = "linux")]

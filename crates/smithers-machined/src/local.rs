@@ -335,6 +335,118 @@ mod tests {
         executor.shutdown().unwrap();
         (reply, runs.0.load(Ordering::SeqCst), jobs)
     }
+    /// T-TRM-05: `client pty` through the production local admission, the
+    /// mutation job and the socket-scoped stream; only kernel effects are fake.
+    #[test]
+    fn client_pty_runs_through_kernel_admission_and_the_scoped_stream() {
+        use std::{collections::VecDeque, sync::Mutex};
+        struct Pty {
+            opened: Mutex<Vec<Vec<u8>>>,
+            credit: AtomicUsize,
+            closed: AtomicUsize,
+            output: Mutex<VecDeque<Frame>>,
+        }
+        impl Sessions for Pty {
+            fn admission_of_cgroup(&self, path: &str) -> Option<Admission> {
+                (path == "/smithers/sessions/7").then(|| Admission {
+                    principal: [7; 16],
+                    run: Some("run-7".into()),
+                })
+            }
+            fn open_local(&self, cgroup: &str, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+                assert_eq!(cgroup, "/smithers/sessions/7");
+                self.opened.lock().unwrap().push(args.to_vec());
+                Ok(conn::structure_bytes(&[conn::field(
+                    1,
+                    17u32.to_be_bytes(),
+                )]))
+            }
+            fn poll_local(&self, session: u32) -> crate::hooks::Result<Vec<Frame>> {
+                assert_eq!(session, 17);
+                Ok(self
+                    .output
+                    .lock()
+                    .unwrap()
+                    .pop_front()
+                    .into_iter()
+                    .collect())
+            }
+            fn frame_local(&self, frame: &Frame) -> crate::hooks::Result<Option<Frame>> {
+                assert_eq!((frame.kind, frame.stream, frame.payload[0]), (5, 17, 6));
+                let n = u32::from_be_bytes(frame.payload[1..5].try_into().unwrap());
+                self.credit.fetch_add(n as usize, Ordering::SeqCst);
+                Ok(None)
+            }
+            fn call(&self, method: u8, args: &[u8]) -> crate::hooks::Result<Vec<u8>> {
+                assert_eq!((method, args), (8, &[0, 0, 0, 5, 1, 0, 0, 0, 17][..]));
+                self.closed.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![0, 0])
+            }
+        }
+        let data = |b: &[u8]| Frame {
+            kind: 5,
+            stream: 17,
+            payload: [&[1u8, 1], b].concat(),
+        };
+        let pty = Arc::new(Pty {
+            opened: Mutex::new(vec![]),
+            credit: AtomicUsize::new(0),
+            closed: AtomicUsize::new(0),
+            output: Mutex::new(VecDeque::from([
+                data(b"$ printf AGENT_TERMINAL_SECOND\r\n"),
+                data(b"AGENT_TERMINAL_SECOND"),
+                Frame {
+                    kind: 5,
+                    stream: 17,
+                    payload: vec![5, 0, 0, 0, 0, 0],
+                },
+            ])),
+        });
+        let executor = Executor::start(Hooks {
+            sessions: pty.clone(),
+            ..Hooks::default()
+        })
+        .unwrap();
+        let workspace = std::fs::File::open(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let files = Arc::new(Files::fixture(workspace, Arc::new(crate::hooks::Disabled)));
+        let (mut caller, server) = UnixStream::pair().unwrap();
+        caller
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let lock = executor.lock.clone();
+        let sessions = pty.clone();
+        let worker = std::thread::spawn(move || {
+            serve_peer(
+                server,
+                19999,
+                "0::/smithers/sessions/7\n".into(),
+                Arc::new(|| true),
+                &*sessions,
+                &lock,
+                files,
+            )
+        });
+        let (request, echo) = crate::client::pty_request(
+            &mut &br#"{"argv":["/bin/sh","-c","printf AGENT_TERMINAL_SECOND"],"display":"printf AGENT_TERMINAL_SECOND"}"#[..],
+        )
+        .unwrap();
+        assert_eq!(
+            crate::client::pty_open(&mut caller, &request).unwrap(),
+            Ok(17)
+        );
+        let writer = std::sync::Mutex::new(caller.try_clone().unwrap());
+        let mut output = vec![];
+        let end = crate::client::pty_stream(&mut caller, &writer, 17, &echo, &mut output).unwrap();
+        assert_eq!(end, crate::client::PtyEnd::Exit(0));
+        assert_eq!(output, b"AGENT_TERMINAL_SECOND");
+        worker.join().unwrap().unwrap();
+        assert_eq!(pty.credit.load(Ordering::SeqCst), 32 + 21);
+        assert_eq!(pty.closed.load(Ordering::SeqCst), 1);
+        let opened = pty.opened.lock().unwrap();
+        assert_eq!(opened.len(), 1);
+        validate_open(&opened[0]).unwrap();
+        executor.shutdown().unwrap();
+    }
     /// ADR 0004 §durable session admission (8a, 2026-10-07): a local request
     /// carrying admission fields decodes, and the daemon answers it with
     /// exactly `Error{unauthorized}` (control error 11) without acting.

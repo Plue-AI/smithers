@@ -493,3 +493,158 @@ fn client_batch_validates_success_and_partial_receipts() {
         thread.join().unwrap();
     }
 }
+
+/// T-TRM-05: the coding host's Bash binding hands `client pty` its planned
+/// invocation. The local open names only the fixed runner as `agent`.
+#[cfg(target_os = "linux")]
+#[test]
+fn client_pty_opens_the_fixed_runner_as_the_agent_terminal() {
+    use smithers_machined::{agent_run, broker::request::Request, local::validate_open};
+    let input = br#"{"argv":["/bin/sh","-c","pnpm test"],"cwd":"web","env":{"FOO":"1"},"display":"pnpm test"}"#;
+    let (request, echo) = client::pty_request(&mut &input[..]).unwrap();
+    assert_eq!(echo, b"$ pnpm test");
+    let (id, method, body) = request.request().unwrap();
+    assert_eq!((id, method), (1, 6));
+    validate_open(body).unwrap();
+    let Request::Open {
+        user,
+        argv,
+        admission,
+        ..
+    } = Request::decode(6, body).unwrap()
+    else {
+        panic!("not an open");
+    };
+    assert_eq!((user.login.as_str(), user.uid), ("agent", 19999));
+    assert_eq!(
+        admission, None,
+        "the run comes from the kernel peer, never the request"
+    );
+    assert_eq!(&argv[..2], [agent_run::RUNNER, agent_run::VERB]);
+    let spec = agent_run::Spec::from_args(&argv[2..]).unwrap();
+    assert_eq!(spec.argv, ["/bin/sh", "-c", "pnpm test"]);
+    assert_eq!(spec.cwd.as_deref(), Some("web"));
+    assert_eq!(spec.env["FOO"], "1");
+    assert_eq!(spec.echo, "$ pnpm test");
+    // A command line becomes one printable echo row; control bytes cannot
+    // paint the watcher's terminal.
+    let (_, echo) = client::pty_request(
+        &mut &br#"{"argv":["/bin/sh","-c","x"],"display":"printf '\u001b[2J'\nrm -rf x"}"#[..],
+    )
+    .unwrap();
+    assert_eq!(
+        String::from_utf8(echo).unwrap(),
+        "$ printf '\u{FFFD}[2J'⏎rm -rf x"
+    );
+    for bad in [
+        &br#"{"argv":[],"display":"x"}"#[..],
+        br#"{"argv":["sh"],"display":"x","actor":"run"}"#,
+        br#"{"argv":["sh"],"display":"x","env":{"A=B":"c"}}"#,
+        br#"{"argv":["sh"]}"#,
+        b"not json",
+    ] {
+        assert!(client::pty_request(&mut &bad[..]).is_err());
+    }
+    let huge = format!(
+        r#"{{"argv":["sh"],"display":"x","stdin":"{}"}}"#,
+        "y".repeat(70_000)
+    );
+    assert!(client::pty_request(&mut huge.as_bytes()).is_err());
+}
+
+/// A daemon-side script of session frames, then EOF; returns what the client
+/// wrote back (credit) and printed.
+#[cfg(target_os = "linux")]
+fn pty_script(
+    session: u32,
+    payloads: Vec<Vec<u8>>,
+) -> (std::io::Result<client::PtyEnd>, Vec<u8>, u64) {
+    use std::sync::Mutex;
+    let mut bytes = vec![];
+    for payload in payloads {
+        Frame {
+            kind: 5,
+            stream: session,
+            payload,
+        }
+        .write(&mut bytes)
+        .unwrap();
+    }
+    let credit = Mutex::new(Vec::<u8>::new());
+    let mut output = vec![];
+    let end = client::pty_stream(&mut &bytes[..], &credit, 17, b"$ pnpm test", &mut output);
+    let mut returned = 0u64;
+    let written = credit.into_inner().unwrap();
+    let mut rest = &written[..];
+    while !rest.is_empty() {
+        let frame = Frame::read(&mut rest).unwrap();
+        assert_eq!((frame.kind, frame.stream, frame.payload[0]), (5, 17, 6));
+        returned += u32::from_be_bytes(frame.payload[1..5].try_into().unwrap()) as u64;
+    }
+    (end, output, returned)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn client_pty_strips_only_the_runner_echo_and_takes_status_from_the_exit_frame() {
+    use client::PtyEnd;
+    let data = |b: &[u8]| [&[1u8, 1], b].concat();
+    // The echo may arrive split; only its first, positional copy is removed.
+    // Text that looks like a completion marker is ordinary output.
+    let second: &[u8] = b"test\r\n\x1b[32mFIRST\x1b[0m\r\n$ pnpm test\r\n\x1b]133;D;0\x07";
+    let (end, output, credit) = pty_script(
+        17,
+        vec![
+            data(b"$ pnpm "),
+            data(second),
+            data(b"LAST"),
+            vec![2, 1],
+            vec![5, 0, 0, 0, 0, 7],
+        ],
+    );
+    assert_eq!(end.unwrap(), PtyEnd::Exit(7));
+    assert_eq!(
+        output,
+        b"\x1b[32mFIRST\x1b[0m\r\n$ pnpm test\r\n\x1b]133;D;0\x07LAST"
+    );
+    assert_eq!(
+        credit,
+        (7 + second.len() + 4) as u64,
+        "every byte's credit, after it was written"
+    );
+    // A terminal without output post-processing ends the echo with LF.
+    let (end, output, _) = pty_script(17, vec![data(b"$ pnpm test\nok"), vec![5, 0, 0, 0, 0, 0]]);
+    assert_eq!(
+        (end.unwrap(), output.as_slice()),
+        (PtyEnd::Exit(0), b"ok".as_slice())
+    );
+    // Signals are the broker's wire enum, reported as POSIX numbers.
+    for (wire, posix) in [(1u8, 2), (2, 15), (3, 1), (4, 9), (5, 3), (6, 10), (7, 12)] {
+        let (end, _, _) = pty_script(17, vec![data(b"$ pnpm test\r\n"), vec![5, 1, wire, 0]]);
+        assert_eq!(end.unwrap(), PtyEnd::Signal(posix));
+    }
+    // No echo first means the runner failed before the command existed.
+    let (end, output, credit) = pty_script(
+        17,
+        vec![data(b"smithers: oops\r\n"), vec![5, 0, 0, 0, 0, 1]],
+    );
+    assert_eq!(end.unwrap(), PtyEnd::Runner(Some(1)));
+    assert!(output.is_empty());
+    assert_eq!(credit, 16);
+    let (end, _, _) = pty_script(17, vec![data(b"$ pn"), vec![5, 0, 0, 0, 0, 2]]);
+    assert_eq!(end.unwrap(), PtyEnd::Runner(Some(2)));
+    // A close before any status is not a completion.
+    let (end, output, _) = pty_script(17, vec![data(b"$ pnpm test\r\npartial"), vec![7]]);
+    assert_eq!(
+        (end.unwrap(), output.as_slice()),
+        (PtyEnd::Closed, b"partial".as_slice())
+    );
+    let (end, _, _) = pty_script(17, vec![]);
+    assert_eq!(end.unwrap(), PtyEnd::Closed);
+    // Another stream, a refusal or a stdin frame direction is a protocol fault.
+    assert!(pty_script(18, vec![data(b"x")]).0.is_err());
+    assert!(pty_script(17, vec![vec![255, 0, 0, 0, 2, 1, 11]])
+        .0
+        .is_err());
+    assert!(pty_script(17, vec![vec![1, 0, b'x']]).0.is_err());
+}

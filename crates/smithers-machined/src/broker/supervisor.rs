@@ -157,7 +157,20 @@ struct Stream<K> {
     observed: VecDeque<Frame>,
     next_fd: u8,
     replay: VecDeque<Frame>,
+    /// A local agent PTY starts paused (T-TRM-05): its runner waits for one
+    /// newline on the terminal before it prints or executes anything. The
+    /// broker writes that byte when the host attaches its observer, or after
+    /// [`GATE_DEADLINE`] without one, so the Terminal card misses no output.
+    gate: Option<Instant>,
+    /// Released without a watcher: a later attach would show a partial command.
+    unobserved: bool,
+    /// The next time a closed local command session may be reaped.
+    reap_after: Option<Instant>,
 }
+/// How long a local agent command waits for the host's observer.
+pub const GATE_DEADLINE: Duration = Duration::from_secs(3);
+/// How long a closed local command keeps undelivered observer frames.
+pub const REAP_GRACE: Duration = Duration::from_secs(5);
 pub struct Supervisor<K> {
     kernel: Shared<K>,
     registry: Sessions<Shared<K>>,
@@ -269,9 +282,37 @@ impl<K: Kernel> Supervisor<K> {
                 observed: VecDeque::new(),
                 next_fd: 1,
                 replay: VecDeque::new(),
+                gate: caller.map(|_| Instant::now()),
+                unobserved: false,
+                reap_after: None,
             },
         );
         Ok(id)
+    }
+    /// Start a paused local command: one newline on its own terminal input.
+    /// The byte is fixed here; no host or watcher chooses terminal input.
+    fn release_gate(&mut self, id: u32) -> io::Result<()> {
+        let stream = self.streams.get_mut(&id).ok_or_else(invalid)?;
+        if stream.gate.is_none() {
+            return Ok(());
+        }
+        let mut input = Descriptor {
+            kernel: self.kernel.clone(),
+            id,
+            kind: stream.kind,
+            fd: 0,
+        };
+        match input.write(b"\n") {
+            Ok(1) => {
+                stream.gate = None;
+                Ok(())
+            }
+            // A full input queue retries on the next poll; the runner has not
+            // started, so nothing is lost by waiting.
+            Ok(_) => Ok(()),
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
+            Err(e) => Err(e),
+        }
     }
     pub fn open_local(&mut self, caller: u32, args: &[u8]) -> io::Result<Vec<u8>> {
         match Request::decode(6, args)? {
@@ -375,12 +416,16 @@ impl<K: Kernel> Supervisor<K> {
                 stream.replay.clear();
                 if let Some(mut observer) = stream.observer.take() {
                     observer.closed_by_owner();
-                    stream.observed.clear();
+                    // Output already copied for the watcher stays ahead of the
+                    // close; it was read from the terminal and credited.
                     stream.observed.push_back(Frame {
                         kind: 5,
                         stream: entry.id,
                         payload: vec![7],
                     });
+                }
+                if stream.local && stream.reap_after.is_none() {
+                    stream.reap_after = Some(now);
                 }
             }
             if !entry.exited {
@@ -395,7 +440,55 @@ impl<K: Kernel> Supervisor<K> {
                 }
             }
         }
+        // A paused local command whose host never attached runs unobserved.
+        let paused: Vec<u32> = self
+            .streams
+            .iter()
+            .filter(|(_, s)| {
+                s.gate
+                    .is_some_and(|t| now.saturating_duration_since(t) >= GATE_DEADLINE)
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for id in paused {
+            if let Some(stream) = self.streams.get_mut(&id) {
+                stream.unobserved = stream.observer.is_none();
+            }
+            self.release_gate(id)?;
+        }
+        self.reap(now);
         Ok(())
+    }
+    /// A closed local command is one tool call. Kill and forget its cgroup,
+    /// including detached descendants, once its watcher has the close (or the
+    /// watcher missed the grace), so finished commands never exhaust the
+    /// machine's session table or write into a later command.
+    fn reap(&mut self, now: Instant) {
+        let due: Vec<u32> = self
+            .streams
+            .iter()
+            .filter(|(_, s)| {
+                s.local
+                    && s.reap_after.is_some_and(|t| {
+                        now >= t
+                            && (s.observed.is_empty()
+                                || now.saturating_duration_since(t) >= REAP_GRACE)
+                    })
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        if due.is_empty() {
+            return;
+        }
+        for id in due {
+            if self.registry.kill_session(id, now).is_err() {
+                // Failed cleanup stays fenced and attributable; retry later.
+                if let Some(stream) = self.streams.get_mut(&id) {
+                    stream.reap_after = Some(now + Duration::from_secs(1));
+                }
+            }
+        }
+        self.retain();
     }
     /// At most one output frame per poll. Backpressure stays inside Pipe; no
     /// unbounded queue is interposed between the kernel and socketpair.
@@ -682,7 +775,7 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                 self.registry.check_attach(session, now)?;
                 let stream = self.streams.get_mut(&session).ok_or_else(invalid)?;
                 if stream.local && stream.observer.is_none() {
-                    if received != 0 || entry.exited {
+                    if received != 0 || entry.exited || stream.unobserved {
                         return Err(invalid());
                     }
                     stream.observer = Some(Pipe::new(
@@ -700,6 +793,8 @@ impl<K: Kernel> control::Controls for Supervisor<K> {
                     let (_, frames) = observer.attach(received)?;
                     self.registry.attach(session, now)?;
                     stream.observed = frames.into();
+                    // The watcher now receives the command from its first byte.
+                    self.release_gate(session)?;
                     return Ok(conn::structure_bytes(&[conn::field(1, 0u64.to_be_bytes())]));
                 }
                 let (received, frames) = stream.pipe.attach(received)?;

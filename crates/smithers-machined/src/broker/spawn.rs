@@ -364,6 +364,8 @@ pub struct Processes<A> {
     admission: A,
     processes: BTreeMap<u32, Process>,
     prepared: Option<(User, Vec<(String, String)>, Option<File>)>,
+    /// The prepared spawn is the agent's own local terminal (T-TRM-05).
+    prepared_local: bool,
     transcripts: super::transcripts::Transcripts,
 }
 impl<A: Admission> Processes<A> {
@@ -373,6 +375,7 @@ impl<A: Admission> Processes<A> {
             admission,
             processes: BTreeMap::new(),
             prepared: None,
+            prepared_local: false,
             transcripts: Default::default(),
         }
     }
@@ -417,6 +420,7 @@ impl<A: Admission> Kernel for Processes<A> {
     }
     fn ready(&mut self, user: &User) -> io::Result<()> {
         self.prepared = None;
+        self.prepared_local = false;
         if unsafe { libc::geteuid() } != 0 {
             return Err(invalid());
         }
@@ -448,6 +452,7 @@ impl<A: Admission> Kernel for Processes<A> {
         // A fresh file description avoids sharing the launcher's read offset.
         let binding = reopen_binding(parent.binding.as_ref().ok_or_else(invalid)?)?;
         self.prepared = Some((user.clone(), vec![], Some(binding)));
+        self.prepared_local = true;
         Ok(())
     }
     fn spawn(
@@ -460,6 +465,7 @@ impl<A: Admission> Kernel for Processes<A> {
         port: Option<u16>,
     ) -> io::Result<()> {
         let (authorized, environment, binding) = self.prepared.take().ok_or_else(invalid)?;
+        let local = std::mem::take(&mut self.prepared_local);
         if &authorized != user || self.processes.contains_key(&id) {
             return Err(invalid());
         }
@@ -539,6 +545,19 @@ impl<A: Admission> Kernel for Processes<A> {
                     || unsafe { libc::ioctl(fd.as_raw_fd(), libc::TIOCSWINSZ, &winsize) } < 0
                 {
                     return Err(invalid());
+                }
+                if local {
+                    // The agent's command terminal has no keyboard. Its start
+                    // byte (supervisor gate) must not echo into the output the
+                    // Terminal card and the tool result both show.
+                    let mut termios = unsafe { std::mem::zeroed::<libc::termios>() };
+                    if unsafe { libc::tcgetattr(slave.as_raw_fd(), &mut termios) } != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    termios.c_lflag &= !(libc::ECHO | libc::ECHONL);
+                    if unsafe { libc::tcsetattr(slave.as_raw_fd(), libc::TCSANOW, &termios) } != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
                 }
                 command
                     .stdin(Stdio::from(slave.try_clone()?))

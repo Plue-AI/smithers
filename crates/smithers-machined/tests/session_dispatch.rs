@@ -1409,7 +1409,8 @@ fn agent_output_fans_out_without_granting_host_input_or_consuming_local_credit()
     ] {
         assert!(s.frame(&frame(id, payload)).is_err());
     }
-    assert!(state.lock().unwrap().inputs.is_empty());
+    // Only the broker's fixed start byte, written when the watcher attached.
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\n");
     assert!(state.lock().unwrap().closes.is_empty());
     // The dedicated socketpair operation, after the daemon's local admission,
     // owns input; the ordinary host frame operation cannot impersonate it.
@@ -1425,7 +1426,7 @@ fn agent_output_fans_out_without_granting_host_input_or_consuming_local_credit()
     s.stream(29, &frame(id, vec![1, 0, b'c']).encode().unwrap())
         .unwrap();
     assert_eq!(poll(&mut s, id).unwrap().payload, [6, 0, 0, 0, 1]);
-    assert_eq!(state.lock().unwrap().inputs[&id], b"c");
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\nc");
     state
         .lock()
         .unwrap()
@@ -1478,7 +1479,7 @@ fn agent_host_reattachment_replays_only_unreceived_output_without_resetting_keyb
     );
     s.frame_local(&frame(id, vec![1, 0, b'x'])).unwrap();
     assert_eq!(poll(&mut s, id).unwrap().payload, [6, 0, 0, 0, 1]);
-    assert_eq!(state.lock().unwrap().inputs[&id], b"x");
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\nx");
     // Independent local replay accounting still owns the original ten bytes.
     s.frame_local(&frame(id, vec![6, 0, 0, 0, 10])).unwrap();
 }
@@ -1557,7 +1558,7 @@ fn agent_fanout_uses_production_socketpair_operations_and_read_only_host_channel
     assert_eq!(host[0].payload.len(), 65_538);
     Sessions::frame(&broker, &frame(id, vec![6, 0, 1, 0, 0])).unwrap();
     Sessions::frame_local(&broker, &frame(id, vec![6, 0, 1, 0, 0])).unwrap();
-    assert_eq!(state.lock().unwrap().inputs[&id], b"a");
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\na");
     drop(broker);
     serving.join().unwrap().unwrap();
 }
@@ -1574,9 +1575,18 @@ fn closing_agent_local_owner_ends_host_observer_once_without_another_hup() {
         .insert((id, 1), b"pending".to_vec());
     poll(&mut s, id).unwrap();
     s.frame_local(&frame(id, vec![7])).unwrap();
+    // Output already copied for the watcher stays ahead of the close.
+    assert_eq!(
+        poll(&mut s, 0).unwrap(),
+        frame(id, [&[1u8, 1], b"pending".as_slice()].concat())
+    );
     assert_eq!(poll(&mut s, 0).unwrap(), frame(id, vec![7]));
     assert!(poll(&mut s, 0).is_none());
     assert_eq!(state.lock().unwrap().closes, [id]);
+    // The closed command is one tool call: its cgroup is reaped once the
+    // watcher has the close, so it neither lingers nor fills the table.
+    assert_eq!(state.lock().unwrap().kills, [id]);
+    assert!(s.entries().all(|e| e.id != id));
     // A closed stream cannot be revived into an observer or input channel.
     assert!(
         s.session(Request::Attach {
@@ -1729,4 +1739,177 @@ fn foreground_commands_bind_live_ptys_and_refuse_supplied_root_inputs() {
     assert!(!cleared.payload.windows(5).any(|b| b == b"sleep"));
     drop(broker);
     worker.join().unwrap().unwrap();
+}
+
+/// One local agent command (T-TRM-05): a registered run's PTY, not attached.
+fn agent_command(s: &mut Supervisor<OS>) -> u32 {
+    let parent = open_bound(
+        s,
+        User {
+            login: "agent".into(),
+            uid: 19999,
+        },
+        Kind::Exec,
+        Some("command-run"),
+    );
+    s.session(Request::Register {
+        session: parent,
+        run: "command-run".into(),
+    })
+    .unwrap();
+    let reply = s.open_local(parent, &open_bytes("agent", 19999)).unwrap();
+    u32::from_be_bytes(reply[5..9].try_into().unwrap())
+}
+
+#[test]
+fn agent_command_starts_only_when_its_watcher_attaches() {
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_command(&mut s);
+    // Paused: the runner has received nothing, so it has printed nothing.
+    assert!(poll(&mut s, 0).is_none());
+    assert!(!state.lock().unwrap().inputs.contains_key(&id));
+    s.session(Request::Attach {
+        session: id,
+        received: 0,
+    })
+    .unwrap();
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\n");
+    // The watcher sees the command from its first byte.
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), b"$ pnpm test\r\nfirst".to_vec());
+    let local = poll(&mut s, id).unwrap();
+    assert_eq!(poll(&mut s, 0).unwrap(), local);
+    // A repeated attach replays; it never writes a second start byte.
+    s.session(Request::Attach {
+        session: id,
+        received: 0,
+    })
+    .unwrap();
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\n");
+    assert_eq!(poll(&mut s, 0).unwrap(), local);
+}
+
+#[test]
+fn unwatched_agent_command_starts_after_the_deadline_and_stays_unwatched() {
+    use smithers_machined::broker::supervisor::GATE_DEADLINE;
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_command(&mut s);
+    let opened = Instant::now();
+    assert!(s.poll_one(Some(id), opened).unwrap().is_none());
+    assert!(!state.lock().unwrap().inputs.contains_key(&id));
+    s.poll_one(Some(id), opened + GATE_DEADLINE).unwrap();
+    assert_eq!(state.lock().unwrap().inputs[&id], b"\n");
+    // Its output stays local and unthrottled; a late watcher would only see a
+    // partial command, so attaching now is refused.
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), vec![b'o'; 300_000]);
+    let mut local = 0;
+    while let Some(out) = s.poll_one(Some(id), opened + GATE_DEADLINE).unwrap() {
+        if out.payload[0] != 1 {
+            break; // the fake descriptor's EOF once its bytes are drained
+        }
+        let n = (out.payload.len() - 2) as u32;
+        local += n as usize;
+        s.frame_local(&frame(id, [&[6u8], n.to_be_bytes().as_slice()].concat()))
+            .unwrap();
+    }
+    assert_eq!(local, 300_000);
+    assert!(poll(&mut s, 0).is_none());
+    assert!(
+        s.session(Request::Attach {
+            session: id,
+            received: 0
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn closed_unwatched_agent_command_is_reaped_without_touching_its_run() {
+    use smithers_machined::broker::supervisor::GATE_DEADLINE;
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_command(&mut s);
+    let start = Instant::now() + GATE_DEADLINE;
+    s.poll_one(Some(id), start).unwrap();
+    state.lock().unwrap().outputs.insert((id, 1), vec![]);
+    state.lock().unwrap().exits.insert(id, Exit::Code(0));
+    assert_eq!(
+        s.poll_one(Some(id), start).unwrap().unwrap().payload,
+        [2, 1]
+    );
+    assert_eq!(
+        s.poll_one(Some(id), start).unwrap().unwrap().payload,
+        [5, 0, 0, 0, 0, 0]
+    );
+    s.frame_local(&frame(id, vec![7])).unwrap();
+    s.poll_one(Some(id), start).unwrap();
+    assert_eq!(state.lock().unwrap().kills, [id]);
+    // The coding host itself (the run's parent session) keeps running.
+    assert_eq!(s.entries().count(), 1);
+    assert!(
+        s.entries()
+            .all(|e| e.id != id && e.run.as_deref() == Some("command-run"))
+    );
+}
+
+#[test]
+fn undelivered_watcher_output_holds_the_reap_for_its_grace() {
+    use smithers_machined::broker::supervisor::REAP_GRACE;
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_command(&mut s);
+    s.session(Request::Attach {
+        session: id,
+        received: 0,
+    })
+    .unwrap();
+    state
+        .lock()
+        .unwrap()
+        .outputs
+        .insert((id, 1), b"tail".to_vec());
+    let now = Instant::now();
+    s.poll_one(Some(id), now).unwrap().unwrap();
+    s.frame_local(&frame(id, vec![7])).unwrap();
+    // The host has not read the copy or the close yet: keep both.
+    s.poll_one(Some(id), now).unwrap();
+    assert!(state.lock().unwrap().kills.is_empty());
+    // A host that never reads cannot keep a finished command forever.
+    s.poll_one(Some(id), now + REAP_GRACE).unwrap();
+    assert_eq!(state.lock().unwrap().kills, [id]);
+    assert!(s.poll_one(None, now + REAP_GRACE).unwrap().is_none());
+}
+
+#[test]
+fn failed_reap_stays_fenced_and_retries() {
+    use smithers_machined::broker::supervisor::GATE_DEADLINE;
+    let (mut s, state) = setup();
+    roster(&mut s);
+    let id = agent_command(&mut s);
+    let start = Instant::now() + GATE_DEADLINE;
+    s.poll_one(Some(id), start).unwrap();
+    s.frame_local(&frame(id, vec![7])).unwrap();
+    state.lock().unwrap().fail_kill = Some(id);
+    s.poll_one(Some(id), start).unwrap();
+    assert!(state.lock().unwrap().kills.is_empty());
+    assert!(s.entries().any(|e| e.id == id && e.closed));
+    assert!(s.frame_local(&frame(id, vec![1, 0, b'x'])).is_err());
+    state.lock().unwrap().fail_kill = None;
+    s.poll_one(Some(id), start).unwrap();
+    assert!(
+        state.lock().unwrap().kills.is_empty(),
+        "retry waits a second"
+    );
+    s.poll_one(Some(id), start + Duration::from_secs(1))
+        .unwrap();
+    assert_eq!(state.lock().unwrap().kills, [id]);
 }

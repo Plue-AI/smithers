@@ -43,6 +43,7 @@ pub mod outbox;
 pub mod reconcile;
 pub mod rewrite_journal;
 
+pub mod agent_run;
 pub mod client;
 pub mod daemon;
 #[cfg(target_os = "linux")]

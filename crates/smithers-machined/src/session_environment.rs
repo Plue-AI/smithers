@@ -135,6 +135,33 @@ fn bounded(mut file: File) -> io::Result<Vec<u8>> {
     }
     Ok(bytes)
 }
+/// The team's session secrets (spec §8.8.1): the broker-written tmpfs file,
+/// opened without following links and parsed only by an unprivileged child.
+#[cfg(target_os = "linux")]
+pub fn team_environment() -> io::Result<BTreeMap<String, String>> {
+    use rustix::fs::{Mode, OFlags, ResolveFlags};
+    let root = File::open("/")?;
+    let secrets: File = rustix::fs::openat2(
+        &root,
+        "run/smithers/env",
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
+        Mode::empty(),
+        ResolveFlags::BENEATH | ResolveFlags::NO_SYMLINKS | ResolveFlags::NO_MAGICLINKS,
+    )?
+    .into();
+    let m = secrets.metadata()?;
+    if rustix::process::geteuid().is_root()
+        || !m.is_file()
+        || m.uid() != 0
+        || m.gid() != 20000
+        || m.mode() & 0o7777 != 0o640
+        || m.nlink() != 1
+        || rustix::fs::fstatfs(&secrets)?.f_type as u64 != 0x01021994
+    {
+        return Err(invalid());
+    }
+    environment(&bounded(secrets)?)
+}
 #[cfg(target_os = "linux")]
 pub fn run(args: &[String]) -> io::Result<()> {
     use rustix::fs::{Mode, OFlags, ResolveFlags};
@@ -172,18 +199,7 @@ pub fn run(args: &[String]) -> io::Result<()> {
         )?
         .into())
     };
-    let secrets = open("/run/smithers/env")?;
-    let m = secrets.metadata()?;
-    if !m.is_file()
-        || m.uid() != 0
-        || m.gid() != 20000
-        || m.mode() & 0o7777 != 0o640
-        || m.nlink() != 1
-        || rustix::fs::fstatfs(&secrets)?.f_type as u64 != 0x01021994
-    {
-        return Err(invalid());
-    }
-    let mut env = environment(&bounded(secrets)?)?;
+    let mut env = team_environment()?;
     let token = open(
         binding
             .environment
