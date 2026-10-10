@@ -5,6 +5,7 @@
 import { Control, ControlError } from "@smthrs/control"
 import type { ControlSchema } from "@smthrs/control"
 import { Effect, Stream } from "effect"
+import { spawnSync } from "node:child_process"
 import { hostname } from "node:os"
 import { describe, expect, it } from "vitest"
 import * as Settlement from "../src/commands/Settlement.ts"
@@ -97,11 +98,20 @@ describe("settlement ownership", () => {
       ...overrides
     })
   const owner = (hostId: string, pid: number) => JSON.stringify({ hostId, pid, nonce: "owner-fence" })
+  // A pid that names no process: a child that has already exited and been
+  // reaped by spawnSync. The parent is a live process on this host that is
+  // not this one.
+  const exited = spawnSync(process.execPath, ["-e", ""]).pid
 
   it.each([
     { label: "another process", ownerId: owner(hostname(), process.pid + 1), waits: false },
     { label: "another host with the same PID", ownerId: owner(`${hostname()}-other`, process.pid), waits: false },
-    { label: "a peer's parked run", parkedBy: owner(hostname(), process.pid + 1), waits: false },
+    { label: "a live peer's parked run", parkedBy: owner(hostname(), process.ppid), waits: false },
+    { label: "another host's parked run", parkedBy: owner(`${hostname()}-other`, process.pid + 1), waits: false },
+    // The parker exited, so the decision this process recorded is what
+    // restarted the run, on this process's executor (case03): returning
+    // would end the process and interrupt that driver.
+    { label: "an exited peer's parked run", parkedBy: owner(hostname(), exited), waits: true },
     { label: "this process", ownerId: owner(hostname(), process.pid), waits: true },
     { label: "this process's park", parkedBy: owner(hostname(), process.pid), waits: true },
     { label: "an ownerless admission", waits: true },

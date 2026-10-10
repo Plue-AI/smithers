@@ -9,6 +9,7 @@
  */
 
 import { type Control as ControlService, ControlError, type ControlSchema } from "@smthrs/control"
+import * as HostLiveness from "@smthrs/platform-node/HostLiveness"
 import { Ownership } from "@smthrs/run-store"
 import { Clock, Duration, Effect, Option, Schema, Stream } from "effect"
 import { hostname } from "node:os"
@@ -243,7 +244,14 @@ export const awaitOwnedRun = (
     const run = listed._tag === "runs" ? listed.items.find((item) => item.runId === receipt.runId) : undefined
     const owner = decodeOwner(run?.ownerId ?? run?.parkedBy)
     if (Option.isSome(owner) && (owner.value.hostId !== hostname() || owner.value.pid !== process.pid)) {
-      return undefined
+      // A park names the host that parked, not the one that resumes it. The
+      // control plane takes a park only after a same-host dead-pid probe, so
+      // once the parker has exited, the decision this process recorded has
+      // restarted the run on this process's executor. Returning here ended
+      // the process and its driver, and the run stayed parked (case03).
+      const parkerExited = run?.ownerId === undefined &&
+        !(yield* HostLiveness.isAlive({ hostId: hostname() })(owner.value))
+      if (!parkerExited) return undefined
     }
     return yield* awaitRun(control, receipt.runId, afterSequence, quiet)
   })
