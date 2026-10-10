@@ -297,24 +297,23 @@ func TestWorkspaceChildrenSpendSandboxHours(t *testing.T) {
 		require.NotNil(t, ended, "a stopped child is not billed")
 	})
 
-	t.Run("the hours sweep stops children through their parent and never suspends them", func(t *testing.T) {
+	// Since c240bd3cf7 (#3568) only a workspace runtime can capture and sleep
+	// a branch, so the sweep's sleep of a hosted sandbox parent is refused.
+	// A child is still never suspended: it stays to its parent's lifecycle.
+	t.Run("the hours sweep never suspends a child and leaves it to its parent", func(t *testing.T) {
 		f := newChildFixture(t, nil)
 		_, err := f.spawn(t, 2, "")
 		require.NoError(t, err)
 		provider := &childSweepSandbox{SandboxVMClient: f.provider}
 		f.svc.sandbox = provider
 		f.svc.billing = sandboxPolicyStub{entitlement: *spent}
-		require.NoError(t, f.svc.CleanupOverQuotaWorkspaces(ctx))
+		require.ErrorContains(t, f.svc.CleanupOverQuotaWorkspaces(ctx), "branch sleep requires verified capture")
 		require.NoError(t, f.svc.WaitForProvisioning(ctx))
-		parent, err := f.queries.GetWorkspace(ctx, f.parent.ID)
-		require.NoError(t, err)
-		require.Equal(t, "suspended", parent.Status)
 		for _, child := range f.receipts(t) {
-			require.Equal(t, "stopped", child.Status, "a child is never suspended")
-			require.Equal(t, "parent_stopped", child.StopReason)
+			require.Equal(t, "running", child.Status, "a child is never suspended by the sweep")
 		}
-		require.Equal(t, []string{f.parent.VmID}, f.provider.Live(), "every child machine is deleted; the parent keeps its disk")
-		require.Equal(t, []string{f.parent.VmID}, provider.suspended, "children are never sent to the suspend API")
+		require.Len(t, f.provider.Live(), 3, "no child machine is touched without its parent")
+		require.Empty(t, provider.suspended, "children are never sent to the suspend API")
 	})
 
 	t.Run("a failed child check leaves it running and retries through its parent", func(t *testing.T) {
@@ -338,11 +337,11 @@ func TestWorkspaceChildrenSpendSandboxHours(t *testing.T) {
 		require.Empty(t, provider.suspended, "a child-only sweep leaves lifecycle authority to its parent")
 		_, err = f.pool.Exec(ctx, `UPDATE workspaces SET status = 'running' WHERE id = $1`, f.parent.ID)
 		require.NoError(t, err)
-		require.NoError(t, f.svc.CleanupOverQuotaWorkspaces(ctx))
+		// The retry reaches the parent, whose hosted sleep is refused (c240bd3cf7).
+		require.ErrorContains(t, f.svc.CleanupOverQuotaWorkspaces(ctx), "branch sleep requires verified capture")
 		require.NoError(t, f.svc.WaitForProvisioning(ctx))
-		require.Equal(t, []string{f.parent.VmID}, provider.suspended)
-		require.Equal(t, "stopped", f.receipts(t)[0].Status)
-		require.Equal(t, "parent_stopped", f.receipts(t)[0].StopReason)
+		require.Empty(t, provider.suspended)
+		require.Equal(t, "running", f.receipts(t)[0].Status, "the child stays to its parent's lifecycle")
 	})
 
 	t.Run("only a child is left to its parent", func(t *testing.T) {

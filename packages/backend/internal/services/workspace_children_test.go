@@ -300,8 +300,13 @@ func TestWorkspaceChildrenAreReapedWithTheirParent(t *testing.T) {
 	require.NoError(t, err)
 	snapshot := f.provider.Snapshots()[0]
 
-	// Suspending the parent cascades through the status funnel.
-	require.NoError(t, f.svc.suspendWorkspace(ctx, f.parent))
+	// A parent leaving running cascades through the status funnel. Since
+	// c240bd3cf7 (#3568) only a workspace runtime can sleep a branch, so the
+	// hosted sandbox parent leaves running by failing.
+	parent, err := f.queries.GetWorkspace(ctx, f.parent.ID)
+	require.NoError(t, err)
+	_, err = f.svc.failWorkspace(ctx, parent, errors.New("parent machine lost"))
+	require.NoError(t, err)
 	require.NoError(t, f.svc.WaitForProvisioning(ctx))
 	for _, child := range f.receipts(t) {
 		require.Equal(t, "stopped", child.Status)
