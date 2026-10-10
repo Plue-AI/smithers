@@ -1826,8 +1826,12 @@ export const make = (
         // `ctx.base` answer `checkpoint_unavailable`, honestly, and the run
         // takes its readings on the live tree. This is the difference
         // between a run that can prove fails-before without reverting its own
-        // work and one that cannot.
-        Checkpoints.layerGit(checkpointStore(environment, workspaceRoot)),
+        // work and one that cannot. The store runs its own fixed git commands
+        // on the host platform, as the observer does: under the guarded
+        // platform each command ran in its own Linux sandbox with a private
+        // /tmp, so the shadow repository one command created was gone for the
+        // next and no checkpoint ever pinned (case03).
+        Checkpoints.layerGit(checkpointStore(environment, workspaceRoot)).pipe(Layer.provide(layerHostPlatform)),
         // One Jev judge handles attribution and completion.
         evaluator,
         // The seat resolver, and the catalog an undeclared or `auto` seat is
