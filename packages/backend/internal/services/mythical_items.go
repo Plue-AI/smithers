@@ -1906,9 +1906,11 @@ func (s *MythicalService) releaseLane(ctx context.Context, r *mythicalRun, item 
 		return item
 	}
 	// A separate reviewer releases its lane after settlement even if the
-	// implementer completed while that review was running.
-	if item.State == "proposed" && s.lanes != nil && r.row.ActorUserID.Valid {
-		if review := mythicalChecksOf(item).Review; review != nil && review.Verdict != "" && review.Lane != "" && review.Lane != item.WorkspaceID {
+	// implementer completed while that review was running. A settled item's
+	// review is moot whatever it answered: a merge before the review ran must
+	// not leave its lane holding a machine (#3776).
+	if (item.State == "proposed" || mythicalSettledStates[item.State]) && s.lanes != nil && r.row.ActorUserID.Valid {
+		if review := mythicalChecksOf(item).Review; review != nil && (review.Verdict != "" || mythicalSettledStates[item.State]) && review.Lane != "" && review.Lane != item.WorkspaceID {
 			if err := s.retireLane(ctx, r, review.Lane); err != nil && ctx.Err() == nil {
 				s.logger.Warn("mythical.review_release_failed", "workspace_id", review.Lane, "error", err)
 			}
@@ -2736,7 +2738,8 @@ func (s *MythicalService) sweepLanes(ctx context.Context, r *mythicalRun) {
 		// the item's lane again, never retired.
 		if item, err := s.queries().GetMythicalItem(ctx, lane.ItemID); err == nil {
 			review := mythicalChecksOf(item).Review
-			if item.WorkspaceID == lane.WorkspaceID || review != nil && review.Lane == lane.WorkspaceID && review.Verdict == "" {
+			// An unanswered review keeps its lane only while its item is open.
+			if item.WorkspaceID == lane.WorkspaceID || review != nil && review.Lane == lane.WorkspaceID && review.Verdict == "" && !mythicalSettledStates[item.State] {
 				continue
 			}
 			if item.Source == "todo" && item.FlowDigest.Valid && !mythicalSettledStates[item.State] {

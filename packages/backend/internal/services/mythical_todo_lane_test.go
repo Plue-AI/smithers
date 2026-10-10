@@ -182,3 +182,67 @@ func TestTodoReleasesItsCodingAndReviewLanes(t *testing.T) {
 		})
 	}
 }
+
+// Install run 14 (#3776): a person merged a TODO whose review lane had not
+// answered. The lane took the only machine, its review was refused because the
+// item had landed, and nothing retired it. A settled item's review is moot:
+// the merge pass retires its lane, and the lane sweep retires one the merge
+// pass missed.
+func TestMergedTodoRetiresItsUnansweredReviewLane(t *testing.T) {
+	for _, mode := range []string{"merge pass", "sweep"} {
+		t.Run(mode, func(t *testing.T) {
+			o, session := newTodoAdmission(t)
+			o.service.SetTodoFlow(func(context.Context, int64, string) (string, error) { return todoPinOne, nil })
+			ctx := context.Background()
+			id := uuidString(o.fileTodo(session, "first").ID)
+			o.wake()
+			item := o.byID(id)
+			require.Equal(t, "running", item.State, item.Reason)
+			_, err := o.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) VALUES($1,$2,$3,'running')`, item.WorkspaceID, o.repoID, o.userID)
+			require.NoError(t, err)
+			o.projectTodo(o.launcher.last("todo"), jobs.StateWaiting, "coding-run", todoPinOne, "")
+			coding := o.byID(id).WorkspaceID
+			tip := o.hostRef("refs/heads/main")
+			candidate := o.laneResult(coding, tip, map[string]string{"JOURNEY.md": "Hello, reader.\n"}, "✨ feat: greet the reader")
+			_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='integrating', generation=generation+1, candidate_base=$2, candidate_head=$3, candidate_verified=true,
+		summary='✨ feat: greet the reader' WHERE id=$1`, item.ID, tip, candidate)
+			require.NoError(t, err)
+			o.wake()
+			_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed', pr_number=41, pr_head=$2, pr_state='open', reason='' WHERE id=$1`, item.ID, candidate)
+			require.NoError(t, err)
+			o.github.mu.Lock()
+			if o.github.pulls == nil {
+				o.github.pulls = map[int64]*mythicalPull{}
+			}
+			o.github.pulls[41] = &mythicalPull{Number: 41, State: "open", HeadSHA: candidate, HeadRef: "smithers/todo-1", MergeableState: "clean"}
+			o.github.mu.Unlock()
+			require.Empty(t, o.wake().LastError)
+			reviewLane := o.launcher.last(mythicalReviewFlow).Target.WorkspaceID
+			require.NotEmpty(t, reviewLane, "the review launched")
+			require.NotEqual(t, coding, reviewLane)
+			review := mythicalChecksOf(o.byID(id)).Review
+			require.NotNil(t, review)
+			require.Equal(t, reviewLane, review.Lane)
+			require.Empty(t, review.Verdict, "the review has not answered")
+
+			// A person merges before the review answers.
+			if mode == "sweep" {
+				// The merge pass already released the coding lane; only the
+				// review lane is left, past the sweep's grace period.
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_lanes SET retired_at=NOW() WHERE workspace_id=$1`, coding)
+				require.NoError(t, err)
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_lanes SET created_at=NOW()-INTERVAL '3 minutes' WHERE workspace_id=$1`, reviewLane)
+				require.NoError(t, err)
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='landed', pr_state='merged', workspace_id='', lane=NULL WHERE id=$1`, item.ID)
+			} else {
+				_, err = o.pool.Exec(ctx, `UPDATE mythical_items SET state='landed', pr_state='merged' WHERE id=$1`, item.ID)
+			}
+			require.NoError(t, err)
+			o.wake()
+			assert.Contains(t, o.lanes.deleted, reviewLane, "a merged TODO's unanswered review releases its machine")
+			var retired bool
+			require.NoError(t, o.pool.QueryRow(ctx, `SELECT retired_at IS NOT NULL FROM mythical_lanes WHERE workspace_id=$1`, reviewLane).Scan(&retired))
+			assert.True(t, retired)
+		})
+	}
+}
