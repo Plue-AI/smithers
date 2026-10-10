@@ -129,6 +129,9 @@ func (p *branchPresence) consumeDaemon(ctx context.Context, link *machined.Link,
 		if err != nil {
 			return
 		}
+		// A local agent command waits, paused, for the host's watcher (T-TRM-05).
+		// Attach it first so this snapshot resolves it as the run's own session.
+		p.observeAgentTerminals(ctx, link, branch, frame)
 		// Only a fully applied snapshot lets the census count this link; a refused
 		// one leaves its sessions unknown until the next complete snapshot.
 		if err = p.daemonSnapshot(ctx, link.Connection, branch, frame, p.sessionResolver(link)); err != nil {

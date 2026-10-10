@@ -66,7 +66,7 @@ import * as PortableSearch from "@smthrs/std/PortableSearch"
 import * as Read from "@smthrs/std/Read"
 import * as Search from "@smthrs/std/Search"
 import * as SearchContract from "@smthrs/std/SearchContract"
-import type { StdError } from "@smthrs/std/StdError"
+import { StdError } from "@smthrs/std/StdError"
 import * as TestRun from "@smthrs/std/TestRun"
 import type * as TestRunner from "@smthrs/std/TestRunner"
 import * as Write from "@smthrs/std/Write"
@@ -80,6 +80,7 @@ import * as Schema from "effect/Schema"
 import * as ChildFlows from "./ChildFlows.ts"
 import * as FlowEngineLike from "./FlowEngineLike.ts"
 import * as AgentTerminal from "./internal/AgentTerminal.ts"
+import * as AgentTerminalCommand from "./internal/AgentTerminalCommand.ts"
 
 /** These refusal classes carry host-authored text separately from diagnostic causes. */
 const publicRefusal = (error: { readonly message: string }): string => error.message
@@ -243,9 +244,11 @@ export const filesystem = (
  * including one with no container that would run on this host, is refused
  * with `outside_container` (`Bash.sealed`).
  *
- * `terminal: "agent"` selects the dark T-TRM-05 binding. It refuses before
- * either transport is reached until registered PTY execution and card evidence
- * are available; this option cannot enable execution with a container fallback.
+ * `terminal: "agent"` selects the T-TRM-05 binding: every command runs in the
+ * coding agent's own terminal on its machine (`terminalPort`), which members
+ * watch read-only in the Terminal card. A host without that port refuses
+ * before either transport is reached; this option never falls back to a
+ * spawn on this host or to a container.
  *
  * @category constructors
  * @since 0.1.0
@@ -256,12 +259,20 @@ export const shell = (
   options?: {
     readonly sealedTo?: string | undefined
     /**
-     * T-TRM-05: unavailable until the registered daemon PTY and card checks pass.
+     * T-TRM-05: run `bash` in the agent's registered terminal; refuses
+     * without `terminalPort`.
      *
      * @since 1.0.0
      */
     readonly terminal?: "agent" | undefined
     readonly terminalProviders?: AgentTerminal.Providers | undefined
+    /**
+     * The machine's agent terminal. One port serves one run: its commands
+     * run one at a time, each in its own registered terminal session.
+     *
+     * @since 1.0.0
+     */
+    readonly terminalPort?: TerminalPort | undefined
   }
 ): FlowBinding.Source =>
   FlowBinding.source(shellSource, [
@@ -269,9 +280,10 @@ export const shell = (
       FlowBinding.make({
         flow: Bash.flow,
         // Never route the coding terminal binding through Exec or Container.
-        // No existing transport proves registered-run PTY ownership/framing.
         handler: options?.terminal === "agent"
-          ? () => Effect.fail(AgentTerminal.unavailable(options.terminalProviders))
+          ? options.terminalPort === undefined
+            ? () => Effect.fail(AgentTerminal.unavailable(options.terminalProviders))
+            : inAgentTerminal(options.terminalPort)
           : options?.sealedTo === undefined
           ? Bash.run
           : Bash.sealed(options.sealedTo),
@@ -282,6 +294,40 @@ export const shell = (
       Context.add(services, Container.Container, container)
     )
   ])
+
+/**
+ * A machine's coding-agent terminal (T-TRM-05). `execute` runs one planned
+ * Bash call in a registered terminal session and yields its output and its
+ * exit status from the session supervisor, never from parsing output.
+ * `killRun` resolves only once nothing the run's cancelled commands started
+ * is still running.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type TerminalPort = AgentTerminalCommand.CommandPort
+
+/**
+ * One frame of a terminal command, in order: output, then one exit or signal.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export type TerminalFrame = AgentTerminalCommand.CommandFrame
+
+const inAgentTerminal = (port: TerminalPort) => {
+  // One queue per run: concurrent calls serialize without mixing results.
+  const commands = new AgentTerminalCommand.Commands(port)
+  return Bash.inTerminal((input) =>
+    Effect.tryPromise({
+      try: (signal) => commands.run(input, signal),
+      catch: (error) =>
+        error instanceof StdError
+          ? error
+          : new StdError({ code: "command_failed", message: "Agent terminal transport failed" })
+    })
+  )
+}
 
 /**
  * The repository's own test runner, as one ordinary flow.

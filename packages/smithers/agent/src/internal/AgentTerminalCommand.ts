@@ -9,13 +9,13 @@ import { StdError } from "@smthrs/std/StdError"
 
 /**
  * Completion must arrive from a supervisor control channel, never by parsing
- * PTY output. The current daemon exposes session exit, not per-command exit;
- * it cannot yet implement this port for a reusable shell. No production host
- * binds this port until that distinction and the install checks are proven.
- * Completion follows drained output; no bytes from an ended command may
- * enter the next command. The provider owns session transport and replay.
- * Output is already attributed to this command by the trusted provider. Echo
- * must likewise be identified there, not removed by matching command text.
+ * PTY output. The installed provider (flows/coding/agentTerminal.ts) runs each
+ * command in its own registered PTY session, so the session's exit is the
+ * command's exit and no bytes from an ended command can enter the next one.
+ * Completion follows drained output. The provider owns session transport and
+ * replay. Output is already attributed to this command by the trusted
+ * provider; its echo line is removed there by position, never by matching
+ * command text.
  *
  * @private
  * @since 1.0.0

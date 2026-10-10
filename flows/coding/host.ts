@@ -50,6 +50,7 @@ import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
 import * as CodingFileSystem from "./filesystem.ts"
+import * as CodingTerminal from "./agentTerminal.ts"
 import { loadFlowsLayer } from "./flow-load.ts"
 import FlowLoad from "./flow-load/flow.ts"
 import * as HostRegistry from "./host-registry.ts"
@@ -639,6 +640,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
     {
       ...platform,
       shellTerminal: "agent",
+      // On its machine the agent's commands run in its own watched terminal.
+      agentTerminal: platform.agentTerminal ?? ((spawner) => CodingTerminal.installed(spawner)),
       // Retained TODO attempts wait for stack signals after delivery. A
       // scratch Run owns no stack item and finishes with its module result.
       reenterModules: options.planning === undefined || options.draftVersion ? undefined : ["todo"],

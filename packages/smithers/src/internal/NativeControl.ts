@@ -341,6 +341,13 @@ export interface Platform {
   readonly beforeSteeringDrain?: ((runId: string, flowId: string) => Effect.Effect<void, HarnessError>) | undefined
   /** Coding hosts require the registered daemon terminal; never use the native spawn binding. */
   readonly shellTerminal?: "agent" | undefined
+  /**
+   * The machine's agent terminal for `shellTerminal: "agent"` (T-TRM-05).
+   * Undefined where the host has none: `bash` then refuses, typed.
+   */
+  readonly agentTerminal?: (
+    spawner: KernelChildProcessSpawner.ChildProcessSpawner["Service"]
+  ) => StandardFlows.TerminalPort | undefined
   readonly agentLimits?: {
     readonly modelCallMs: number
     readonly toolMs: number
@@ -1438,7 +1445,8 @@ export const make = (
             : []),
           StandardFlows.shell(HostLanguageServers.bind(shellServices, languageServer), container, {
             sealedTo,
-            terminal: native.shellTerminal
+            terminal: native.shellTerminal,
+            terminalPort: native.shellTerminal === "agent" ? native.agentTerminal?.(toolSpawner!) : undefined
           }),
           // Host-wide on purpose: these sources are built once per executor,
           // before any run, and the operator owns this memory database. A

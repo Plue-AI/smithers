@@ -38,6 +38,8 @@ type branchPresence struct {
 	startedAt    time.Time
 	now          func() time.Time
 	terminals    func(context.Context, db.Workspace, map[string]int) ([]any, error)
+	// agents watches each coding run's local commands for the Terminal card.
+	agents agentTerminals
 }
 
 type leaseParticipant struct {

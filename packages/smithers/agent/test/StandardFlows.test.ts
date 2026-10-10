@@ -31,7 +31,7 @@ import * as AtomicFileSystem from "@smthrs/platform-node/AtomicFileSystem"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Search from "@smthrs/std/Search"
 import * as TestRunner from "@smthrs/std/TestRunner"
-import { Context, Effect, FileSystem, Layer, Option, Path } from "effect"
+import { Context, Effect, Fiber, FileSystem, Layer, Option, Path } from "effect"
 import type * as Crypto from "effect/Crypto"
 import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
@@ -212,6 +212,110 @@ describe("the dark coding terminal binding", () => {
     expect(result.message).toContain("C-J3-10 and C-COL-04")
     expect(spawns).toBe(0)
     expect(routes).toBe(0)
+  })
+})
+
+describe("the coding agent's terminal binding (T-TRM-05)", () => {
+  const noSpawn = (counter: { spawns: number }) =>
+    Context.merge(
+      pathServices,
+      Context.make(
+        ChildProcessSpawner.ChildProcessSpawner,
+        ChildProcessSpawner.makeNoop({
+          spawn: () => {
+            counter.spawns++
+            return Effect.die("host execution")
+          }
+        })
+      )
+    )
+  const encode = (text: string) => new TextEncoder().encode(text)
+  const portOf = (
+    script: (input: unknown, signal: AbortSignal) => AsyncIterable<StandardFlows.TerminalFrame>,
+    seen: Array<unknown>
+  ): StandardFlows.TerminalPort => ({
+    execute: (input, signal) => {
+      seen.push(input)
+      return script(input, signal)
+    },
+    killRun: async () => {}
+  })
+
+  it("runs bash through the agent terminal and maps its output and status, never a host spawn", async () => {
+    const counter = { spawns: 0 }
+    const seen: Array<unknown> = []
+    const port = portOf(async function*() {
+      yield { kind: "output", bytes: encode("\x1b[32mAGENT_TERMINAL_FIRST\x1b[0m\r\n") }
+      yield { kind: "exit", code: 7 }
+    }, seen)
+    const source = StandardFlows.shell(noSpawn(counter), {
+      exec: () => Effect.die("container execution")
+    }, { terminal: "agent", terminalPort: port })
+    const [binding] = await Effect.runPromise(source.bindings())
+    const input = { command: "pnpm test", mode: "unhermetic" }
+    const result = await Effect.runPromise(binding!.run(callOf("bash", input)))
+    expect(result).toMatchObject({
+      outcome: "success",
+      value: { exitCode: 7, stdout: "AGENT_TERMINAL_FIRST\n", stderr: "", stdoutTruncated: false }
+    })
+    expect(seen).toEqual([input])
+    expect(counter.spawns).toBe(0)
+  })
+
+  it.each([
+    { command: "printf x", container: "branch", mode: "unhermetic" },
+    { command: "cat /etc/passwd", mode: "hermetic", reads: ["src/**"], writes: [] },
+    { command: "a", script: "b", mode: "unhermetic" }
+  ])("refuses %j before the terminal runs anything", async (input) => {
+    const counter = { spawns: 0 }
+    const seen: Array<unknown> = []
+    const port = portOf(async function*() {
+      yield { kind: "exit", code: 0 }
+    }, seen)
+    const source = StandardFlows.shell(noSpawn(counter), undefined, { terminal: "agent", terminalPort: port })
+    const [binding] = await Effect.runPromise(source.bindings())
+    const result = await Effect.runPromise(binding!.run(callOf("bash", input)))
+    expect(result).toMatchObject({ outcome: "failure", value: null })
+    expect(seen).toEqual([])
+    expect(counter.spawns).toBe(0)
+  })
+
+  it("serializes two calls on one run and cancels the running one when interrupted", async () => {
+    const counter = { spawns: 0 }
+    const seen: Array<unknown> = []
+    let active = 0
+    let overlap = false
+    let aborted = false
+    const port = portOf(async function*(input, signal) {
+      active++
+      overlap ||= active > 1
+      try {
+        if ((input as { command: string }).command === "sleep") {
+          await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }))
+          aborted = signal.aborted
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        yield { kind: "output", bytes: encode((input as { command: string }).command) }
+        yield { kind: "exit", code: 0 }
+      } finally {
+        active--
+      }
+    }, seen)
+    const source = StandardFlows.shell(noSpawn(counter), undefined, { terminal: "agent", terminalPort: port })
+    const [binding] = await Effect.runPromise(source.bindings())
+    const [first, second] = await Promise.all([
+      Effect.runPromise(binding!.run(callOf("bash", { command: "first", mode: "unhermetic" }))),
+      Effect.runPromise(binding!.run(callOf("bash", { command: "second", mode: "unhermetic" })))
+    ])
+    expect(first).toMatchObject({ outcome: "success", value: { stdout: "first" } })
+    expect(second).toMatchObject({ outcome: "success", value: { stdout: "second" } })
+    expect(overlap).toBe(false)
+    const fiber = Effect.runFork(binding!.run(callOf("bash", { command: "sleep", mode: "unhermetic" })))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    await Effect.runPromise(Fiber.interrupt(fiber))
+    expect(aborted).toBe(true)
+    expect(counter.spawns).toBe(0)
   })
 })
 

@@ -369,6 +369,18 @@ const plan = (input: Input): Plan | StdError.StdError => {
   }
 }
 
+/**
+ * The plan, refused when its input names no one invocation or when a hermetic
+ * call's paths fall outside its declared envelope. Spawned and terminal
+ * execution share this one check.
+ */
+const precheck = (input: Input, path: Path.Path): Plan | StdError.StdError => {
+  const intent = plan(input)
+  if (intent instanceof StdError.StdError || input.mode !== "hermetic") return intent
+  // A planned call carries exactly one of command or script.
+  return outsideEnvelope(input, input.command ?? input.script!, path) ?? intent
+}
+
 /** The plan as the host will spawn it, once the container transport has had it. */
 const routed = (
   plan: Plan,
@@ -378,7 +390,7 @@ const routed = (
   if (input.container === undefined) return Effect.succeed(plan)
   if (Option.isNone(transport)) return Effect.fail(Container.unavailable(input.container))
   return Effect.map(
-    transport.value.exec(request(plan, input)),
+    transport.value.exec(request(plan, input, input.container)),
     (routing): Plan => ({
       file: routing.file,
       args: routing.args,
@@ -411,8 +423,8 @@ const routed = (
  * still arrives on the inherited standard input and no argument is ever
  * re-parsed as shell text.
  */
-const request = (plan: Plan, input: Input): Container.Request => ({
-  container: input.container ?? "",
+const request = (plan: Plan, input: Input, container: string): Container.Request => ({
+  container,
   file: "bash",
   args: plan.args === undefined
     ? ["-lc", plan.file]
@@ -472,13 +484,8 @@ const fingerprint = (
 export const run = Effect.fn("Bash.run")(function*(
   input: Input
 ): Effect.fn.Return<Output, StdError.StdError, ChildProcessSpawner.ChildProcessSpawner | Path.Path> {
-  const path = yield* Path.Path
-  const intent = plan(input)
+  const intent = precheck(input, yield* Path.Path)
   if (intent instanceof StdError.StdError) return yield* Effect.fail(intent)
-  if (input.mode === "hermetic") {
-    const violation = outsideEnvelope(input, input.command ?? input.script ?? "", path)
-    if (violation !== undefined) return yield* Effect.fail(violation)
-  }
   // The working directory belongs to the container. The transport supplies
   // any environment overrides its host process needs to forward into it.
   const contained = input.container !== undefined
@@ -515,6 +522,57 @@ export const run = Effect.fn("Bash.run")(function*(
     ...(mutated === undefined ? {} : { mutated })
   }
 })
+
+/**
+ * What one call runs, after planning and before any transport: the program,
+ * its arguments (absent for a shell command line), standard input, the
+ * caller's environment, and the logical invocation as a person reads it.
+ *
+ * @category models
+ * @since 1.0.0
+ */
+export interface Invocation {
+  readonly file: string
+  readonly args: ReadonlyArray<string> | undefined
+  readonly stdin: string | undefined
+  readonly env: Record<string, string> | undefined
+  readonly quoted: string
+}
+
+/**
+ * The invocation `input` names, or the typed refusal explaining why it names
+ * none. The same plan {@link run} spawns; a terminal provider runs it instead.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
+export const invocation = (input: Input): Invocation | StdError.StdError => plan(input)
+
+/**
+ * {@link run}'s contract through a registered terminal (T-TRM-05): the same
+ * plan, hermetic pre-check, bounded output and diagnostics refresh, with
+ * execution supplied by `execute` instead of a spawn on this host. A terminal
+ * has no container transport, so a containerised call is refused before it
+ * reaches `execute`.
+ *
+ * @category handlers
+ * @since 1.0.0
+ */
+export const inTerminal = <R>(
+  execute: (input: Input) => Effect.Effect<Output, StdError.StdError, R>
+) =>
+  Effect.fn("Bash.inTerminal")(function*(
+    input: Input
+  ): Effect.fn.Return<Output, StdError.StdError, R | Path.Path> {
+    const intent = precheck(input, yield* Path.Path)
+    if (intent instanceof StdError.StdError) return yield* Effect.fail(intent)
+    if (input.container !== undefined) return yield* Effect.fail(Container.unavailable(input.container))
+    const output = yield* execute(input)
+    // The terminal ran on this workspace: files a language server holds may
+    // have changed, exactly as after a spawn here.
+    yield* Diagnostics.refresh
+    return output
+  })
 
 /**
  * The refusal a sealed host answers a call outside its container with.

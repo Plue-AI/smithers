@@ -10,6 +10,7 @@ import * as Container from "../src/Container.ts"
 import * as Exec from "../src/internal/Exec.ts"
 import { MAX_SHELL_OUTPUT_BYTES } from "../src/internal/Text.ts"
 import * as LanguageServer from "../src/LanguageServer.ts"
+import * as StdError from "../src/StdError.ts"
 import * as TreeFingerprint from "../src/TreeFingerprint.ts"
 import { layer } from "./TestLayers.ts"
 
@@ -1144,5 +1145,110 @@ describe("Bash", () => {
     ))
 
     expect(Object.hasOwn(result, "invalidProbe")).toBe(false)
+  })
+})
+
+describe("Bash in a registered terminal (T-TRM-05)", () => {
+  it("forwards a container transport's own environment to its tree fingerprints", async () => {
+    const environments: Array<Record<string, string | undefined> | undefined> = []
+    const spawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner)(ChildProcessSpawner.makeNoop({
+      spawn: (command) =>
+        Effect.sync(() => {
+          environments.push((command as ChildProcess.StandardCommand).options.env)
+          return makeHandle({
+            pid: ProcessId(1),
+            exitCode: Effect.succeed(ExitCode(0)),
+            isRunning: Effect.succeed(false),
+            kill: () => Effect.void,
+            stdin: Sink.drain,
+            stdout: Stream.empty,
+            stderr: Stream.empty,
+            all: Stream.empty,
+            getInputFd: () => Sink.drain,
+            getOutputFd: () => Stream.empty,
+            unref: Effect.succeed(Effect.void)
+          })
+        })
+    }))
+    const transport = Layer.succeed(Container.Container)(Container.make({
+      exec: (request) =>
+        Effect.succeed({ file: "docker", args: ["exec", request.container, request.file, ...request.args], env: { DOCKER_HOST: "unix:///run/docker.sock" } })
+    }))
+    await execute(Effect.provide(
+      Bash.run({ mode: "unhermetic", container: "task-1", command: "true" }),
+      Layer.mergeAll(spawner, transport, Path.layer)
+    ))
+    expect(environments).toHaveLength(3)
+    for (const env of environments) expect(env).toMatchObject({ DOCKER_HOST: "unix:///run/docker.sock" })
+  })
+
+  const ok: Bash.Output = {
+    exitCode: 0,
+    stdout: "ran",
+    stderr: "",
+    stdoutTruncated: false,
+    stderrTruncated: false,
+    stdoutDroppedBytes: 0,
+    stderrDroppedBytes: 0
+  }
+  const terminal = (seen: Array<Bash.Input>) =>
+    Bash.inTerminal((input) => Effect.sync(() => (seen.push(input), ok)))
+
+  it("plans a command line and a script exactly as the spawn path does", () => {
+    expect(Bash.invocation({ mode: "unhermetic", command: "pnpm test", stdin: "y\n", env: { CI: "1" } })).toEqual({
+      file: "pnpm test",
+      args: undefined,
+      stdin: "y\n",
+      env: { CI: "1" },
+      quoted: "pnpm test"
+    })
+    expect(Bash.invocation({ mode: "unhermetic", script: "print(1)", interpreter: "python3", args: ["-x"] }))
+      .toEqual({
+        file: "python3",
+        args: ["-", "-x"],
+        stdin: "print(1)",
+        env: undefined,
+        quoted: "python3 - -x"
+      })
+    const refused = Bash.invocation({ mode: "unhermetic", command: "a", script: "b" })
+    expect(refused).toMatchObject({ code: "invalid_input" })
+  })
+
+  it("hands a planned call to the terminal and refreshes diagnostics after it ran", async () => {
+    let refreshed = 0
+    const server = Layer.succeed(LanguageServer.LanguageServer)(LanguageServer.make({
+      ...LanguageServer.makeNoop(),
+      refresh: Effect.sync(() => void refreshed++)
+    }))
+    const seen: Array<Bash.Input> = []
+    const input: Bash.Input = { mode: "unhermetic", command: "pnpm test", cwd: "web" }
+    const output = await execute(Effect.provide(terminal(seen)(input), Layer.merge(Path.layer, server)))
+    expect(output).toEqual(ok)
+    expect(seen).toEqual([input])
+    expect(refreshed).toBe(1)
+  })
+
+  it.each([
+    [{ mode: "unhermetic", command: "a", script: "b" }, "invalid_input"],
+    [{ mode: "unhermetic", script: "x", interpreter: "cobol" }, "invalid_input"],
+    [{ mode: "unhermetic", command: "true", container: "branch" }, "provider_unavailable"],
+    [{ mode: "hermetic", command: "cat /etc/passwd", reads: ["src/**"], writes: [] }, "outside_declared_reads"]
+  ] as const)("refuses %j before the terminal runs anything", async (input, code) => {
+    const seen: Array<Bash.Input> = []
+    const exit = await execute(Effect.provide(Effect.exit(terminal(seen)(input as Bash.Input)), Path.layer))
+    expect(Exit.isFailure(exit)).toBe(true)
+    if (Exit.isFailure(exit)) expect(Option.getOrUndefined(Cause.findErrorOption(exit.cause))?.code).toBe(code)
+    expect(seen).toEqual([])
+  })
+
+  it("runs a hermetic call whose paths are declared and keeps the terminal's typed failure", async () => {
+    const seen: Array<Bash.Input> = []
+    const declared: Bash.Input = { mode: "hermetic", command: "cat src/a.ts", reads: ["src/**"], writes: [] }
+    expect(await execute(Effect.provide(terminal(seen)(declared), Path.layer))).toEqual(ok)
+    const failing = Bash.inTerminal(() =>
+      Effect.fail(new StdError.StdError({ code: "timeout", limitMillis: 5, message: "Agent terminal command timed out" }))
+    )
+    const exit = await execute(Effect.provide(Effect.exit(failing(declared)), Path.layer))
+    expect(Exit.isFailure(exit) && Option.getOrUndefined(Cause.findErrorOption(exit.cause))?.code).toBe("timeout")
   })
 })
