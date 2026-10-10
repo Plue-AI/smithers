@@ -25,7 +25,7 @@ try {
   await context.addCookies(cookies.map(cookie => ({ ...cookie, url: browserOrigin })))
   const page = await context.newPage()
   await page.goto(`${browserOrigin}/rehearsal-owner/app`)
-  const home = page.locator('section.home.smithers-card').last()
+  const home = page.locator('.home').last()
   await expect(home).toContainText("GitHub App permission missing", { timeout: 90_000 })
   await expect(home.locator('button[data-flow="settings"]')).toBeVisible()
   await page.screenshot({ path: process.env.SMITHERS_GITHUB_BROWSER_EVIDENCE! + "/refused-home.png" })
