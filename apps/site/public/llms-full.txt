@@ -3965,6 +3965,8 @@ Extracts and validates fenced source blocks from one Markdown file. `file` is th
 
 ### Remaining exports
 
+`Smithers.Vitest` and `Smithers.FaultSuite` accept `env`, `services` and `sandbox` as `Shell.Test` does. The runner sees only the host bootstrap environment, so a case reads a service's URL from the declared `env`, never from the caller's shell, and a service requires an explicit `sandbox`.
+
 `Smithers.testSuite(paths, { isolate: true })` enables Bun `--isolate` for suites whose files mutate process globals. It costs about 3× wall time; the default and Node runner are unchanged. This is temporary: after [#3696](https://github.com/smithersai/smithers/issues/3696) lands, apps/app drops isolation and the option is deleted if no callers remain.
 
 Every other export of `Smithers.ts`, in source order:
@@ -12293,6 +12295,13 @@ that verifies a flow's source has to evaluate the bytes it measured, and the
 only way to evaluate bytes is to write them somewhere and import that path;
 call this before the import, because a declaration captures its site while its
 module is evaluated and never rewrites it afterwards.
+
+`Graph.inspect(flow)` returns an `Inspection`: the flow's nodes, edges,
+steps, diagnostics, and its prompt renderer's source, all serializable. It
+builds against an unresolved input reference and runs no action or prompt
+renderer, so a body that branches on its payload in plain JavaScript reports a
+diagnostic instead of a sample graph. Plan-time body code still runs, so call
+it only where loading the declaration is already trusted.
 
 ## Effects
 

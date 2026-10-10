@@ -4,6 +4,7 @@
  * @since 0.1.0
  */
 
+import type * as Attr from "./Attr.ts"
 import * as Input from "./Input.ts"
 import type * as PackageManager from "./PackageManager.ts"
 import type * as Target from "./Target.ts"
@@ -48,6 +49,22 @@ export interface Options {
   readonly config?: Input.File | null | undefined
   /** @default "node" */
   readonly environment?: string | undefined
+  /**
+   * Variables the cases read, such as a declared service's URL. The runner
+   * sees only the host bootstrap environment otherwise, so a value exported by
+   * the caller never reaches a case.
+   */
+  readonly env?: Readonly<Record<string, string>> | undefined
+  /**
+   * Service targets the cases need, such as a PostgreSQL server, acquired
+   * before the run and released after it. A service requires `sandbox`.
+   */
+  readonly services?: ReadonlyArray<Target.AnyTarget> | undefined
+  /**
+   * The sandbox policy. Cases kill process groups, read the process table and
+   * boot microVMs, so a suite with services declares `"none"`.
+   */
+  readonly sandbox?: Attr.Sandbox | undefined
 }
 
 /**
@@ -102,5 +119,8 @@ export const FaultSuite = (options: Options): ReturnType<typeof Vitest> =>
     coverage: false,
     exclusive: true,
     passWithNoTests: false,
-    cwd: options.cwd
+    cwd: options.cwd,
+    ...(options.env === undefined ? {} : { env: options.env }),
+    ...(options.services === undefined ? {} : { services: options.services }),
+    ...(options.sandbox === undefined ? {} : { sandbox: options.sandbox })
   })

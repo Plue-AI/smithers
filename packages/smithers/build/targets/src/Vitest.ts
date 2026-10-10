@@ -6,6 +6,7 @@
 
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
+import * as Attr from "./Attr.ts"
 import * as Exec from "./Exec.ts"
 import * as Input from "./Input.ts"
 import * as PackageManager from "./PackageManager.ts"
@@ -55,6 +56,20 @@ export const Attrs = Schema.Struct({
     Schema.withConstructorDefault(Effect.succeed("."))
   ),
   /**
+   * Variables set on the runner. The runner otherwise sees only the narrow
+   * host bootstrap environment ({@link Exec.inheritedEnvironmentNames}), so a
+   * value a case needs, such as a service's URL, is declared here rather than
+   * exported by the caller.
+   */
+  env: Schema.optional(Attr.Env),
+  /**
+   * Service targets acquired, readiness-gated, before the run and released
+   * after it, as for `Shell.Test`. A service requires an explicit `sandbox`.
+   */
+  services: Schema.optional(Attr.Services),
+  /** The sandbox policy, as for `Shell.Test`. */
+  sandbox: Schema.optional(Attr.Sandbox),
+  /**
    * How long the run may take before the tool is killed.
    *
    * The exec default of ten minutes is measured against a developer machine
@@ -82,8 +97,9 @@ export type Attrs = typeof Attrs.Type
  * Plans a non-watch `vitest run` test target.
  *
  * The body records one {@link Exec.Exec} node that runs
- * `pnpm exec vitest run` from `cwd` with the declared config, environment,
- * and empty-suite policy. Test, source, and config declarations are the
+ * `pnpm exec vitest run` from `cwd` with the declared config, test
+ * environment, `env` variables and empty-suite policy, under any declared
+ * `services`. Test, source, and config declarations are the
  * target's inputs, so key material contains their digests plus dependency
  * target keys. This models tevm's `test:run` target and Vitest's
  * deterministic run mode. Executing the plan requires {@link Exec.ExecLive}.
@@ -101,6 +117,7 @@ export const Vitest = Target.make("Vitest", {
     Exec.runTool({
       cwd: attrs.cwd,
       timeoutMs: attrs.timeoutMs,
+      env: attrs.env ?? {},
       argv: PackageManager.exec(PackageManager.under(attrs.packageManager, attrs.runtime), [
         "vitest",
         "run",

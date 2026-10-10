@@ -10,11 +10,12 @@
  * @since 0.1.0
  */
 import { describe, expect, it } from "vitest"
+import * as Docker from "../src/Docker.ts"
 import { FaultSuite } from "../src/FaultSuite.ts"
 import * as Input from "../src/Input.ts"
 import * as Target from "../src/Target.ts"
 import * as Vitest from "../src/Vitest.ts"
-import { plannedArgv } from "./plan.ts"
+import { plannedArgv, plannedCalls } from "./plan.ts"
 import { packageManager } from "./toolchain.ts"
 
 const attrsOf = (target: unknown): Vitest.Attrs => Target.metadata(target as never).attrs as Vitest.Attrs
@@ -97,6 +98,32 @@ describe("FaultSuite", () => {
     expect(attrs.config).toBeNull()
     expect(attrs.environment).toBe("happy-dom")
     expect(plannedArgv(FaultSuite({ cwd: "packages/x", config: null, packageManager }))).not.toContain("--config")
+  })
+
+  // The runner hands a case only the host bootstrap environment, so a database
+  // URL a workflow exported never reached the Go-backed cases (#3459). The
+  // suite declares its server and the URL instead.
+  it("passes declared variables, services and the sandbox policy to the run", () => {
+    const database = Docker.Service({ image: "postgres:18", ports: { "5432": 55439 } })
+    const env = { SMITHERS_TEST_DATABASE_URL: "postgres://smithers@127.0.0.1:55439/postgres" }
+    const target = FaultSuite({ cwd: "packages/smithers", env, services: [database], sandbox: "none", packageManager })
+    const attrs = attrsOf(target)
+    expect(attrs.env).toEqual(env)
+    expect(attrs.services).toEqual([database])
+    expect(attrs.sandbox).toBe("none")
+    expect(Target.metadata(target).dependencies).toContain(database)
+    const calls = plannedCalls(target)
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.payload["env"]).toEqual(env)
+  })
+
+  it("declares no variables, services or sandbox policy unless asked", () => {
+    const target = FaultSuite({ cwd: "packages/smithers/flows", packageManager })
+    const attrs = attrsOf(target)
+    expect(attrs.env).toBeUndefined()
+    expect(attrs.services).toBeUndefined()
+    expect(attrs.sandbox).toBeUndefined()
+    expect(plannedCalls(target)[0]!.payload["env"]).toEqual({})
   })
 
   it("keys on the harness and the fixtures, not only on the cases", () => {

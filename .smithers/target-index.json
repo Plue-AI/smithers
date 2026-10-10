@@ -62324,6 +62324,22 @@
     }
   },
   {
+    "label": "//packages/smithers:faultPostgresDatabase",
+    "package": "packages/smithers",
+    "name": "faultPostgresDatabase",
+    "rule": "Docker.Service",
+    "kinds": [
+      "run"
+    ],
+    "cacheable": false,
+    "inputs": [],
+    "outputs": [],
+    "dependencies": [],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
     "label": "//packages/smithers:faults",
     "package": "packages/smithers",
     "name": "faults",
@@ -62357,7 +62373,9 @@
       }
     ],
     "outputs": [],
-    "dependencies": [],
+    "dependencies": [
+      "//packages/smithers:faultPostgresDatabase"
+    ],
     "source": {
       "file": "packages/smithers/PACKAGE.ts"
     }

@@ -89,6 +89,22 @@ const test = Smithers.Shell.Test({
 })
 
 /**
+ * The PostgreSQL server the Go-backed durability cases (C-DUR-01 to C-DUR-04)
+ * and case40 run against; each Go suite creates and drops its own databases
+ * on it, as under the root `backendGo`.
+ */
+const faultPostgresDatabase = Smithers.Docker.Service({
+  image: "postgres@sha256:ef257d85f76e48da1c64832459b59fcaba1a4dac97bf5d7450c77753542eee94",
+  env: { POSTGRES_USER: "smithers", POSTGRES_PASSWORD: "smithers-fault-test" },
+  ports: { "5432": 55439 },
+  readiness: {
+    exec: ["pg_isready", "-h", "127.0.0.1", "-U", "smithers", "-d", "postgres"],
+    timeout: "120s"
+  },
+  stop: { signal: "SIGTERM", grace: "10s" }
+})
+
+/**
  * The package's fault-injection cases.
  *
  * A package opts into the matrix by declaring this key, so
@@ -96,9 +112,22 @@ const test = Smithers.Shell.Test({
  * packages are in it. The tier is separate from `test` because its cases are
  * machine-global — they kill process groups, bind ephemeral ports, and read
  * the process table — so they run serially, without coverage, from
- * `vitest.faults.config.ts`.
+ * `vitest.faults.config.ts`, and unconfined.
+ *
+ * The runner passes a case only the host bootstrap environment, so the
+ * database URL a workflow exported never arrived and every Go-backed case
+ * failed with "Real PostgreSQL is required" (#3459). The target declares its
+ * own server instead.
  */
-const faults = Smithers.FaultSuite({ cwd: "packages/smithers" })
+const faults = Smithers.FaultSuite({
+  cwd: "packages/smithers",
+  env: {
+    SMITHERS_TEST_DATABASE_URL: "postgres://smithers:smithers-fault-test@127.0.0.1:55439/postgres?sslmode=disable",
+    SMITHERS_REQUIRE_DATABASE_TESTS: "1"
+  },
+  services: [faultPostgresDatabase],
+  sandbox: "none"
+})
 
 /** The corrected native editor and its reproducible source used by the TUI. */
 const nativeSources = Smithers.Filegroup({
@@ -270,6 +299,7 @@ export const Package = Smithers.Package({
     circular,
     docs,
     docsFiles,
+    faultPostgresDatabase,
     faults,
     fmt,
     lib,
