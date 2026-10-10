@@ -6,6 +6,7 @@ import {
   MessageScrollerButton,
   type MessageScrollerCommands,
   MessageScrollerContent,
+  type MessageScrollerProviderProps,
   MessageScrollerItem,
   MessageScrollerProvider,
   MessageScrollerViewport,
@@ -1406,6 +1407,90 @@ describe("MessageScroller compound", () => {
     await act(async () => resizeCallbacks.get(content)!([], {} as ResizeObserver));
     expect(getViewport().scrollTop).toBe(400);
     expect(latestState!.following).toBe(false);
+  });
+});
+
+describe("an explicit jump away from the live edge (#3774)", () => {
+  /** A TODO above a long answer, read at the live edge; `scrollTo` starts a smooth scroll that has not moved yet. */
+  async function jumpFromTheBottom(readAnchor?: MessageScrollerProviderProps["readAnchor"]) {
+    let commands: MessageScrollerCommands | undefined;
+    let state: { atBottom: boolean; following: boolean; } | undefined;
+    function Probe() {
+      commands = useMessageScroller();
+      state = useMessageScrollerState();
+      return null;
+    }
+    geometryByMessageId.set("todo", { top: 0, height: 80 });
+    geometryByMessageId.set("notes", { top: 80, height: 840 });
+    geometryByMessageId.set("latest", { top: 920, height: 80 });
+    const view = () => <MessageScrollerProvider scrollAnchor="bottom" readAnchor={readAnchor}>
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="todo">TODO</MessageScrollerItem>
+        <MessageScrollerItem messageId="notes">Notes</MessageScrollerItem>
+        <MessageScrollerItem messageId="latest">Latest</MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport>
+      <Probe />
+    </MessageScrollerProvider>;
+    await render(view(), { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+    metrics().scrollTop = 800;
+    await scroll();
+    expect(state!.following).toBe(true);
+    Object.defineProperty(getViewport(), "scrollTo", { configurable: true, value: () => {} });
+    await act(async () => commands!.scrollToMessage("todo", { behavior: "smooth" }));
+    expect(state!.following).toBe(false);
+    const content = container!.querySelector('[data-slot="message-scroller-content"]')!;
+    return {
+      state: () => state!,
+      commit: () => act(async () => root!.render(view())),
+      grow: (height: number) => act(async () => {
+        metrics().scrollHeight = height;
+        resizeCallbacks.get(content)!([], {} as ResizeObserver);
+      }),
+    };
+  }
+
+  test.each([
+    ["without", undefined],
+    ["with", { messageId: "latest", actor: "output" as const }],
+  ])("first frames inside the bottom threshold keep follow released through a commit and growth (%s a read anchor)", async (_, readAnchor) => {
+    const jump = await jumpFromTheBottom(readAnchor);
+    // The smooth scroll's first frame is still within 24 px of the bottom.
+    metrics().scrollTop = 790;
+    await scroll();
+    expect(jump.state().following).toBe(false);
+    // A read-progress save publishes mid-flight; the transcript commits and resizes.
+    await jump.commit();
+    await jump.grow(1000);
+    expect(getViewport().scrollTop).toBe(790);
+    expect(jump.state().following).toBe(false);
+    metrics().scrollTop = 400;
+    await scroll();
+    metrics().scrollTop = 0;
+    await scroll();
+    await jump.commit();
+    expect(getViewport().scrollTop).toBe(0);
+    expect(jump.state().following).toBe(false);
+  });
+
+  test("the reader dragging back to the bottom mid-flight takes over and follows again", async () => {
+    const jump = await jumpFromTheBottom();
+    metrics().scrollTop = 790;
+    await scroll();
+    metrics().scrollTop = 800;
+    await scroll();
+    expect(jump.state().following).toBe(true);
+    await jump.grow(1200);
+    expect(jump.state().atBottom).toBe(true);
+  });
+
+  test("scrollend settles a jump that stopped short, wherever it stopped", async () => {
+    const jump = await jumpFromTheBottom();
+    metrics().scrollTop = 790;
+    await scroll();
+    await act(async () => getViewport().dispatchEvent(new Event("scrollend")));
+    expect(jump.state().following).toBe(true);
+    await jump.grow(1200);
+    expect(jump.state().atBottom).toBe(true);
   });
 });
 

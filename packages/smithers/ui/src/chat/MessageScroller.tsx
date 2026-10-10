@@ -146,6 +146,13 @@ function MessageScrollerProviderImpl({
     restorePendingRef.current = true;
   }
   const turnAnchorRef = useRef<{ id: string; top: number; } | null>(null);
+  /**
+   * An explicit jump away from the live edge, until it lands, stops or the
+   * reader takes over: its destination and direction. Its first smooth frames
+   * still sit inside the bottom threshold and must not re-engage follow, or the
+   * next commit or growth re-pins the bottom and cancels the jump (#3774).
+   */
+  const messageJumpRef = useRef<{ top: number; down: boolean; } | null>(null);
   const pendingAnchorIdRef = useRef<string | null>(null);
   const ignoreNextScrollRef = useRef(false);
   const queuedJumpRef = useRef<{ messageId: string; opts?: { behavior?: ScrollBehavior; peek?: boolean; }; } | null>(
@@ -314,6 +321,7 @@ function MessageScrollerProviderImpl({
       restorePendingRef.current = false;
       queuedJumpRef.current = null;
       turnAnchorRef.current = null;
+      messageJumpRef.current = null;
       activeReadRef.current = readAnchorRef.current ? { id: readAnchorRef.current.messageId, arrival: false } : null;
       setJumpTracking(anchoringRef.current);
       scrollViewportTo(viewport.scrollHeight, behavior);
@@ -336,6 +344,7 @@ function MessageScrollerProviderImpl({
       restorePendingRef.current = false;
       queuedJumpRef.current = null;
       turnAnchorRef.current = null;
+      messageJumpRef.current = null;
       setJumpTracking(false);
       scrollViewportTo(0, behavior);
       measure(viewport);
@@ -367,6 +376,7 @@ function MessageScrollerProviderImpl({
       restorePendingRef.current = false;
       queuedJumpRef.current = null;
       turnAnchorRef.current = null;
+      messageJumpRef.current = null;
       const peek = opts?.peek ?? true;
       const maxTop = maxScrollTop(viewport);
       const top = Math.min(Math.max(itemTopWithinViewport(el) - (peek ? peekPxRef.current : 0), 0), maxTop);
@@ -375,7 +385,11 @@ function MessageScrollerProviderImpl({
       // follow and streaming growth re-targets the moving bottom until landing.
       const targetsBottom = anchoringRef.current && maxTop - top <= thresholdRef.current;
       setJumpTracking(targetsBottom);
+      const from = viewport.scrollTop;
       scrollViewportTo(top, opts?.behavior ?? "auto");
+      if (anchoringRef.current && !targetsBottom && Math.abs(viewport.scrollTop - top) > 1) {
+        messageJumpRef.current = { top, down: top > from };
+      }
       const bottom = measure(viewport);
       remember(viewport);
       refreshVisibilityFallback();
@@ -518,6 +532,7 @@ function MessageScrollerProviderImpl({
       const top = Math.min(target, maxTop);
       const targetsBottom = anchoringRef.current && maxTop - top <= thresholdRef.current;
       if (targetsBottom) {
+        messageJumpRef.current = null;
         setJumpTracking(true);
         scrollViewportTo(viewport.scrollHeight, "auto");
         if (measure(viewport)) {
@@ -528,6 +543,7 @@ function MessageScrollerProviderImpl({
         // The anchor scroll fires a scroll event that must not read as a user
         // gesture: suppress exactly one, then hold the turn position.
         ignoreNextScrollRef.current = true;
+        messageJumpRef.current = null;
         turnAnchorRef.current = { id: messageId, top: target };
         scrollViewportTo(top, "auto");
         if (anchoringRef.current) setFollowing(false);
@@ -597,6 +613,7 @@ function MessageScrollerProviderImpl({
     restorePendingRef.current = false;
     queuedJumpRef.current = null;
     turnAnchorRef.current = null;
+    messageJumpRef.current = null;
     setJumpTracking(false);
     const bottom = measure(viewport);
     remember(viewport);
@@ -632,7 +649,16 @@ function MessageScrollerProviderImpl({
    */
   const onViewportScrollEnd = useCallback(() => {
     const viewport = viewportRef.current;
-    if (!viewport || !ignoreScrollUntilBottomRef.current) return;
+    if (!viewport) return;
+    if (messageJumpRef.current) {
+      // A jump that stopped short leaves the reader wherever it settled.
+      messageJumpRef.current = null;
+      const bottom = measure(viewport);
+      remember(viewport);
+      if (anchoringRef.current) setFollowing(bottom);
+      return;
+    }
+    if (!ignoreScrollUntilBottomRef.current) return;
     setJumpTracking(false);
     const bottom = measure(viewport);
     remember(viewport);
@@ -706,8 +732,19 @@ function MessageScrollerProviderImpl({
     }
     // A real reader scroll releases the turn anchor; growth no longer holds.
     turnAnchorRef.current = null;
+    const jump = messageJumpRef.current;
+    if (jump) {
+      // Until the explicit jump lands its positions are transient, even inside
+      // the bottom threshold: follow stays released. Movement away from the
+      // destination is the reader taking over (a scrollbar drag).
+      const target = Math.min(jump.top, maxScrollTop(viewport));
+      const landed = jump.down ? viewport.scrollTop >= target - 1 : viewport.scrollTop <= target + 1;
+      const retreated = jump.down ? viewport.scrollTop < previousTop : viewport.scrollTop > previousTop;
+      if (!landed && !retreated) return;
+      messageJumpRef.current = null;
+    }
     setFollowing(bottom);
-  }, [measure, remember, recomputeVisibilityGeometric, setFollowing, setJumpTracking]);
+  }, [maxScrollTop, measure, remember, recomputeVisibilityGeometric, setFollowing, setJumpTracking]);
 
   /* ---- mount + per-commit scroll maintenance ------------------------------ */
 

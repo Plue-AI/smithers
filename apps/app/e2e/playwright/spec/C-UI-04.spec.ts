@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "../browserTest"
+import { expect, test, type Page, type Route } from "../browserTest"
 import { owner, say } from "./j1-fixtures"
 
 // Exercise the self-hosted composition, including its branch and audience providers.
@@ -11,11 +11,8 @@ const installOwner = async (page: Page) => {
   } }))
 }
 
-// UI projection of .specs/engineering/checks/C-UI-04.md.
-// Integration and reference-host evidence remains required separately.
-test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump and a narrow live pill", async ({ page }) => {
-  await installOwner(page)
-  await page.setViewportSize({ width: 1440, height: 1000 })
+/** A shared Starting entry's TODO above a long answer, so the conversation opens at the answer's end. */
+const startingEntry = async (page: Page) => {
   const model = { n: 24, title: "Starting entry", state: "starting",
     owner: { login: "canary-owner", name: "Ben", avatar_url: "https://example.test/avatar.png" },
     prompt_revisions: [], steps: [], steers: [], evidence: [], present: [], waits: [],
@@ -30,6 +27,14 @@ test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump an
     { id: "answer", author: 1, authorLogin: "canary-owner", runId: "answer", prompt: "Read the notes", state: "completed", sequence: 2,
       title: "Read the notes", tone: "done", frames: [{ runId: "answer", type: "delta", kind: "text", text: Array.from({ length: 50 }, (_, i) => `Note ${i}.`).join("\n\n") }] }
   ] } }))
+}
+
+// UI projection of .specs/engineering/checks/C-UI-04.md.
+// Integration and reference-host evidence remains required separately.
+test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump and a narrow live pill", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await startingEntry(page)
   await page.goto("/")
   const timeline = page.getByRole("navigation", { name: "Timeline", exact: true })
   const line = timeline.locator('[data-entry="todo:24"]')
@@ -45,6 +50,29 @@ test("C-UI-04: shared Starting entry has one host-derived line, keyboard jump an
   await page.setViewportSize({ width: 900, height: 1000 })
   await expect(timeline).toBeHidden()
   await expect(page.getByRole("button", { name: "↑ 1 live above", exact: true })).toBeVisible()
+})
+
+// #3774: a read-progress save that publishes during the jump's first smooth frames, still inside the bottom
+// threshold, re-pinned the live edge and cancelled the jump. The saves here answer on that first frame.
+test("C-UI-04: a keyboard jump lands while read-progress saves answer in its first frame", async ({ page }) => {
+  await installOwner(page)
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await startingEntry(page)
+  const held: Route[] = []
+  await page.route("**/api/conversations/main/view-state", route => {
+    if (route.request().method() === "PUT" && "last_seen_seq" in route.request().postDataJSON()) held.push(route)
+    else return route.fulfill({ json: { toasts_hidden: false } })
+  })
+  await page.exposeFunction("answerSaves", async () => { for (const route of held.splice(0)) await route.fulfill({ json: { toasts_hidden: false } }) })
+  await page.goto("/")
+  const line = page.getByRole("navigation", { name: "Timeline", exact: true }).locator('[data-entry="todo:24"]')
+  await expect(line).toHaveCount(1)
+  await expect.poll(() => held.length).toBeGreaterThan(0)
+  await page.getByRole("region", { name: "Conversation messages", exact: true })
+    .evaluate(viewport => viewport.addEventListener("scroll", () => void (window as unknown as { answerSaves(): Promise<void> }).answerSaves(), { once: true }))
+  await line.getByRole("button").first().press("Enter")
+  await expect(page.locator('[data-message-id="todo:24"]')).toBeInViewport()
+  await expect(page.getByTestId("composer-input")).toBeEditable()
 })
 
 // The served TODO path is independent of the pending shared-entry/summary journey.
