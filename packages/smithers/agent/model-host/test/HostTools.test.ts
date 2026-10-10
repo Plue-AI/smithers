@@ -262,7 +262,6 @@ const HOST_COMMANDS = [
   "agents",
   "background.dismiss",
   "background.retry",
-  "box.facet",
   "branch",
   "branch.add-to-stack",
   "branch.archive",
@@ -277,6 +276,7 @@ const HOST_COMMANDS = [
   "card.history.forward",
   "change.facet",
   "chat.reload",
+  "diff",
   "file",
   "files",
   "flow",
@@ -335,10 +335,12 @@ const HOST_COMMANDS = [
   "todo.return-to-item",
   "todo.steer",
   "todo.stop",
+  "wiki",
   "wiki.backlinks",
   "wiki.delete",
   "wiki.graph",
   "wiki.open",
+  "wiki.page",
   "wiki.space",
   "wiki.view"
 ]
