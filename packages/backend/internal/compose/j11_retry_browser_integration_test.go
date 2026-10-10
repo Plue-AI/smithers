@@ -25,7 +25,7 @@ func TestJ11NativeRetryBrowser(t *testing.T) {
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
 	r := newRehearsal(t, "SMITHERS_J11_RETRY_BROWSER", "C-J11-01", "j11-retry-")
 	require.True(t, r.install("Install"))
-	retrySource, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor/retry/flows/todo/flow.ts"))
+	retrySource, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor-retry-todo-source.ts"))
 	require.NoError(t, err)
 	activateMonitorOverride(t, r, string(retrySource))
 	retry, err := r.file("Native Retry", "[RETRY] Record a native failure")

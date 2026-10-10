@@ -31,7 +31,7 @@ func TestJ11ThrashBrowser(t *testing.T) {
 	t.Setenv("SMITHERS_J11_THRASH_BROWSER", "1")
 	r := newRehearsal(t, "SMITHERS_J11_THRASH_BROWSER", "C-J11-04", "j11-thrash-")
 	require.True(t, r.install("Install"))
-	source, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor/flows/todo/flow.ts"))
+	source, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor-todo-source.ts"))
 	require.NoError(t, err)
 	activateMonitorOverride(t, r, string(source))
 	first, err := r.file("Thrashing checks", "[FILE thrash.md] Add a greeting to thrash.md")

@@ -37,8 +37,11 @@ test("the backend pins the shipped default's registry execution digest", async (
       const todo = yield* builtin.registry.get("todo")
       assert.deepEqual(Object.keys(served), ["todo", "learning", "review"])
       const learning = yield* builtin.registry.get("learning")
-      assert.equal(served.learning, "b34533067efa9a4ca41f7d75a7a71483081e1f7f876cbc65727e5a3b390e447d")
-      assert.equal(Descriptor.executionDigest(learning), "b34533067efa9a4ca41f7d75a7a71483081e1f7f876cbc65727e5a3b390e447d")
+      assert.equal(served.learning, "a3dbf4e4029d93336c25a3b1e505bf9f5393112040cb0a26ccf24632f29bc777")
+      assert.equal(
+        Descriptor.executionDigest(learning),
+        "a3dbf4e4029d93336c25a3b1e505bf9f5393112040cb0a26ccf24632f29bc777"
+      )
       assert.equal(served.todo, Descriptor.executionDigest(todo))
       assert.notEqual(served.todo, todo.body.contentDigest, "the source hash alone cannot admit an execution")
       // Review's identity covers the modules beside its entry, measured where

@@ -178,9 +178,12 @@ test("the implementation flow hands the plan's block to every edit step", async 
     ),
     // No TODO owner: the implement drain reads nothing, so a queue that
     // refuses every call proves the edit step never touched it.
-    feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop({
-      drain: () => Effect.die("an unowned implementation must not drain the queue")
-    }))))
+    feedbackLayer.pipe(Layer.provide(Layer.succeed(
+      NotificationQueue.NotificationQueue,
+      NotificationQueue.makeNoop({
+        drain: () => Effect.die("an unowned implementation must not drain the queue")
+      })
+    )))
   )
   const change = {
     id: "fix",

@@ -14,8 +14,7 @@ import { renderFeedback } from "./steering.ts"
 import { TodoBoundary, todoBringBoundary } from "./todo-pause.ts"
 import { readTodoDelivery } from "./vibe-evidence.ts"
 import Vibe, { VibeError } from "./vibe-flow.ts"
-import { VibeDelivered } from "./vibe-schema.ts"
-import { VibeInput } from "./vibe-schema.ts"
+import { VibeDelivered, VibeInput } from "./vibe-schema.ts"
 
 // Keep the legacy route interpreter available while admitted requests drain.
 export { Route } from "./schema.ts"

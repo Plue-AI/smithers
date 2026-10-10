@@ -3,7 +3,10 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { resolve } from "node:path"
 
-export const consumeInstallProject = (environment: NodeJS.ProcessEnv, uid = process.getuid?.() ?? -1): string | undefined => {
+export const consumeInstallProject = (
+  environment: NodeJS.ProcessEnv,
+  uid = process.getuid?.() ?? -1
+): string | undefined => {
   // Check identity before reading even a hostile payload accessor.
   if (uid === 0) throw new Error("Install coding configuration requires an unprivileged guest")
   const snapshot = environment.SMITHERS_CODING_PROJECT_JSON

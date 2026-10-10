@@ -4,6 +4,7 @@ import { Action, HumanTask, Interpreter } from "@smthrs/flow"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import assert from "node:assert/strict"
 import { test } from "node:test"
+import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import {
   carriedAnswer,
   declineLayer,
@@ -19,7 +20,6 @@ import {
 } from "../coding/planning.ts"
 import type { CarriedAnswer, Revision } from "../coding/schema.ts"
 import { feedbackLayer } from "../coding/steering.ts"
-import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 
 /*
  * A person's answer to an agent's question reaches every later attempt of
@@ -44,7 +44,14 @@ const context: PlanningContext = {
   memoryRevision: "memory",
   implementation: "coding/implementation",
   implementationDigest: "i".repeat(64),
-  checks: [{ id: "build-only", target: ".", flow: "checks/build-only", flowDigest: "b".repeat(64), tier: "fast", required: true }],
+  checks: [{
+    id: "build-only",
+    target: ".",
+    flow: "checks/build-only",
+    flowDigest: "b".repeat(64),
+    tier: "fast",
+    required: true
+  }],
   sources: [],
   missing: []
 }
@@ -80,18 +87,28 @@ const host = (clarification: string, gather = () => context, onAnswer: () => voi
   const layer = Layer.mergeAll(
     Interpreter.layer(PreparePlan),
     // No TODO owner: the plan drain reads nothing and never touches a queue.
-    feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop({
-      drain: () => Effect.die("an unowned plan must not drain the queue")
-    })))),
+    feedbackLayer.pipe(Layer.provide(Layer.succeed(
+      NotificationQueue.NotificationQueue,
+      NotificationQueue.makeNoop({
+        drain: () => Effect.die("an unowned plan must not drain the queue")
+      })
+    ))),
     declineLayer,
     planningPolicy,
-    HumanTask.action.toLayer(({ prompt }) => Effect.promise(async () => {
-      seen.asked.push(prompt)
-      await onAnswer()
-      return "Answered now"
-    })),
+    HumanTask.action.toLayer(({ prompt }) =>
+      Effect.promise(async () => {
+        seen.asked.push(prompt)
+        await onAnswer()
+        return "Answered now"
+      })
+    ),
     VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
-    GatherContext.toLayer((input) => Effect.sync(() => { seen.checkpoints.push(input.checkpoint); return gather() })),
+    GatherContext.toLayer((input) =>
+      Effect.sync(() => {
+        seen.checkpoints.push(input.checkpoint)
+        return gather()
+      })
+    ),
     ReviewRequest.toLayer((payload) =>
       Effect.sync(() => {
         seen.review.push(planningPrompt(payload))
@@ -171,31 +188,44 @@ test("carriedAnswer matches a question by its words, ignoring case and spacing",
   assert.equal(carriedAnswer(answers, ""), undefined)
 })
 
-test("a checkpoint during a question refreshes source before the draft and keeps the answer", { timeout: 60_000 }, async t => {
-  let current = context
-  const updated = { ...context, head: { ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" },
-    history: [{ ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" }] }
-  let opened!: () => void, answered!: () => void
-  const questionOpen = new Promise<void>(resolve => { opened = resolve })
-  const answerReady = new Promise<void>(resolve => { answered = resolve })
-  const { runtime, seen } = host("Should greet trim its input?", () => current, async () => {
-    opened()
-    await answerReady
-    current = updated
-  })
-  t.after(() => runtime.dispose())
-  const running = runtime.runPromise(PreparePlan.execute(input, { executionId: "checkpoint-answer" }))
-  await questionOpen
-  try {
-    await new Promise(resolve => setTimeout(resolve, 100))
-    assert.deepEqual(seen.checkpoints, [undefined], "no source receipt before the answer")
-    assert.deepEqual(seen.draft, [])
-  } finally { answered() }
-  const plan = await running
-  assert.deepEqual(seen.asked, ["Should greet trim its input?"])
-  assert.deepEqual(seen.answer, ["Answered now"])
-  assert.equal(JSON.parse(seen.review[0]!).context.head.commitId, "commit-head")
-  assert.equal(JSON.parse(seen.draft[0]!).context.head.commitId, "brought-in")
-  assert.equal(plan.base.commitId, "brought-in")
-  assert.deepEqual(seen.checkpoints, [undefined, "after-answer"])
-})
+test(
+  "a checkpoint during a question refreshes source before the draft and keeps the answer",
+  { timeout: 60_000 },
+  async (t) => {
+    let current = context
+    const updated = {
+      ...context,
+      head: { ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" },
+      history: [{ ...head, commitId: "brought-in", treeId: "person-tree", operationId: "person-op" }]
+    }
+    let opened!: () => void, answered!: () => void
+    const questionOpen = new Promise<void>((resolve) => {
+      opened = resolve
+    })
+    const answerReady = new Promise<void>((resolve) => {
+      answered = resolve
+    })
+    const { runtime, seen } = host("Should greet trim its input?", () => current, async () => {
+      opened()
+      await answerReady
+      current = updated
+    })
+    t.after(() => runtime.dispose())
+    const running = runtime.runPromise(PreparePlan.execute(input, { executionId: "checkpoint-answer" }))
+    await questionOpen
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 100))
+      assert.deepEqual(seen.checkpoints, [undefined], "no source receipt before the answer")
+      assert.deepEqual(seen.draft, [])
+    } finally {
+      answered()
+    }
+    const plan = await running
+    assert.deepEqual(seen.asked, ["Should greet trim its input?"])
+    assert.deepEqual(seen.answer, ["Answered now"])
+    assert.equal(JSON.parse(seen.review[0]!).context.head.commitId, "commit-head")
+    assert.equal(JSON.parse(seen.draft[0]!).context.head.commitId, "brought-in")
+    assert.equal(plan.base.commitId, "brought-in")
+    assert.deepEqual(seen.checkpoints, [undefined, "after-answer"])
+  }
+)

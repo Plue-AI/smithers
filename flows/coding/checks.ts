@@ -2,6 +2,7 @@
 import { Action, Flow, Interpreter } from "@smthrs/flow"
 import * as Executable from "@smthrs/registry/Executable"
 import { Clock, Effect, Layer, Path, Schema, Semaphore } from "effect"
+import type { CommandReceipts } from "./command-receipts.ts"
 import {
   changedSourceFiles,
   contained,
@@ -79,7 +80,7 @@ export const checkDelegate = Flow.make("coding/CommandCheck", {
 
 export type CheckHostOptions = ImmutableSourceOptions & {
   /** Installed host audit, outside repository output and its immutable export. */
-  readonly commandReceipts?: import("./command-receipts.ts").CommandReceipts | undefined
+  readonly commandReceipts?: CommandReceipts | undefined
   /** Optional deployment resource limit; ordinary checks may run concurrently. */
   readonly concurrency?: number
 }

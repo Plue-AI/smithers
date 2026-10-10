@@ -101,7 +101,7 @@ export const admitVerifySource = (source: StackBase, checks: ReadonlyArray<typeo
       return yield* new CodingError({
         code: "source_refused",
         message: "This workspace's native helper cannot import a stack commit (" +
-          sourceRefusal("verify_import_unavailable", { commitId: source.commitId }) + ")"
+          (yield* sourceRefusal("verify_import_unavailable", { commitId: source.commitId })) + ")"
       })
     }
     const imported = yield* native.importSource({
@@ -113,7 +113,10 @@ export const admitVerifySource = (source: StackBase, checks: ReadonlyArray<typeo
       return yield* new CodingError({
         code: "source_refused",
         message: "The stack commit was not imported as a resolved commit (" +
-          sourceRefusal("verify_import_unresolved", { expected: source.commitId, actual: revision?.commitId }) + ")"
+          (yield* sourceRefusal("verify_import_unresolved", {
+            expected: source.commitId,
+            actual: revision?.commitId
+          })) + ")"
       })
     }
     return {

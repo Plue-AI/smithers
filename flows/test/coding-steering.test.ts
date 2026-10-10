@@ -25,8 +25,6 @@ import * as NotificationEvent from "../../packages/smithers/notifications/src/No
 import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import * as LocalControl from "../../packages/smithers/src/internal/LocalControl.ts"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
-import { CodingError } from "../coding/schema.ts"
-import { TodoReviewInput, todoReviewLayer } from "../coding/todo.ts"
 import { ApplyNative, EditAtom, Entry, Observe, Prepare } from "../coding/atoms.ts"
 import ImplementAtoms, { atomFlows } from "../coding/implementation/flow.ts"
 import {
@@ -40,6 +38,7 @@ import {
   ReviewRequest,
   VerifyContext
 } from "../coding/planning.ts"
+import { CodingError } from "../coding/schema.ts"
 import {
   appendFeedback,
   feedbackBoundary,
@@ -48,6 +47,7 @@ import {
   ReceiveFeedback,
   routeMessages
 } from "../coding/steering.ts"
+import { TodoReviewInput, todoReviewLayer } from "../coding/todo.ts"
 
 const controlLayer = ControlRuntime.layerMemory({
   flows: ["coding/request", "todo", "other"].map((flowId) => ({
@@ -715,34 +715,55 @@ test(
   }
 )
 
-
 test("TODO messages reach the shared root harness at every step and model boundary", { timeout: 60_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "todo-steering-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const journal = await journalLayer(join(root, "control.db"))
   let nativeQueue: NotificationQueue.Service | undefined
   let nativeJournal: Journal.Service | undefined
-  const host = ManagedRuntime.make(LocalControl.layer(
-    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
-    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
-    (queue, control, journal) => {
-      nativeQueue = queue
-      nativeJournal = journal
-      return routeMessages(queue, control, journal)
-    }
-  ).pipe(Layer.provideMerge(controlLayer)))
+  const host = ManagedRuntime.make(
+    LocalControl.layer(
+      Registry.layerNoop(),
+      { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+      Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+      (queue, control, journal) => {
+        nativeQueue = queue
+        nativeJournal = journal
+        return routeMessages(queue, control, journal)
+      }
+    ).pipe(Layer.provideMerge(controlLayer))
+  )
   t.after(() => host.dispose())
   await host.runPromise(Effect.gen(function*() {
     const control = yield* ControlRuntime.ControlRuntime
     const native = nativeQueue!
     const owner = yield* launch(control, "todo")
     const door = yield* Control.Control
-    const source = yield* Notifications.make({ runId: owner.runId, lineageId: owner.runId }).pipe(Effect.provideService(NotificationQueue.NotificationQueue, native))
-    for (const boundary of ["route", "plan", "poc", "implement", "implement:model:1", "implement:model:2", "correct", "deliver"]) {
+    const source = yield* Notifications.make({ runId: owner.runId, lineageId: owner.runId }).pipe(
+      Effect.provideService(NotificationQueue.NotificationQueue, native)
+    )
+    for (
+      const boundary of [
+        "route",
+        "plan",
+        "poc",
+        "implement",
+        "implement:model:1",
+        "implement:model:2",
+        "correct",
+        "deliver"
+      ]
+    ) {
       const input = {
-        runId: owner.runId, idempotencyKey: `todo-${boundary}`,
-        message: { runId: owner.runId, messageId: `todo-${boundary}`,
-          principal: yield* control.stampPrincipal(), createdAt: 0, body: `Ben: ${boundary}` }
+        runId: owner.runId,
+        idempotencyKey: `todo-${boundary}`,
+        message: {
+          runId: owner.runId,
+          messageId: `todo-${boundary}`,
+          principal: yield* control.stampPrincipal(),
+          createdAt: 0,
+          body: `Ben: ${boundary}`
+        }
       }
       assert.equal((yield* door.steer(input))._tag, "Accepted")
       yield* door.steer(input)
@@ -762,20 +783,22 @@ test("TODO messages reach the shared root harness at every step and model bounda
   }))
 })
 
-
 test("TODO feedback actions consume messages admitted through the control door", { timeout: 60_000 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), "todo-feedback-action-"))
   t.after(() => rm(root, { recursive: true, force: true }))
   const journal = await journalLayer(join(root, "control.db"))
   let routedQueue: NotificationQueue.Service | undefined
-  const parent = ManagedRuntime.make(LocalControl.layer(
-    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
-    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
-    (queue, control, journal) => {
-      routedQueue = routeMessages(queue, control, journal)
-      return routedQueue
-    }
-  ).pipe(Layer.provideMerge(controlLayer)))
+  const parent = ManagedRuntime.make(
+    LocalControl.layer(
+      Registry.layerNoop(),
+      { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+      Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+      (queue, control, journal) => {
+        routedQueue = routeMessages(queue, control, journal)
+        return routedQueue
+      }
+    ).pipe(Layer.provideMerge(controlLayer))
+  )
   t.after(() => parent.dispose())
   const { owner, queue } = await parent.runPromise(Effect.gen(function*() {
     return {
@@ -789,22 +812,30 @@ test("TODO feedback actions consume messages admitted through the control door",
     error: ReceiveFeedback.errorSchema,
     body: (input) => ReceiveFeedback.call(input)
   })
-  const runtime = ManagedRuntime.make(Layer.mergeAll(Interpreter.layer(Probe), feedbackLayer).pipe(
-    Layer.provideMerge(Action.layerImplementations),
-    Layer.provideMerge(FlowEngine.layerMemory),
-    Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, queue)),
-    Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId: "todo" })),
-    Layer.provideMerge(NodeCrypto.layer)
-  ))
+  const runtime = ManagedRuntime.make(
+    Layer.mergeAll(Interpreter.layer(Probe), feedbackLayer).pipe(
+      Layer.provideMerge(Action.layerImplementations),
+      Layer.provideMerge(FlowEngine.layerMemory),
+      Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, queue)),
+      Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId: "todo" })),
+      Layer.provideMerge(NodeCrypto.layer)
+    )
+  )
   t.after(() => runtime.dispose())
   for (const boundary of ["route", "plan", "poc", "implement", "correct", "deliver"] as const) {
     await parent.runPromise(Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime
       const door = yield* Control.Control
       const input = {
-        runId: owner.runId, idempotencyKey: boundary,
-        message: { runId: owner.runId, messageId: boundary, createdAt: 0,
-          principal: yield* control.stampPrincipal(), body: `Ben: ${boundary}` }
+        runId: owner.runId,
+        idempotencyKey: boundary,
+        message: {
+          runId: owner.runId,
+          messageId: boundary,
+          createdAt: 0,
+          principal: yield* control.stampPrincipal(),
+          body: `Ben: ${boundary}`
+        }
       }
       yield* door.steer(input)
       yield* door.steer(input)
@@ -815,7 +846,6 @@ test("TODO feedback actions consume messages admitted through the control door",
     assert.equal((await parent.runPromise(queue.pending(owner.runId))).length, 0)
   }
 })
-
 
 const native = (letter: string, parent?: string) => ({
   kind: "resolved" as const,
@@ -833,20 +863,30 @@ test("a TODO steer sent during one atom's model turn reaches the next atom's fir
   t.after(() => rm(root, { recursive: true, force: true }))
   const journal = await journalLayer(join(root, "control.db"))
   let routed: NotificationQueue.Service | undefined
-  const parent = ManagedRuntime.make(LocalControl.layer(
-    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
-    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
-    (queue, control, journal) => (routed = routeMessages(queue, control, journal))
-  ).pipe(Layer.provideMerge(controlLayer)))
+  const parent = ManagedRuntime.make(
+    LocalControl.layer(
+      Registry.layerNoop(),
+      { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+      Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+      (queue, control, journal) => (routed = routeMessages(queue, control, journal))
+    ).pipe(Layer.provideMerge(controlLayer))
+  )
   t.after(() => parent.dispose())
   const steer = (runId: string, id: string, body: string) =>
     parent.runPromise(Effect.gen(function*() {
       const control = yield* ControlRuntime.ControlRuntime
       const door = yield* Control.Control
       const input = {
-        runId, idempotencyKey: id,
-        message: { runId, messageId: id, createdAt: 0, principal: yield* control.stampPrincipal(), body,
-          attribution: { by: "member:2", via: "web" } }
+        runId,
+        idempotencyKey: id,
+        message: {
+          runId,
+          messageId: id,
+          createdAt: 0,
+          principal: yield* control.stampPrincipal(),
+          body,
+          attribution: { by: "member:2", via: "web" }
+        }
       }
       assert.equal((yield* door.steer(input))._tag, "Accepted")
       // A retried request admits nothing new.
@@ -865,8 +905,13 @@ test("a TODO steer sent during one atom's model turn reaches the next atom's fir
     intent: "Add retries",
     implementation: "coding/ImplementAtoms",
     implementationDigest: "i".repeat(64),
-    atoms: [0, 1, 2].map((n) => ({ changeId: null, message: `✨ feat: step ${n}`, intent: `step ${n}`, reads: [],
-      writes: ["src/deliver.ts"] })),
+    atoms: [0, 1, 2].map((n) => ({
+      changeId: null,
+      message: `✨ feat: step ${n}`,
+      intent: `step ${n}`,
+      reads: [],
+      writes: ["src/deliver.ts"]
+    })),
     checks: []
   }
   const implement = async (flowId: string, label: string) => {
@@ -874,31 +919,35 @@ test("a TODO steer sent during one atom's model turn reaches the next atom's fir
       return yield* launch(yield* ControlRuntime.ControlRuntime, flowId)
     }))
     const edits: Array<{ readonly atom: { readonly intent: string }; readonly feedback?: string }> = []
-    const runtime = ManagedRuntime.make(Layer.mergeAll(
-      atomFlows,
-      feedbackLayer,
-      Entry.toLayer(() => Effect.succeed(operation)),
-      Prepare.toLayer(() => Effect.succeed(operation)),
-      ApplyNative.toLayer(() =>
-        Effect.succeed({ status: "unchanged" as const, operationId: base.operationId, revision: child })
-      ),
-      Observe.toLayer(() => Effect.succeed(child)),
-      // Each edit stands for a model turn in flight: the person steers while
-      // it runs, so only a later atom can receive the message before dispatch.
-      EditAtom.toLayer((payload) =>
-        Effect.promise(async () => {
-          edits.push(payload)
-          if (edits.length < 3) await steer(owner.runId, `${label}-${edits.length}`, `Ben: use withRetry ${edits.length}`)
-          return { summary: "done", reads: [], writes: ["src/deliver.ts"] }
-        })
+    const runtime = ManagedRuntime.make(
+      Layer.mergeAll(
+        atomFlows,
+        feedbackLayer,
+        Entry.toLayer(() => Effect.succeed(operation)),
+        Prepare.toLayer(() => Effect.succeed(operation)),
+        ApplyNative.toLayer(() =>
+          Effect.succeed({ status: "unchanged" as const, operationId: base.operationId, revision: child })
+        ),
+        Observe.toLayer(() => Effect.succeed(child)),
+        // Each edit stands for a model turn in flight: the person steers while
+        // it runs, so only a later atom can receive the message before dispatch.
+        EditAtom.toLayer((payload) =>
+          Effect.promise(async () => {
+            edits.push(payload)
+            if (edits.length < 3) {
+              await steer(owner.runId, `${label}-${edits.length}`, `Ben: use withRetry ${edits.length}`)
+            }
+            return { summary: "done", reads: [], writes: ["src/deliver.ts"] }
+          })
+        )
+      ).pipe(
+        Layer.provideMerge(Action.layerImplementations),
+        Layer.provideMerge(FlowEngine.layerMemory),
+        Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
+        Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
+        Layer.provideMerge(NodeCrypto.layer)
       )
-    ).pipe(
-      Layer.provideMerge(Action.layerImplementations),
-      Layer.provideMerge(FlowEngine.layerMemory),
-      Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
-      Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
-      Layer.provideMerge(NodeCrypto.layer)
-    ))
+    )
     t.after(() => runtime.dispose())
     const implemented = await runtime.runPromise(
       ImplementAtoms.execute({ change, parent: base, memoryRevision: "m" }, { executionId: `${label}-implement` })
@@ -932,10 +981,18 @@ test("a TODO step boundary reads a committed outside-change note as quoted data"
     delivery: "queue",
     targetLineageId: "todo-run",
     provenance: { sourceRunId: "todo-run", sourceLineageId: "todo-run", sourceTurn: 0, sourceActor: "system:watcher" },
-    payload: { kind: "outside_change", id: "burst-1", actor: { kind: "person", id: "member:2", name: "Ben" },
-      files: ["src/retry.ts", "$(touch canary).ts"], targetLineageId: "todo-run" }
+    payload: {
+      kind: "outside_change",
+      id: "burst-1",
+      actor: { kind: "person", id: "member:2", name: "Ben" },
+      files: ["src/retry.ts", "$(touch canary).ts"],
+      targetLineageId: "todo-run"
+    }
   }
-  const receipt = { boundary: "b", messages: [note, message("steer-1", "todo-run", { kind: "Message", body: "Ben: cap at 5" })] }
+  const receipt = {
+    boundary: "b",
+    messages: [note, message("steer-1", "todo-run", { kind: "Message", body: "Ben: cap at 5" })]
+  }
   const rendered = await Effect.runPromise(appendFeedback("", receipt))
   assert.equal(
     rendered.split("\n\n")[0],
@@ -950,90 +1007,137 @@ test("a TODO step boundary reads a committed outside-change note as quoted data"
   assert.match(refused.message, /no readable Message payload/)
 })
 
-
-test("a steer committed before a TODO answer reaches the first plan request after it", { timeout: 60_000 }, async (t) => {
-  const root = await mkdtemp(join(tmpdir(), "todo-plan-steering-"))
-  t.after(() => rm(root, { recursive: true, force: true }))
-  const journal = await journalLayer(join(root, "control.db"))
-  let routed: NotificationQueue.Service | undefined
-  const parent = ManagedRuntime.make(LocalControl.layer(
-    Registry.layerNoop(), { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
-    Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
-    (queue, control, journal) => (routed = routeMessages(queue, control, journal))
-  ).pipe(Layer.provideMerge(controlLayer)))
-  t.after(() => parent.dispose())
-  const head = { changeId: "change-head", commitId: "commit-head", treeId: "tree-head", operationId: "op",
-    parentCommitIds: ["commit-root"], description: "✨ feat: seed" }
-  const context: PlanningContext = {
-    head, history: [head], memory: [], memoryRevision: "memory", implementation: "coding/implementation",
-    implementationDigest: "i".repeat(64), sources: [], missing: [],
-    checks: [{ id: "build", target: ".", flow: "checks/build", flowDigest: "b".repeat(64), tier: "fast", required: true }]
-  }
-  const draft = {
-    rationale: "retries", baseChangeId: head.changeId,
-    changes: [{ id: "retry", title: "Retry", intent: "Add retries", checks: ["build"],
-      atoms: [{ changeId: null, message: "✨ feat: retry", intent: "retry", reads: [], writes: ["src/deliver.ts"] }] }]
-  }
-  const plan = async (flowId: string, clarification: string, label: string) => {
-    const owner = await parent.runPromise(Effect.gen(function*() {
-      return yield* launch(yield* ControlRuntime.ControlRuntime, flowId)
-    }))
-    const steer = (id: string, body: string) =>
-      parent.runPromise(Effect.gen(function*() {
-        const control = yield* ControlRuntime.ControlRuntime
-        const input = { runId: owner.runId, idempotencyKey: id, message: { runId: owner.runId, messageId: id,
-          createdAt: 0, principal: yield* control.stampPrincipal(), body, attribution: { by: "member:2" } } }
-        yield* (yield* Control.Control).steer(input)
-      }))
-    const drafts: Array<string> = []
-    const runtime = ManagedRuntime.make(Layer.mergeAll(
-      Interpreter.layer(PreparePlan),
-      feedbackLayer,
-      declineLayer,
-      planningPolicy,
-      VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
-      GatherContext.toLayer(() => Effect.succeed(context)),
-      // Ben steers while his question is open, then answers it.
-      ReviewRequest.toLayer(() =>
-        Effect.promise(async () => {
-          if (clarification === "") await steer(`${label}-review`, "Keep the max at 5")
-          return { explanation: "Which helper?", clarification }
-        })
-      ),
-      HumanTask.action.toLayer(() =>
-        Effect.promise(async () => (await steer(`${label}-steer`, "Keep the max at 5"), "Use the existing retry helper"))
-      ),
-      DraftPlan.toLayer((payload) => Effect.sync(() => (drafts.push(planningPrompt(payload)), draft)))
-    ).pipe(
-      Layer.provideMerge(Action.layerImplementations),
-      Layer.provideMerge(FlowEngine.layerMemory),
-      Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
-      Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
-      Layer.provideMerge(NodeCrypto.layer)
-    ))
-    t.after(() => runtime.dispose())
-    await runtime.runPromise(
-      PreparePlan.execute({ prompt: "Add retries to webhook delivery", feedback: "" }, { executionId: `${label}-plan` })
+test(
+  "a steer committed before a TODO answer reaches the first plan request after it",
+  { timeout: 60_000 },
+  async (t) => {
+    const root = await mkdtemp(join(tmpdir(), "todo-plan-steering-"))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    const journal = await journalLayer(join(root, "control.db"))
+    let routed: NotificationQueue.Service | undefined
+    const parent = ManagedRuntime.make(
+      LocalControl.layer(
+        Registry.layerNoop(),
+        { runtime: controlLayer, journal: journal.pipe(Layer.orDie) },
+        Layer.succeed(ControlExecutor.ControlExecutor, ControlExecutor.makeNoop()),
+        (queue, control, journal) => (routed = routeMessages(queue, control, journal))
+      ).pipe(Layer.provideMerge(controlLayer))
     )
-    assert.equal(drafts.length, 1)
-    return { first: JSON.parse(drafts[0]!), pending: await parent.runPromise(routed!.pending(owner.runId)) }
+    t.after(() => parent.dispose())
+    const head = {
+      changeId: "change-head",
+      commitId: "commit-head",
+      treeId: "tree-head",
+      operationId: "op",
+      parentCommitIds: ["commit-root"],
+      description: "✨ feat: seed"
+    }
+    const context: PlanningContext = {
+      head,
+      history: [head],
+      memory: [],
+      memoryRevision: "memory",
+      implementation: "coding/implementation",
+      implementationDigest: "i".repeat(64),
+      sources: [],
+      missing: [],
+      checks: [{
+        id: "build",
+        target: ".",
+        flow: "checks/build",
+        flowDigest: "b".repeat(64),
+        tier: "fast",
+        required: true
+      }]
+    }
+    const draft = {
+      rationale: "retries",
+      baseChangeId: head.changeId,
+      changes: [{
+        id: "retry",
+        title: "Retry",
+        intent: "Add retries",
+        checks: ["build"],
+        atoms: [{ changeId: null, message: "✨ feat: retry", intent: "retry", reads: [], writes: ["src/deliver.ts"] }]
+      }]
+    }
+    const plan = async (flowId: string, clarification: string, label: string) => {
+      const owner = await parent.runPromise(Effect.gen(function*() {
+        return yield* launch(yield* ControlRuntime.ControlRuntime, flowId)
+      }))
+      const steer = (id: string, body: string) =>
+        parent.runPromise(Effect.gen(function*() {
+          const control = yield* ControlRuntime.ControlRuntime
+          const input = {
+            runId: owner.runId,
+            idempotencyKey: id,
+            message: {
+              runId: owner.runId,
+              messageId: id,
+              createdAt: 0,
+              principal: yield* control.stampPrincipal(),
+              body,
+              attribution: { by: "member:2" }
+            }
+          }
+          yield* (yield* Control.Control).steer(input)
+        }))
+      const drafts: Array<string> = []
+      const runtime = ManagedRuntime.make(
+        Layer.mergeAll(
+          Interpreter.layer(PreparePlan),
+          feedbackLayer,
+          declineLayer,
+          planningPolicy,
+          VerifyContext.toLayer(({ context }) => Effect.succeed(context)),
+          GatherContext.toLayer(() => Effect.succeed(context)),
+          // Ben steers while his question is open, then answers it.
+          ReviewRequest.toLayer(() =>
+            Effect.promise(async () => {
+              if (clarification === "") await steer(`${label}-review`, "Keep the max at 5")
+              return { explanation: "Which helper?", clarification }
+            })
+          ),
+          HumanTask.action.toLayer(() =>
+            Effect.promise(
+              async () => (await steer(`${label}-steer`, "Keep the max at 5"), "Use the existing retry helper")
+            )
+          ),
+          DraftPlan.toLayer((payload) => Effect.sync(() => (drafts.push(planningPrompt(payload)), draft)))
+        ).pipe(
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, routed!)),
+          Layer.provide(Layer.succeed(ModuleOwner, { rootId: owner.runId, flowId })),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+      )
+      t.after(() => runtime.dispose())
+      await runtime.runPromise(
+        PreparePlan.execute({ prompt: "Add retries to webhook delivery", feedback: "" }, {
+          executionId: `${label}-plan`
+        })
+      )
+      assert.equal(drafts.length, 1)
+      return { first: JSON.parse(drafts[0]!), pending: await parent.runPromise(routed!.pending(owner.runId)) }
+    }
+
+    const answered = await plan("todo", "Which retry helper?", "answered")
+    assert.equal(answered.first.answer, "Use the existing retry helper")
+    assert.match(answered.first.messages, /^\[request message \{"id":"answered-steer"/)
+    assert.ok(answered.first.messages.endsWith("\nKeep the max at 5"))
+    assert.deepEqual(answered.pending, [])
+
+    // Without a question the first draft request still carries what the review's turn missed.
+    const reviewed = await plan("todo", "", "reviewed")
+    assert.match(reviewed.first.messages, /"id":"reviewed-review"/)
+
+    // A request coordinator plans without it; the message waits for its boundary.
+    const request = await plan("coding/request", "Which retry helper?", "request")
+    assert.equal("messages" in request.first, false)
+    assert.deepEqual(request.pending.map((n) => n.id), ["request-steer"])
   }
-
-  const answered = await plan("todo", "Which retry helper?", "answered")
-  assert.equal(answered.first.answer, "Use the existing retry helper")
-  assert.match(answered.first.messages, /^\[request message \{"id":"answered-steer"/)
-  assert.ok(answered.first.messages.endsWith("\nKeep the max at 5"))
-  assert.deepEqual(answered.pending, [])
-
-  // Without a question the first draft request still carries what the review's turn missed.
-  const reviewed = await plan("todo", "", "reviewed")
-  assert.match(reviewed.first.messages, /"id":"reviewed-review"/)
-
-  // A request coordinator plans without it; the message waits for its boundary.
-  const request = await plan("coding/request", "Which retry helper?", "request")
-  assert.equal("messages" in request.first, false)
-  assert.deepEqual(request.pending.map((n) => n.id), ["request-steer"])
-})
+)
 
 test(
   "review rendezvous resumes two ordinary child rounds and consumes each control steer once",
@@ -1057,30 +1161,39 @@ test(
     }))
     const roundIds = new Map<number, string>()
     const RecordRound = Action.make("fixture/record-review-round", {
-      payload: { round: Schema.Number }, success: Schema.Void, error: CodingError
+      payload: { round: Schema.Number },
+      success: Schema.Void,
+      error: CodingError
     })
     const Round = Flow.make("fixture/review-round", {
-      payload: { round: Schema.Number }, success: Schema.String, error: CodingError,
+      payload: { round: Schema.Number },
+      success: Schema.String,
+      error: CodingError,
       body: ({ round }) => RecordRound.call({ round }).pipe(Node.andThen(TodoReviewInput.call({})))
     })
     const Probe = Flow.make("fixture/review-rendezvous", {
       payload: {},
       success: Schema.String,
       error: CodingError,
-      body: () => Round.child({ round: 1 }).pipe(
-        Node.bindPlanned((first) => Round.child({ round: 2 }).pipe(
-          Node.bindPlanned((second) => Node.succeed({ first, second }))
-        )),
-        Node.map(({ first, second }) => first + "\n" + second)
-      )
+      body: () =>
+        Round.child({ round: 1 }).pipe(
+          Node.bindPlanned((first) =>
+            Round.child({ round: 2 }).pipe(
+              Node.bindPlanned((second) => Node.succeed({ first, second }))
+            )
+          ),
+          Node.map(({ first, second }) => first + "\n" + second)
+        )
     })
     const runtime = ManagedRuntime.make(
       Layer.mergeAll(
         Interpreter.layer(Probe),
         Interpreter.layer(Round),
-        RecordRound.toLayer(({ round }) => Effect.gen(function*() {
-          roundIds.set(round, (yield* FlowRuntime.FlowInstance).executionId)
-        })),
+        RecordRound.toLayer(({ round }) =>
+          Effect.gen(function*() {
+            roundIds.set(round, (yield* FlowRuntime.FlowInstance).executionId)
+          })
+        ),
         todoReviewLayer
       ).pipe(
         Layer.provideMerge(Action.layerImplementations),
@@ -1132,13 +1245,18 @@ test(
         yield* Effect.sleep("10 millis")
       }
       yield* poll("Suspended")
-      const second = { ...input, idempotencyKey: "review-note-2",
-        message: { ...input.message, messageId: "review-note-2", body: "Also log retry attempts" } }
-      yield* Effect.promise(() => parent.runPromise(Effect.gen(function*() {
-        const control = yield* ControlRuntime.ControlRuntime
-        const door = yield* Control.Control
-        yield* door.steer({ ...second, message: { ...second.message, principal: yield* control.stampPrincipal() } })
-      })))
+      const second = {
+        ...input,
+        idempotencyKey: "review-note-2",
+        message: { ...input.message, messageId: "review-note-2", body: "Also log retry attempts" }
+      }
+      yield* Effect.promise(() =>
+        parent.runPromise(Effect.gen(function*() {
+          const control = yield* ControlRuntime.ControlRuntime
+          const door = yield* Control.Control
+          yield* door.steer({ ...second, message: { ...second.message, principal: yield* control.stampPrincipal() } })
+        }))
+      )
       yield* engine.resume(Round, roundIds.get(2)!)
       const outcome = yield* poll("Complete")
       assert.equal(outcome._tag, "Complete")

@@ -65,7 +65,7 @@ test("retention selects canonical PR identities and original signed push identit
         pull_request: { number: 7, head: { sha: "main" }, base: { sha: base } }
       })
     ),
-    /exact retainable source identity/
+    /source_refused: event_identity_invalid/
   )
   // A captured PR event records the head and base the host read, not the delivery
   // that named the pull request. There is nothing to ask the remote for, and a
@@ -119,6 +119,6 @@ test("native commit lookup requires the exact nonempty set even when JJ exits ze
   assert.equal(await lookup([head]), true)
   assert.equal(await lookup([missing]), false)
   assert.equal(await lookup([head, missing]), false, "one known commit cannot hide the missing comparison base")
-  await assert.rejects(lookup(["@"]), /full native identities/)
+  await assert.rejects(lookup(["@"]), /source_refused: lookup_identity_invalid/)
   assert.equal(JSON.parse(jj("op", "log", "-n", "1", "--no-graph", "-T", "json(self)")).id, operationId)
 })

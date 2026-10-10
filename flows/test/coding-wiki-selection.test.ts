@@ -61,7 +61,9 @@ test("the bound provider selects through the host API and cites only the selecte
     if (method === "POST" && url === "/api/repos/owner/repo/wiki/selection") {
       return { json: { pages: [{ slug: "retry-policy", revision: 3, reason: "Retry decision" }], model: "owner-fast" } }
     }
-    if (url === "/api/repos/owner/repo/wiki/retry-policy") return { json: page("retry-policy", 3, retryBody, retryDigest) }
+    if (url === "/api/repos/owner/repo/wiki/retry-policy") {
+      return { json: page("retry-policy", 3, retryBody, retryDigest) }
+    }
     return { status: 404, json: {} }
   })
   try {

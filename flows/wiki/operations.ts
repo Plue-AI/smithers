@@ -129,36 +129,63 @@ export const operations = (
       }
       return { path: relative, digest: yield* digest(text), text }
     })
-  const inventory = (directory: string) => Effect.gen(function*() {
-    const fs = options.fs ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
-    const root = yield* fs.realPath(options.root)
-    if (directory !== ".") yield* Effect.try({ try: () => safePath(directory), catch: (error) => error as WikiError })
-    const files: string[] = []
-    let entries = 0
-    const pending = [directory]
-    while (pending.length) {
-      const current = pending.shift()!
-      const absolute = path.resolve(root, current)
-      if ((yield* fs.realPath(absolute)) !== absolute) return yield* fail("invalid-input", "Wiki source directories cannot be symlinks")
-      for (const entry of (yield* fs.readDirectory(absolute)).sort()) {
-        const relative = current === "." ? entry : `${current}/${entry}`
-        try { safePath(relative) } catch { continue }
-        if (++entries > 256) return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
-        const info = yield* fs.stat(path.join(absolute, entry))
-        if (info.type === "Directory") pending.push(relative)
-        else if (info.type === "File" && /\.(?:md|mdx|ts|tsx|js|jsx|go|rs|py|json|toml|yaml|yml)$/.test(entry)) files.push(relative)
-        if (files.length + pending.length > 256) return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
+  const inventory = (directory: string) =>
+    Effect.gen(function*() {
+      const fs = options.fs ?? (yield* FileSystem.FileSystem), path = yield* Path.Path
+      const root = yield* fs.realPath(options.root)
+      if (directory !== ".") yield* Effect.try({ try: () => safePath(directory), catch: (error) => error as WikiError })
+      const files: Array<string> = []
+      let entries = 0
+      const pending = [directory]
+      while (pending.length) {
+        const current = pending.shift()!
+        const absolute = path.resolve(root, current)
+        if ((yield* fs.realPath(absolute)) !== absolute) {
+          return yield* fail("invalid-input", "Wiki source directories cannot be symlinks")
+        }
+        for (const entry of (yield* fs.readDirectory(absolute)).sort()) {
+          const relative = current === "." ? entry : `${current}/${entry}`
+          try {
+            safePath(relative)
+          } catch {
+            continue
+          }
+          if (++entries > 256) {
+            return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
+          }
+          const info = yield* fs.stat(path.join(absolute, entry))
+          if (info.type === "Directory") {
+            pending.push(relative)
+          } else if (info.type === "File" && /\.(?:md|mdx|ts|tsx|js|jsx|go|rs|py|json|toml|yaml|yml)$/.test(entry)) {
+            files.push(relative)
+          }
+          if (files.length + pending.length > 256) {
+            return yield* fail("invalid-input", "Generated wiki source inventory exceeds 256 entries")
+          }
+        }
       }
-    }
-    return files.sort()
-  })
+      return files.sort()
+    })
   const generatedMarkdown = (spec: PageSpec, sources: ReadonlyArray<{ path: string; text: string }>) => {
     const sections = sources.map((source) => {
       const symbols = source.text.split(/\r?\n/).flatMap((line, index) =>
-        /^\s*(?:export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type)|func\s|pub\s|(?:async\s+)?def\s|class\s)/.test(line)
-          ? [`- \`${line.trim().replace(/`/g, "'")}\` [${source.path}:${index + 1}](../sources/${source.path}#L${index + 1})`] : [])
+        /^\s*(?:export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|interface|type)|func\s|pub\s|(?:async\s+)?def\s|class\s)/
+            .test(line)
+          ? [
+            `- \`${line.trim().replace(/`/g, "'")}\` [${source.path}:${index + 1}](../sources/${source.path}#L${
+              index + 1
+            })`
+          ] :
+          []
+      )
       const first = source.text.split(/\r?\n/).findIndex((line) => line.trim() !== "")
-      const fallback = first < 0 ? [] : [`- \`${source.text.split(/\r?\n/)[first]!.trim().replace(/`/g, "'")}\` [${source.path}:${first + 1}](../sources/${source.path}#L${first + 1})`]
+      const fallback = first < 0
+        ? []
+        : [
+          `- \`${source.text.split(/\r?\n/)[first]!.trim().replace(/`/g, "'")}\` [${source.path}:${
+            first + 1
+          }](../sources/${source.path}#L${first + 1})`
+        ]
       return `## ${source.path}\n\n${(symbols.length ? symbols : fallback).join("\n")}`
     }).filter(Boolean)
     return `# ${spec.title}\n\n${sections.join("\n\n")}\n`
@@ -168,7 +195,9 @@ export const operations = (
       if (!/^[a-z][a-z0-9-]{0,80}$/.test(spec.id)) {
         return yield* Effect.fail(fail("invalid-input", "Invalid wiki page id"))
       }
-      const names = spec.sourceDirectory === undefined ? [...new Set([spec.document, ...spec.inputs])].sort() : yield* inventory(spec.sourceDirectory)
+      const names = spec.sourceDirectory === undefined
+        ? [...new Set([spec.document, ...spec.inputs])].sort()
+        : yield* inventory(spec.sourceDirectory)
       const sources = yield* Effect.forEach(names, read)
       if (sources.reduce((total, source) => total + new TextEncoder().encode(source.text).length, 0) > maxPageBytes) {
         return yield* Effect.fail(
@@ -178,9 +207,10 @@ export const operations = (
           )
         )
       }
-      const markdown = spec.sourceDirectory === undefined ? sources.find((source) =>
-        source.path === spec.document
-      )!.text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "").trim() + "\n" : generatedMarkdown(spec, sources)
+      const markdown = spec.sourceDirectory === undefined ?
+        sources.find((source) => source.path === spec.document)!.text.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n/, "")
+          .trim() + "\n" :
+        generatedMarkdown(spec, sources)
       const contentDigest = yield* digest(markdown)
       const inputDigest = yield* digest(
         canonical({ policy: 2, spec, sources: sources.map(({ path, digest }) => ({ path, digest })) })
@@ -526,7 +556,7 @@ export const operations = (
       if (
         JSON.stringify(current.pages.map((page) => page.id)) !== JSON.stringify(specs.map((spec) => spec.id))
       ) return yield* Effect.fail(fail("stale-source", "The wiki catalog changed"))
-      const capturedNames: string[] = []
+      const capturedNames: Array<string> = []
       for (const spec of specs) {
         const page = current.pages.find((page) => page.id === spec.id)!
         const source = yield* collect(spec)

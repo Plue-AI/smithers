@@ -105,7 +105,7 @@ func TestJ11NativeSummaryBrowser(t *testing.T) {
 	t.Setenv("SMITHERS_FEATURE_FLAGS_FLOW_LOAD", "true")
 	r := newRehearsal(t, "SMITHERS_J11_SUMMARY_BROWSER", "C-J11-01", "j11-summary-")
 	require.True(t, r.install("Install"))
-	source, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor/retry/flows/todo/flow.ts"))
+	source, err := os.ReadFile(filepath.Join(r.root, "flows/test/fixtures/rehearsal-monitor-retry-todo-source.ts"))
 	require.NoError(t, err)
 	active := os.Getenv("SMITHERS_J11_SUMMARY_ACTIVE") == "1"
 	if active {

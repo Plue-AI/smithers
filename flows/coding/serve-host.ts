@@ -272,7 +272,11 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
           return (process.env.SMITHERS_FLOW_SOURCE_PINNED === "1"
             ? Effect.gen(function*() {
               const mainSource = process.env.SMITHERS_FLOW_SOURCE_MAIN === "1"
-              if (mainSource ? options.todoExecutionDigest !== undefined : !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest ?? "")) {
+              if (
+                mainSource
+                  ? options.todoExecutionDigest !== undefined
+                  : !/^[a-f0-9]{64}$/.test(options.todoExecutionDigest ?? "")
+              ) {
                 throw new Error("Pinned flow source does not match its main or TODO binding")
               }
               if (landing === undefined) throw new Error("Pinned TODO workspace binding is unavailable")
@@ -292,9 +296,11 @@ export const serve = async (adapters: Pick<Options, "fileMutationProvider"> = {}
                   prepareFlowDependencies(sourceOptions, sourceRoot).pipe(
                     Effect.andThen(serveSource(sourceRoot, tree.commitId))
                   )
-              ).pipe(Effect.provide(nativeLayer({ ...options, nativeRepositoryToken: landing.token }).pipe(
-                Layer.provide(NativeTransport.layerFrom(platform.host))
-              )))
+              ).pipe(Effect.provide(
+                nativeLayer({ ...options, nativeRepositoryToken: landing.token }).pipe(
+                  Layer.provide(NativeTransport.layerFrom(platform.host))
+                )
+              ))
             })
             : serveSource(root))
         }),

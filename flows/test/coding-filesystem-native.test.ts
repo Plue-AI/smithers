@@ -571,28 +571,32 @@ for (const defect of [false, true]) {
     const path = join(root, "a")
     await writeFile(path, "hello")
     let calls = 0
-    await Effect.runPromise(Effect.gen(function*() {
-      const fs = yield* FileSystem.FileSystem
-      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
-      const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, {
-        commit: () => Effect.sync(() => calls++).pipe(Effect.andThen(
-          defect ? Effect.die("lost settlement") : Effect.interrupt
-        ))
-      })
-      const call = <A, E, R>(effect: Effect.Effect<A, E, R>) => effect.pipe(
-        Effect.provideService(FileSystem.FileSystem, coding),
-        Effect.provideService(Read.ReadSession, "run")
-      )
-      yield* call(Read.run({ path }))
-      const exit = yield* Effect.exit(call(Write.run({ path, content: "world" })))
-      assert.ok(Exit.isFailure(exit))
-      assert.equal(Cause.hasInterruptsOnly(exit.cause), !defect)
-      if (defect) assert.equal(Cause.squash(exit.cause), "lost settlement")
-      const retry = yield* Effect.flip(call(Write.run({ path, content: "world" })))
-      assert.equal(retry.code, "stale_read")
-      assert.equal(retry.base_digest, "unread")
-      assert.equal(calls, 1)
-      assert.equal(yield* fs.readFileString(path), "hello")
-    }).pipe(Effect.provide(NodeServices.layer)))
+    await Effect.runPromise(
+      Effect.gen(function*() {
+        const fs = yield* FileSystem.FileSystem
+        const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+        const coding = CodingFileSystem.make({ repositoryPath: root }, fs, spawner, root, {
+          commit: () =>
+            Effect.sync(() => calls++).pipe(Effect.andThen(
+              defect ? Effect.die("lost settlement") : Effect.interrupt
+            ))
+        })
+        const call = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+          effect.pipe(
+            Effect.provideService(FileSystem.FileSystem, coding),
+            Effect.provideService(Read.ReadSession, "run")
+          )
+        yield* call(Read.run({ path }))
+        const exit = yield* Effect.exit(call(Write.run({ path, content: "world" })))
+        assert.ok(Exit.isFailure(exit))
+        assert.equal(Cause.hasInterruptsOnly(exit.cause), !defect)
+        if (defect) assert.equal(Cause.squash(exit.cause), "lost settlement")
+        const retry = yield* Effect.flip(call(Write.run({ path, content: "world" })))
+        assert.equal(retry.code, "stale_read")
+        assert.equal(retry.base_digest, "unread")
+        assert.equal(calls, 1)
+        assert.equal(yield* fs.readFileString(path), "hello")
+      }).pipe(Effect.provide(NodeServices.layer))
+    )
   })
 }

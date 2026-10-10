@@ -18,7 +18,7 @@ import * as NativeControl from "../../packages/smithers/src/internal/NativeContr
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
 import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
-import { machineBinding, layer as learningLayer } from "../learning/flow.ts"
+import { layer as learningLayer, machineBinding } from "../learning/flow.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -43,15 +43,15 @@ import { RunTrigger, triggerLayers } from "../repository/triggers.ts"
 import { ReviewPage } from "../wiki/workflow.ts"
 import { atomOperations, EditAtom } from "./atoms.ts"
 import { repositoryCheckEnvironment } from "./check-environment.ts"
-import * as HostRegistry from "./host-registry.ts"
-import { commandReceipts } from "./command-receipts.ts"
 import { checkDelegate, checkLayers } from "./checks.ts"
+import { commandReceipts } from "./command-receipts.ts"
 import { correctionLayers, SelectRepair } from "./correction.ts"
 import { dispatchModels } from "./dispatch.ts"
 import { dispatchRegistration } from "./dispatch/flow.ts"
 import * as CodingFileSystem from "./filesystem.ts"
 import { loadFlowsLayer } from "./flow-load.ts"
 import FlowLoad from "./flow-load/flow.ts"
+import * as HostRegistry from "./host-registry.ts"
 import { atomFlows } from "./implementation/flow.ts"
 import { jevCheckDelegate, jevCheckLayers } from "./jev-check.ts"
 import type { Landing } from "./landing.ts"
@@ -79,9 +79,9 @@ import { sourceAdmission } from "./source-admission.ts"
 import { stackBaseLayer } from "./stack.ts"
 import * as CodingState from "./state.ts"
 import { feedbackLayer, routeMessages } from "./steering.ts"
-import { TodoBoundary, todoBringBoundary, todoPauseLayer } from "./todo-pause.ts"
-import { todoDeliveryLayer, todoReviewLayer, todoLayers } from "./todo.ts"
 import { todoConflictLayer } from "./todo-conflict.ts"
+import { TodoBoundary, todoBringBoundary, todoPauseLayer } from "./todo-pause.ts"
+import { todoDeliveryLayer, todoLayers, todoReviewLayer } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
 import { vibeRegistration } from "./vibe.ts"
@@ -159,7 +159,9 @@ export interface Options extends NativeOptions {
 export const configuredCodingRoutes = (
   options: Pick<Options, "planning" | "landing">
 ): ReadonlyArray<{ readonly name: CodingRoute; readonly capability: string }> => [
-  ...(options.planning === undefined ? [] : [{ name: "coding/rebase-conflict" as const, capability: "coding-rebase-conflict/v1" }]),
+  ...(options.planning === undefined
+    ? []
+    : [{ name: "coding/rebase-conflict" as const, capability: "coding-rebase-conflict/v1" }]),
   // The mythical stack verifies rebased candidates with the same checks.
   ...(options.planning === undefined ? [] : [{ name: "coding/verify" as const, capability: "coding-verify/v1" }]),
   // The stack service refreshes the repository wiki the project declares.
@@ -641,7 +643,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
             const credential = process.env.SMITHERS_MODEL_ROLE_IMPLEMENTER_KEY
             if (!origin || !credential) throw new Error("Missing input delivery fence")
             const response = await fetch(`${origin.replace(/\/+$/, "")}/input-fence?run=${encodeURIComponent(runId)}`, {
-              headers: { Authorization: `Bearer ${credential}` }, signal
+              headers: { Authorization: `Bearer ${credential}` },
+              signal
             })
             if (!response.ok) throw new Error("Input delivery unavailable")
           },
@@ -674,7 +677,8 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // FS. Model actions and check processes retain the native host's guards.
         const fs = yield* FileSystem.FileSystem
         const checkReceipts = CodingState.inside(options.repositoryPath, stateRoot)
-          ? undefined : commandReceipts(fs, join(stateRoot, "command-receipts"))
+          ? undefined :
+          commandReceipts(fs, join(stateRoot, "command-receipts"))
         const wikiEnabled = options.planning?.wiki === true
         const reviewerPolicy = !wikiEnabled ? undefined : yield* runningWikiPolicy
         const wikiOutput = !wikiEnabled
@@ -731,10 +735,17 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
               options.todoExecutionDigest,
               options.draftVersion
             ))
-        ).pipe(Layer.provide(HostRegistry.layer(options.flowSourceRoot ?? options.repositoryPath, stateRoot,
-          native.layerGuardedPlatform(options.flowSourceRoot ?? options.repositoryPath)).pipe(
-          Layer.provide(Layer.merge(native.layerHostPlatform, platform.crypto))
-        )))
+        ).pipe(
+          Layer.provide(
+            HostRegistry.layer(
+              options.flowSourceRoot ?? options.repositoryPath,
+              stateRoot,
+              native.layerGuardedPlatform(options.flowSourceRoot ?? options.repositoryPath)
+            ).pipe(
+              Layer.provide(Layer.merge(native.layerHostPlatform, platform.crypto))
+            )
+          )
+        )
         const request = options.planning === undefined ? Layer.empty : Layer.mergeAll(
           memoryLayer({
             ...options.planning,
@@ -797,7 +808,18 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
         // serves the agent completion brake and every repository classifier.
         const repository = Layer.mergeAll(
           evaluator,
-          learningLayer.pipe(Layer.provideMerge(Layer.merge(evaluator, machineBinding({ origin: options.learningEvidenceOrigin, host: options.gatewayId, credential: options.credential })))),
+          learningLayer.pipe(
+            Layer.provideMerge(
+              Layer.merge(
+                evaluator,
+                machineBinding({
+                  origin: options.learningEvidenceOrigin,
+                  host: options.gatewayId,
+                  credential: options.credential
+                })
+              )
+            )
+          ),
           inspectionLayers({
             repositoryPath: options.repositoryPath,
             fs,

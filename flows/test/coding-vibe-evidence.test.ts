@@ -548,8 +548,13 @@ for (const mode of stackModes) {
 
 const todoAdapter = "registry/entry/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/todo"
 const todoModes = [
-  "initial-feedback", "initial-feedback-missing", "initial-feedback-more", "initial-feedback-wrong-input",
-  "initial-feedback-wrong-parent", "initial-feedback-failed", "initial-feedback-wrong-prepared",
+  "initial-feedback",
+  "initial-feedback-missing",
+  "initial-feedback-more",
+  "initial-feedback-wrong-input",
+  "initial-feedback-wrong-parent",
+  "initial-feedback-failed",
+  "initial-feedback-wrong-prepared",
   "valid",
   "customized-request",
   "customized-wrong-base",
@@ -593,255 +598,311 @@ const todoModes = [
   "review-wrong-parent",
   "review-collected"
 ] as const
-for (const inlinedRequest of [false, true]) for (const mode of [...todoModes, ...(inlinedRequest ? ["missing-inline-input", "wrong-inline-input", "wrong-inline-route"] as const : [])]) {
-  test(`current TODO delivery evidence (${inlinedRequest ? "inline" : "retained"}): ${mode}`, async () => {
-    const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
-    const initial = mode.startsWith("initial-feedback")
-    const reentry = mode.startsWith("review-")
-    const requestParent = reentry ? "review-round" : "todo-bridge"
-    const preparationParent = inlinedRequest ? requestParent : "request"
-    const customized = mode.startsWith("customized-")
-    const childInput: typeof RequestInput.Type = customized ?
-      {
-        ...stackInput,
-        prompt: `${input.prompt}\n\n[CHANGELOG] Add a changelog entry.`,
-        feedback: "Run the repository checks before proposing.",
-        base: mode === "customized-wrong-base" ?
-          { ...stackBase, commitId: "f".repeat(40) }
-          : mode === "customized-wrong-source-ref" ?
-          {
-            ...stackBase,
-            ref: stackBase.ref.replace("0f8fad5b", "1f8fad5b")
-          } :
-          stackBase
-      } :
-      reentry
-      ? { ...input }
-      : stackInput
-    const program = Effect.gen(function*() {
-      const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
-      const { card } = yield* control.plan({
-        flowId: "todo",
-        input: mode === "wrong-approved-input" ? { ...stackInput, prompt: "different" } : stackInput
-      })
-      const token = yield* control.lookupApproval(card.approval.target)
-      yield* control.resolveApproval(token, "approved", { id: "memory", kind: "test", stampedAt: 0 })
-      const launch = yield* control.launch(card.planId, card.digest, card.envelope)
-      if (launch._tag !== "Started") throw new Error("fixture must launch")
-      const root = launch.run.runId
-      const fence = yield* control.claimFence(root)
-      assert(fence !== undefined)
-      yield* control.writeStatus(
-        root,
-        fence,
-        mode === "root-completed"
-          ? "completed"
-          : mode === "root-paused"
-          ? "parked"
-          : mode === "resumed-root" || mode === "root-suspended"
-          ? "accepted"
-          : "running"
-      )
-      const retained = structuredClone(request)
-      if (mode === "blocked-result") Object.assign(retained.outcome, { status: "blocked" })
-      if (mode === "bug" || mode === "feature" || mode === "wrong-route-feedback") {
-        Object.assign(retained, { route: mode === "feature" ? "feature" : "bug" })
-      }
-      const prepared = Schema.encodeSync(
-        Schema.toCodecJson(Flow.Result({ success: PrepareRequest.successSchema, error: PrepareRequest.errorSchema }))
-      )(
-        new Flow.Complete({
-          exit: Exit.succeed({ ...plan, prompt: childInput.prompt, base: original, observedHead: original })
-        })
-      )
-      const rows = new Map([
-        [root, { ...row(root, "agent/run", { planId: card.planId }), status: "running" as const }],
-        ["todo-bridge", {
-          ...row(
-            "todo-bridge",
-            mode === "stale-pin" ? "registry/entry/" + "e".repeat(64) + "/todo" : todoAdapter,
+for (const inlinedRequest of [false, true]) {
+  for (
+    const mode of [
+      ...todoModes,
+      ...(inlinedRequest ? ["missing-inline-input", "wrong-inline-input", "wrong-inline-route"] as const : [])
+    ]
+  ) {
+    test(`current TODO delivery evidence (${inlinedRequest ? "inline" : "retained"}): ${mode}`, async () => {
+      const stackInput = mode === "missing-base" ? input : { ...input, base: stackBase }
+      const initial = mode.startsWith("initial-feedback")
+      const reentry = mode.startsWith("review-")
+      const requestParent = reentry ? "review-round" : "todo-bridge"
+      const preparationParent = inlinedRequest ? requestParent : "request"
+      const customized = mode.startsWith("customized-")
+      const childInput: typeof RequestInput.Type = customized ?
+        {
+          ...stackInput,
+          prompt: `${input.prompt}\n\n[CHANGELOG] Add a changelog entry.`,
+          feedback: "Run the repository checks before proposing.",
+          base: mode === "customized-wrong-base" ?
+            { ...stackBase, commitId: "f".repeat(40) }
+            : mode === "customized-wrong-source-ref" ?
             {
-              input: mode === "wrong-bridge-input" ? { ...stackInput, prompt: "forged" } : stackInput
-            },
-            undefined,
-            root
-          ),
-          status: "running" as const
-        }],
-        ["request", row("request", inlinedRequest ? Coordinate._tag : Request._tag,
-          inlinedRequest ? { ...childInput, feedback: childInput.feedback ?? "", maxRounds: childInput.maxRounds ?? 3,
-            revision: 0,
-            ...(mode === "missing-inline-input" ? {} : { requestInput: mode === "wrong-inline-input" ? { ...childInput, feedback: "forged" } : childInput }),
-            ...(mode === "wrong-inline-route" ? { requestRoute: "bug" } : retained.route === undefined ? {} : { requestRoute: retained.route }) }
-            : childInput, requestResult(retained), requestParent)],
-        [
-          "preparation",
-          row(
-            "preparation",
-            PrepareRequest._tag,
-            {
-              prompt: childInput.prompt,
-              feedback: initial && mode !== "initial-feedback-wrong-prepared" ? "Committed steer" : retained.route === undefined || mode === "wrong-route-feedback"
-                ? childInput.feedback ?? ""
-                : leafFeedback(retained.route, childInput.feedback ?? "")
-            },
-            prepared,
-            preparationParent
-          )
-        ]
-      ])
-      if (initial && mode !== "initial-feedback-missing") {
-        const contextPayload = { prompt: mode === "initial-feedback-wrong-input" ? "forged" : childInput.prompt,
-          feedback: childInput.feedback ?? "" }
-        const result = Schema.encodeSync(Schema.toCodecJson(Flow.Result({ success: RequestFeedback.successSchema, error: RequestFeedback.errorSchema })))(
-          new Flow.Complete({ exit: mode === "initial-feedback-failed" ?
-            Exit.fail(new CodingError({ code: "unavailable", message: "fixture" })) : Exit.succeed("Committed steer") })
-        )
-        const parent = mode === "initial-feedback-wrong-parent" ? "foreign" : preparationParent
-        rows.set("initial-context", row("initial-context", RequestFeedback._tag, contextPayload, result, parent))
-        yield* graph.recordRunParent("initial-context", parent)
-      }
-      if (reentry) {
-        rows.set("review-round", {
-          ...row("review-round", "coding/todo-review", { input: stackInput }, undefined, "todo-bridge"),
-          status: "running"
-        })
-        if (mode === "review-cancelled") {
-          rows.set("review-round", { ...rows.get("review-round")!, cancelRequestedAtMs: 3 })
-        }
-        if (mode === "review-collected") rows.delete("review-round")
-        yield* graph.recordRunParent(
-          "review-round",
-          mode === "review-wrong-parent" ? "other-composition" : "todo-bridge"
-        )
-      }
-      if (mode === "root-suspended") rows.set(root, { ...rows.get(root)!, status: "suspended" })
-      if (mode === "request-running") rows.set("request", { ...rows.get("request")!, status: "running" })
-      if (mode === "bridge-completed") rows.set("todo-bridge", { ...rows.get("todo-bridge")!, status: "completed" })
-      if (mode.endsWith("-cancelled")) {
-        const id = mode === "root-cancelled" ? root : mode === "bridge-cancelled" ? "todo-bridge" : "request"
-        rows.set(id, { ...rows.get(id)!, cancelRequestedAtMs: 3 })
-      }
-      if (mode === "collected-preparation") rows.delete("preparation")
-      yield* graph.recordRunParent("todo-bridge", mode === "wrong-bridge-parent" ? "other-root" : root)
-      yield* graph.recordRunParent("request", mode === "wrong-request-parent" ? "other-composition" : requestParent)
-      yield* graph.recordRunParent("preparation", preparationParent)
-      if (mode === "ambiguous-parent") yield* graph.recordRunParent("request", "other-parent")
-      const catalog: RunCatalogRead.Service = {
-        listRunIds: () => Effect.die("TODO delivery must not scan the global run catalog"),
-        listRuns: (options) =>
-          mode === "unavailable" ?
-            Effect.fail(new Error("catalog unavailable") as never) :
-            Effect.sync(() => {
-              const name = options?.filters?.flowName
-              if (name === todoAdapter) {
-                assert.deepEqual(options, { filters: { flowName: todoAdapter, parentRunId: root, status: "running" }, limit: 2 })
-                return listed(
-                  todoAdapter,
-                  root,
-                  mode === "missing-bridge"
-                    ? []
-                    : mode === "duplicate-bridge"
-                    ? ["todo-bridge", "other"]
-                    : ["todo-bridge"],
-                  mode === "more-bridges" ? "next" : null
-                )
-              }
-              if (name === Coordinate._tag && !inlinedRequest) {
-                assert.deepEqual(options, { filters: { flowName: Coordinate._tag, parentRunId: requestParent }, limit: 2 })
-                return listed(Coordinate._tag, requestParent, [])
-              }
-              if (name === Request._tag && inlinedRequest) {
-                assert.deepEqual(options, { filters: { flowName: Request._tag, parentRunId: requestParent }, limit: 2 })
-                return listed(Request._tag, requestParent, [])
-              }
-              if (name === (inlinedRequest ? Coordinate._tag : Request._tag)) {
-                assert.deepEqual(options, { filters: { flowName: name, parentRunId: requestParent }, limit: 2 })
-                return listed(
-                  name,
-                  requestParent,
-                  mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
-                  mode === "more-requests" ? "next" : null
-                )
-              }
-              if (name === RequestFeedback._tag) {
-                assert.deepEqual(options, { filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent }, limit: 2 })
-                return listed(RequestFeedback._tag, preparationParent, mode === "initial-feedback-missing" ? [] : ["initial-context"],
-                  mode === "initial-feedback-more" ? "next" : null)
-              }
-              assert.deepEqual(options, {
-                filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
-                limit: 2
-              })
-              return listed(PrepareRequest._tag, preparationParent, ["preparation"])
-            })
-      }
-      const supplied = structuredClone(retained)
-      if (mode === "foreign-result") Object.assign(supplied.plan, { prompt: "a different planner's result" })
-      const evaluate = Effect.gen(function*() {
-        const delivery = yield* readTodoDelivery({ request: supplied })
-        assert.deepEqual(delivery, { requestExecutionId: "request" }, "delivery reads this round’s retained request")
-        const evidence = yield* readVibeRequest(
-          mode === "foreign-attempt" ? { requestExecutionId: "other-root" } : delivery
-        )
-        assert.equal(evidence.controlRunId, root)
-        assert.equal(evidence.fromStack, true)
-        assert.equal(evidence.stackBase, stackBase.commitId, "review re-entry retains the admitted attempt base")
-        assert("preparationExecutionId" in evidence)
-        assert.equal(evidence.preparationExecutionId, "preparation")
-        assert.deepEqual(evidence.originalSource, original)
-        return evidence
-      }).pipe(
-        (effect) =>
-          mode === "no-owner" ? effect : effect.pipe(
-            Effect.provideService(ModuleOwner, {
-              rootId: root,
-              flowId: mode === "wrong-owner" ? "coding/vibe" : "todo",
-              ...(initial ? { launchOrdinal: 1 } : {})
-            })
-          ),
-        Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
-        Effect.provideService(FlowRuntime.FlowInstance, { executionId: requestParent } as never),
-        Effect.provide(RunStore.layerNoop({
-          get: (id) =>
-            rows.has(id) ? Effect.succeed(rows.get(id)!) : Effect.fail(
-              new RunStore.RunStoreError({ code: "not_found_row", method: "get", message: "collected", cause: null })
-            )
-        }))
-      )
-      const outcome = yield* Effect.result(evaluate)
-      if (mode === "recovered") {
-        assert.deepEqual(
-          yield* Effect.result(evaluate),
-          outcome,
-          "rereading retained state does not need an in-memory handoff"
-        )
-      }
-      return outcome
-    }).pipe(Effect.provide(Layer.mergeAll(
-      DurableEngineState.layerMemory,
-      ControlRuntime.layerMemory({
-        flows: [{
+              ...stackBase,
+              ref: stackBase.ref.replace("0f8fad5b", "1f8fad5b")
+            } :
+            stackBase
+        } :
+        reentry
+        ? { ...input }
+        : stackInput
+      const program = Effect.gen(function*() {
+        const control = yield* ControlRuntime.ControlRuntime, graph = yield* DurableEngineState.DurableEngineState
+        const { card } = yield* control.plan({
           flowId: "todo",
-          executionDigest: mode === "missing-pin" ? undefined : "d".repeat(64),
-          description: "fixture",
-          deployClass: false,
-          envelope: { capabilities: [], flows: [], budget: {} }
-        }]
-      }).pipe(Layer.provide(NodeServices.layer))
-    )))
-    const outcome = await Effect.runPromise(program)
-    if (
-      mode === "initial-feedback" || mode === "resumed-root" || mode === "customized-request" || mode === "valid" || mode === "recovered" ||
-      mode === "bug" || mode === "feature" || mode === "review-reentry"
-    ) {
-      assert.equal(outcome._tag, "Success")
-    } else {
-      assert.equal(outcome._tag, "Failure", mode)
-      if (outcome._tag === "Failure") {
-        assert(outcome.failure instanceof CodingError)
-        assert.equal(outcome.failure.code, mode === "unavailable" ? "unavailable" : "invalid_receipt")
+          input: mode === "wrong-approved-input" ? { ...stackInput, prompt: "different" } : stackInput
+        })
+        const token = yield* control.lookupApproval(card.approval.target)
+        yield* control.resolveApproval(token, "approved", { id: "memory", kind: "test", stampedAt: 0 })
+        const launch = yield* control.launch(card.planId, card.digest, card.envelope)
+        if (launch._tag !== "Started") throw new Error("fixture must launch")
+        const root = launch.run.runId
+        const fence = yield* control.claimFence(root)
+        assert(fence !== undefined)
+        yield* control.writeStatus(
+          root,
+          fence,
+          mode === "root-completed"
+            ? "completed"
+            : mode === "root-paused"
+            ? "parked"
+            : mode === "resumed-root" || mode === "root-suspended"
+            ? "accepted"
+            : "running"
+        )
+        const retained = structuredClone(request)
+        if (mode === "blocked-result") Object.assign(retained.outcome, { status: "blocked" })
+        if (mode === "bug" || mode === "feature" || mode === "wrong-route-feedback") {
+          Object.assign(retained, { route: mode === "feature" ? "feature" : "bug" })
+        }
+        const prepared = Schema.encodeSync(
+          Schema.toCodecJson(Flow.Result({ success: PrepareRequest.successSchema, error: PrepareRequest.errorSchema }))
+        )(
+          new Flow.Complete({
+            exit: Exit.succeed({ ...plan, prompt: childInput.prompt, base: original, observedHead: original })
+          })
+        )
+        const rows = new Map([
+          [root, { ...row(root, "agent/run", { planId: card.planId }), status: "running" as const }],
+          ["todo-bridge", {
+            ...row(
+              "todo-bridge",
+              mode === "stale-pin" ? "registry/entry/" + "e".repeat(64) + "/todo" : todoAdapter,
+              {
+                input: mode === "wrong-bridge-input" ? { ...stackInput, prompt: "forged" } : stackInput
+              },
+              undefined,
+              root
+            ),
+            status: "running" as const
+          }],
+          [
+            "request",
+            row(
+              "request",
+              inlinedRequest ? Coordinate._tag : Request._tag,
+              inlinedRequest ?
+                {
+                  ...childInput,
+                  feedback: childInput.feedback ?? "",
+                  maxRounds: childInput.maxRounds ?? 3,
+                  revision: 0,
+                  ...(mode === "missing-inline-input"
+                    ? {}
+                    : {
+                      requestInput: mode === "wrong-inline-input" ? { ...childInput, feedback: "forged" } : childInput
+                    }),
+                  ...(mode === "wrong-inline-route"
+                    ? { requestRoute: "bug" }
+                    : retained.route === undefined
+                    ? {}
+                    : { requestRoute: retained.route })
+                }
+                : childInput,
+              requestResult(retained),
+              requestParent
+            )
+          ],
+          [
+            "preparation",
+            row(
+              "preparation",
+              PrepareRequest._tag,
+              {
+                prompt: childInput.prompt,
+                feedback: initial && mode !== "initial-feedback-wrong-prepared" ?
+                  "Committed steer" :
+                  retained.route === undefined || mode === "wrong-route-feedback"
+                  ? childInput.feedback ?? ""
+                  : leafFeedback(retained.route, childInput.feedback ?? "")
+              },
+              prepared,
+              preparationParent
+            )
+          ]
+        ])
+        if (initial && mode !== "initial-feedback-missing") {
+          const contextPayload = {
+            prompt: mode === "initial-feedback-wrong-input" ? "forged" : childInput.prompt,
+            feedback: childInput.feedback ?? ""
+          }
+          const result = Schema.encodeSync(
+            Schema.toCodecJson(
+              Flow.Result({ success: RequestFeedback.successSchema, error: RequestFeedback.errorSchema })
+            )
+          )(
+            new Flow.Complete({
+              exit: mode === "initial-feedback-failed" ?
+                Exit.fail(new CodingError({ code: "unavailable", message: "fixture" })) :
+                Exit.succeed("Committed steer")
+            })
+          )
+          const parent = mode === "initial-feedback-wrong-parent" ? "foreign" : preparationParent
+          rows.set("initial-context", row("initial-context", RequestFeedback._tag, contextPayload, result, parent))
+          yield* graph.recordRunParent("initial-context", parent)
+        }
+        if (reentry) {
+          rows.set("review-round", {
+            ...row("review-round", "coding/todo-review", { input: stackInput }, undefined, "todo-bridge"),
+            status: "running"
+          })
+          if (mode === "review-cancelled") {
+            rows.set("review-round", { ...rows.get("review-round")!, cancelRequestedAtMs: 3 })
+          }
+          if (mode === "review-collected") rows.delete("review-round")
+          yield* graph.recordRunParent(
+            "review-round",
+            mode === "review-wrong-parent" ? "other-composition" : "todo-bridge"
+          )
+        }
+        if (mode === "root-suspended") rows.set(root, { ...rows.get(root)!, status: "suspended" })
+        if (mode === "request-running") rows.set("request", { ...rows.get("request")!, status: "running" })
+        if (mode === "bridge-completed") rows.set("todo-bridge", { ...rows.get("todo-bridge")!, status: "completed" })
+        if (mode.endsWith("-cancelled")) {
+          const id = mode === "root-cancelled" ? root : mode === "bridge-cancelled" ? "todo-bridge" : "request"
+          rows.set(id, { ...rows.get(id)!, cancelRequestedAtMs: 3 })
+        }
+        if (mode === "collected-preparation") rows.delete("preparation")
+        yield* graph.recordRunParent("todo-bridge", mode === "wrong-bridge-parent" ? "other-root" : root)
+        yield* graph.recordRunParent("request", mode === "wrong-request-parent" ? "other-composition" : requestParent)
+        yield* graph.recordRunParent("preparation", preparationParent)
+        if (mode === "ambiguous-parent") yield* graph.recordRunParent("request", "other-parent")
+        const catalog: RunCatalogRead.Service = {
+          listRunIds: () => Effect.die("TODO delivery must not scan the global run catalog"),
+          listRuns: (options) =>
+            mode === "unavailable" ?
+              Effect.fail(new Error("catalog unavailable") as never) :
+              Effect.sync(() => {
+                const name = options?.filters?.flowName
+                if (name === todoAdapter) {
+                  assert.deepEqual(options, {
+                    filters: { flowName: todoAdapter, parentRunId: root, status: "running" },
+                    limit: 2
+                  })
+                  return listed(
+                    todoAdapter,
+                    root,
+                    mode === "missing-bridge"
+                      ? []
+                      : mode === "duplicate-bridge"
+                      ? ["todo-bridge", "other"]
+                      : ["todo-bridge"],
+                    mode === "more-bridges" ? "next" : null
+                  )
+                }
+                if (name === Coordinate._tag && !inlinedRequest) {
+                  assert.deepEqual(options, {
+                    filters: { flowName: Coordinate._tag, parentRunId: requestParent },
+                    limit: 2
+                  })
+                  return listed(Coordinate._tag, requestParent, [])
+                }
+                if (name === Request._tag && inlinedRequest) {
+                  assert.deepEqual(options, {
+                    filters: { flowName: Request._tag, parentRunId: requestParent },
+                    limit: 2
+                  })
+                  return listed(Request._tag, requestParent, [])
+                }
+                if (name === (inlinedRequest ? Coordinate._tag : Request._tag)) {
+                  assert.deepEqual(options, { filters: { flowName: name, parentRunId: requestParent }, limit: 2 })
+                  return listed(
+                    name,
+                    requestParent,
+                    mode === "missing-request" ? [] : mode === "duplicate-request" ? ["request", "other"] : ["request"],
+                    mode === "more-requests" ? "next" : null
+                  )
+                }
+                if (name === RequestFeedback._tag) {
+                  assert.deepEqual(options, {
+                    filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent },
+                    limit: 2
+                  })
+                  return listed(
+                    RequestFeedback._tag,
+                    preparationParent,
+                    mode === "initial-feedback-missing" ? [] : ["initial-context"],
+                    mode === "initial-feedback-more" ? "next" : null
+                  )
+                }
+                assert.deepEqual(options, {
+                  filters: { flowName: PrepareRequest._tag, parentRunId: preparationParent },
+                  limit: 2
+                })
+                return listed(PrepareRequest._tag, preparationParent, ["preparation"])
+              })
+        }
+        const supplied = structuredClone(retained)
+        if (mode === "foreign-result") Object.assign(supplied.plan, { prompt: "a different planner's result" })
+        const evaluate = Effect.gen(function*() {
+          const delivery = yield* readTodoDelivery({ request: supplied })
+          assert.deepEqual(delivery, { requestExecutionId: "request" }, "delivery reads this round’s retained request")
+          const evidence = yield* readVibeRequest(
+            mode === "foreign-attempt" ? { requestExecutionId: "other-root" } : delivery
+          )
+          assert.equal(evidence.controlRunId, root)
+          assert.equal(evidence.fromStack, true)
+          assert.equal(evidence.stackBase, stackBase.commitId, "review re-entry retains the admitted attempt base")
+          assert("preparationExecutionId" in evidence)
+          assert.equal(evidence.preparationExecutionId, "preparation")
+          assert.deepEqual(evidence.originalSource, original)
+          return evidence
+        }).pipe(
+          (effect) =>
+            mode === "no-owner" ? effect : effect.pipe(
+              Effect.provideService(ModuleOwner, {
+                rootId: root,
+                flowId: mode === "wrong-owner" ? "coding/vibe" : "todo",
+                ...(initial ? { launchOrdinal: 1 } : {})
+              })
+            ),
+          Effect.provideService(RunCatalogRead.RunCatalogRead, catalog),
+          Effect.provideService(FlowRuntime.FlowInstance, { executionId: requestParent } as never),
+          Effect.provide(RunStore.layerNoop({
+            get: (id) =>
+              rows.has(id) ? Effect.succeed(rows.get(id)!) : Effect.fail(
+                new RunStore.RunStoreError({ code: "not_found_row", method: "get", message: "collected", cause: null })
+              )
+          }))
+        )
+        const outcome = yield* Effect.result(evaluate)
+        if (mode === "recovered") {
+          assert.deepEqual(
+            yield* Effect.result(evaluate),
+            outcome,
+            "rereading retained state does not need an in-memory handoff"
+          )
+        }
+        return outcome
+      }).pipe(Effect.provide(Layer.mergeAll(
+        DurableEngineState.layerMemory,
+        ControlRuntime.layerMemory({
+          flows: [{
+            flowId: "todo",
+            executionDigest: mode === "missing-pin" ? undefined : "d".repeat(64),
+            description: "fixture",
+            deployClass: false,
+            envelope: { capabilities: [], flows: [], budget: {} }
+          }]
+        }).pipe(Layer.provide(NodeServices.layer))
+      )))
+      const outcome = await Effect.runPromise(program)
+      if (
+        mode === "initial-feedback" || mode === "resumed-root" || mode === "customized-request" || mode === "valid" ||
+        mode === "recovered" ||
+        mode === "bug" || mode === "feature" || mode === "review-reentry"
+      ) {
+        assert.equal(outcome._tag, "Success")
+      } else {
+        assert.equal(outcome._tag, "Failure", mode)
+        if (outcome._tag === "Failure") {
+          assert(outcome.failure instanceof CodingError)
+          assert.equal(outcome.failure.code, mode === "unavailable" ? "unavailable" : "invalid_receipt")
+        }
       }
-    }
-  })
+    })
+  }
 }

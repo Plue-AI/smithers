@@ -11,7 +11,7 @@ type Result = {
   readonly fault?: "factory" | "infra"
 }
 export interface CommandReceipts {
-  readonly begin: (argv: readonly [string, ...string[]]) => Effect.Effect<
+  readonly begin: (argv: readonly [string, ...Array<string>]) => Effect.Effect<
     ((result: Result) => Effect.Effect<void, unknown>) | undefined,
     unknown
   >

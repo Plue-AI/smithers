@@ -168,7 +168,7 @@ export const sourceFileIdentities = (fs: FileSystem.FileSystem, root: string) =>
 export const changedSourceFiles = (fs: FileSystem.FileSystem, root: string, before: ReadonlyMap<string, string>) =>
   Effect.gen(function*() {
     const path = yield* Path.Path
-    const changed: string[] = []
+    const changed: Array<string> = []
     for (const [relative, identity] of before) {
       const entry = path.join(root, relative)
       const current = yield* Effect.gen(function*() {

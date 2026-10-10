@@ -34,17 +34,23 @@ test("host execution snapshots stay outside source and restore the prior closure
     })
     const digest = await Effect.runPromise(publish.pipe(
       Effect.provide(HostRegistry.layer(root, state, NodeServices.layer)),
-      Effect.provide(NodeServices.layer), Effect.scoped
+      Effect.provide(NodeServices.layer),
+      Effect.scoped
     ))
     assert.equal(await readFile(entry, "utf8"), source)
     await assert.rejects(lstat(join(root, ".flows")), { code: "ENOENT" })
     assert.ok((await lstat(join(state, "registry", ".flows", "executions", `${digest}.json`))).isFile())
     await writeFile(entry, source.replaceAll("original", "edited"))
-    const retained = await Effect.runPromise(Effect.gen(function*() {
-      const registry = yield* Registry.Registry
-      return yield* registry.snapshots!.restore(digest)
-    }).pipe(Effect.provide(HostRegistry.layer(root, state, NodeServices.layer)),
-      Effect.provide(NodeServices.layer), Effect.scoped))
+    const retained = await Effect.runPromise(
+      Effect.gen(function*() {
+        const registry = yield* Registry.Registry
+        return yield* registry.snapshots!.restore(digest)
+      }).pipe(
+        Effect.provide(HostRegistry.layer(root, state, NodeServices.layer)),
+        Effect.provide(NodeServices.layer),
+        Effect.scoped
+      )
+    )
     assert.equal(retained.descriptor.description, "Original source")
     assert.equal(new TextDecoder().decode(retained.bytes), source)
     await assert.rejects(lstat(join(root, ".flows")), { code: "ENOENT" })
@@ -72,8 +78,13 @@ test("legacy archives relocate once and finish after a partial migration", async
     await mkdir(join(root, ".flows", "executions"))
     await writeFile(join(root, ".flows", "executions", "retained"), "execution evidence")
     await run(HostRegistry.relocateExecutionArchive(root, state))
-    assert.equal(await readFile(join(state, "registry", ".flows", "executions", "retained"), "utf8"), "execution evidence")
-  } finally { await rm(temporary, { recursive: true, force: true }) }
+    assert.equal(
+      await readFile(join(state, "registry", ".flows", "executions", "retained"), "utf8"),
+      "execution evidence"
+    )
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
 })
 
 test("archive relocation refuses links and collisions without changing retained bytes", async () => {
@@ -91,5 +102,7 @@ test("archive relocation refuses links and collisions without changing retained 
     await assert.rejects(run(HostRegistry.relocateExecutionArchive(root, state)), /conflicts/)
     assert.equal(await readFile(join(root, ".flows", "objects", "retained"), "utf8"), "legacy")
     assert.equal(await readFile(join(state, "registry", ".flows", "objects", "retained"), "utf8"), "current")
-  } finally { await rm(temporary, { recursive: true, force: true }) }
+  } finally {
+    await rm(temporary, { recursive: true, force: true })
+  }
 })

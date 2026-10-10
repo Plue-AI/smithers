@@ -11,7 +11,17 @@ import { Effect, Layer, Schema } from "effect"
 import { Learning, learningRows, maxLearnings } from "./learnings.ts"
 import { maxSources, Source } from "./planning-sources.ts"
 import { projectMemory } from "./project-memory.ts"
-import { AtomicPlan, Change, Check, CodingError, Plan, PlanningInput, Revision, validatePlan, WikiCitation } from "./schema.ts"
+import {
+  AtomicPlan,
+  Change,
+  Check,
+  CodingError,
+  Plan,
+  PlanningInput,
+  Revision,
+  validatePlan,
+  WikiCitation
+} from "./schema.ts"
 import { ReceiveFeedback, renderFeedback } from "./steering.ts"
 export { PlanningInput } from "./schema.ts"
 
@@ -213,22 +223,31 @@ export const PreparePlan = Flow.make("coding/PreparePlan", {
                   // retaining the answered question and the same pinned flow.
                   Node.succeed(answer).pipe(
                     Node.andThen(
-                      GatherContext.call({ ...planning, checkpoint: "after-answer" }).pipe(Node.bindPlanned((current) => {
-                        const draft = (messages?: Planned.Planned<string>) =>
-                          DraftPlan.call({ input, context: current, review, answer, ...(messages === undefined ? {} : { messages }) })
-                        return ReceiveFeedback.call({ boundary: "plan", revision: 0 }).pipe(
-                          Node.branch({
-                            if: (receipt) => receipt.messages.length > 0,
-                            then: (receipt) => Node.succeed(receipt).pipe(Node.map(renderFeedback), Node.bindPlanned(draft)),
-                            else: () => draft()
-                          }),
-                          Node.bindPlanned((draft) =>
-                            VerifyContext.call({ context: current, draft }).pipe(
-                              Node.bindPlanned((context) => FinalizePlan.call({ input, context, draft }))
+                      GatherContext.call({ ...planning, checkpoint: "after-answer" }).pipe(
+                        Node.bindPlanned((current) => {
+                          const draft = (messages?: Planned.Planned<string>) =>
+                            DraftPlan.call({
+                              input,
+                              context: current,
+                              review,
+                              answer,
+                              ...(messages === undefined ? {} : { messages })
+                            })
+                          return ReceiveFeedback.call({ boundary: "plan", revision: 0 }).pipe(
+                            Node.branch({
+                              if: (receipt) => receipt.messages.length > 0,
+                              then: (receipt) =>
+                                Node.succeed(receipt).pipe(Node.map(renderFeedback), Node.bindPlanned(draft)),
+                              else: () => draft()
+                            }),
+                            Node.bindPlanned((draft) =>
+                              VerifyContext.call({ context: current, draft }).pipe(
+                                Node.bindPlanned((context) => FinalizePlan.call({ input, context, draft }))
+                              )
                             )
                           )
-                        )
-                      }))
+                        })
+                      )
                     )
                   )
                 )

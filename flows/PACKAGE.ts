@@ -262,7 +262,11 @@ const codingPolicy = Smithers.NodeTest({
     Smithers.file("//flows/test/coding-planning-wiki-prior.test.ts")
   ]),
   // `coding-host.test.ts` and `coding-builtin-routes.test.ts` load the checked-in project configuration.
-  srcs: [...codingSources, ...codingProjectInputs, Smithers.file("//packages/smithers/flows/flow/test/MemoryFlowRuntime.ts")],
+  srcs: [
+    ...codingSources,
+    ...codingProjectInputs,
+    Smithers.file("//packages/smithers/flows/flow/test/MemoryFlowRuntime.ts")
+  ],
   deps: codingDependencies,
   cwd,
   cache: true

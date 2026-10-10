@@ -57,24 +57,22 @@ export const admitSource = (plan: Plan, requestId?: string) =>
     yield* jj.snapshot("coding request source admission").pipe(
       // Only source conflicts justify a replan. Adapter outages and grant
       // refusals must stop without spending the factory's correction budget.
-      Effect.mapError((error) =>
-        new CodingError({
-          code: error.code === "conflict" ?
-            "stale_revision"
-            : error.code === "invalid_ref" || error.code === "snapshot_refused" ||
-                error.code === "permission_denied" || error.code === "permission_required"
-            ? "source_refused" :
-            "execution",
-          message:
-            (["invalid_ref", "snapshot_refused", "permission_denied", "permission_required"].includes(error.code) ?
-              sourceRefusal("admission_snapshot_refused", {
+      Effect.catch((error) =>
+        Effect.gen(function*() {
+          const refused = error.code === "invalid_ref" || error.code === "snapshot_refused" ||
+            error.code === "permission_denied" || error.code === "permission_required"
+          return yield* new CodingError({
+            code: error.code === "conflict" ? "stale_revision" : refused ? "source_refused" : "execution",
+            message: (refused ?
+              (yield* sourceRefusal("admission_snapshot_refused", {
                 head: plan.observedHead?.commitId,
                 base: plan.base.commitId
-              }) :
+              })) :
               "Source snapshot failed") +
-            `: Prepared source snapshot failed (${error.code}): ${
-              "reason" in error ? error.reason : error.message || error._tag
-            }`
+              `: Prepared source snapshot failed (${error.code}): ${
+                "reason" in error ? error.reason : error.message || error._tag
+              }`
+          })
         })
       )
     )

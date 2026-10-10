@@ -9,6 +9,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
+import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 import { contractFailure } from "../coding/planning-memory.ts"
 import {
   declineLayer,
@@ -27,7 +28,6 @@ import {
 import { detectChecks } from "../coding/project-config.ts"
 import { type Check, CodingError, type Revision, validatePlan } from "../coding/schema.ts"
 import { feedbackLayer } from "../coding/steering.ts"
-import * as NotificationQueue from "../../packages/smithers/notifications/src/NotificationQueue.ts"
 
 /*
  * Plans place work anywhere in the mythical stack: a new change may be
@@ -112,7 +112,14 @@ test("a repository with one detected check, or none, plans (mvp.md J1.4)", async
     const detected = await Effect.runPromise(detectChecks(root).pipe(Effect.provide(NodeServices.layer)))
     const one = detected.checks.map((check) => ({ ...check, flowDigest: "t".repeat(64) }))
     assert.deepEqual(one.map((check) => `${check.id}:${check.tier}`), ["test:slow"])
-    const buildOnly: Check = { id: "build-only", target: ".", flow: "checks/build-only", flowDigest: "b".repeat(64), tier: "fast", required: true }
+    const buildOnly: Check = {
+      id: "build-only",
+      target: ".",
+      flow: "checks/build-only",
+      flowDigest: "b".repeat(64),
+      tier: "fast",
+      required: true
+    }
     for (const repository of [one, [buildOnly]]) {
       const gathered = Schema.decodeUnknownSync(PlanningContext)({ ...context, checks: repository })
       // The model selects the available check; the host retains required checks.
@@ -251,7 +258,9 @@ test(
     let drafts = 0
     const layer = Layer.mergeAll(
       preparePlanLayer(20),
-      feedbackLayer.pipe(Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop()))),
+      feedbackLayer.pipe(
+        Layer.provide(Layer.succeed(NotificationQueue.NotificationQueue, NotificationQueue.makeNoop()))
+      ),
       declineLayer,
       HumanTask.layer,
       planningPolicy,

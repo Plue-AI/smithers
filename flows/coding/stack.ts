@@ -68,7 +68,7 @@ export const captureStackCandidate = (executionId: string, plan?: typeof Plan.Ty
     if (!invocation) {
       return yield* refused(
         "Durable stack operation identity is unavailable (" +
-          sourceRefusal("stack_candidate_invocation_missing", { executionId }) + ")"
+          (yield* sourceRefusal("stack_candidate_invocation_missing", { executionId })) + ")"
       )
     }
     const native = yield* NativeCoding
@@ -78,7 +78,7 @@ export const captureStackCandidate = (executionId: string, plan?: typeof Plan.Ty
     if (native.sourcePublication !== "cloud" || !native.stackCandidate) {
       return yield* refused(
         "Current TODO run and machine authority is unavailable (" +
-          sourceRefusal("stack_candidate_authority_missing", { executionId }) + ")"
+          (yield* sourceRefusal("stack_candidate_authority_missing", { executionId })) + ")"
       )
     }
     return yield* native.stackCandidate(requestIdFor(executionId, `stack.candidate/${invocation}`), plan)
@@ -90,7 +90,7 @@ export const proposeStackCandidate = (executionId: string, generation: number) =
     if (!invocation) {
       return yield* refused(
         "Durable stack operation identity is unavailable (" +
-          sourceRefusal("stack_propose_invocation_missing", { executionId }) + ")"
+          (yield* sourceRefusal("stack_propose_invocation_missing", { executionId })) + ")"
       )
     }
     const native = yield* NativeCoding
@@ -100,7 +100,7 @@ export const proposeStackCandidate = (executionId: string, generation: number) =
     if (native.sourcePublication !== "cloud" || !native.stackPropose) {
       return yield* refused(
         "Current TODO run and machine authority is unavailable (" +
-          sourceRefusal("stack_propose_authority_missing", { executionId }) + ")"
+          (yield* sourceRefusal("stack_propose_authority_missing", { executionId })) + ")"
       )
     }
     const proposal = yield* native.stackPropose(
@@ -110,7 +110,10 @@ export const proposeStackCandidate = (executionId: string, generation: number) =
     if (proposal.generation !== generation) {
       return yield* refused(
         "Stack proposal acknowledged another candidate generation (" +
-          sourceRefusal("stack_proposal_generation_mismatch", { actual: proposal.generation, expected: generation }) +
+          (yield* sourceRefusal("stack_proposal_generation_mismatch", {
+            actual: proposal.generation,
+            expected: generation
+          })) +
           ")"
       )
     }
@@ -125,7 +128,7 @@ export const prepareStackBase = (base: StackBase, executionId: string) =>
     if (!native.importSource) {
       return yield* refused(
         "This workspace's native helper cannot import the base; upgrade the workspace (" +
-          sourceRefusal("stack_import_unavailable", { commitId: base.commitId }) + ")"
+          (yield* sourceRefusal("stack_import_unavailable", { commitId: base.commitId })) + ")"
       )
     }
     const imported = yield* native.importSource({
@@ -136,7 +139,7 @@ export const prepareStackBase = (base: StackBase, executionId: string) =>
     if (target === undefined || target.kind !== "resolved") {
       return yield* refused(
         "The base was not imported as a resolved commit (" +
-          sourceRefusal("stack_import_unresolved", { expected: base.commitId, actual: target?.commitId }) + ")"
+          (yield* sourceRefusal("stack_import_unresolved", { expected: base.commitId, actual: target?.commitId })) + ")"
       )
     }
     return {
@@ -154,13 +157,12 @@ export const observeStackBase = (base: StackBase, result: typeof OperationResult
     result.status !== "accepted" || revision.kind !== "resolved" || revision.parentCommitIds.length !== 1 ||
     revision.parentCommitIds[0] !== base.commitId
   ) {
-    return Effect.fail(
-      refused(
-        "The working change was not created on the base (" +
-          sourceRefusal("stack_base_parent_mismatch", { actual: revision.parentCommitIds, expected: base.commitId }) +
-          ")"
+    return sourceRefusal("stack_base_parent_mismatch", { actual: revision.parentCommitIds, expected: base.commitId })
+      .pipe(
+        Effect.flatMap((refusal) =>
+          Effect.fail(refused("The working change was not created on the base (" + refusal + ")"))
+        )
       )
-    )
   }
   return Effect.succeed({
     changeId: revision.changeId,
@@ -211,7 +213,7 @@ export const stackBaseLayer = Layer.mergeAll(
         if (current.head.kind !== "resolved") {
           return yield* refused(
             "The retained working change is unresolved (" +
-              sourceRefusal("stack_retained_unresolved", { commitId: current.head.commitId }) + ")"
+              (yield* sourceRefusal("stack_retained_unresolved", { commitId: current.head.commitId })) + ")"
           )
         }
         return current.head

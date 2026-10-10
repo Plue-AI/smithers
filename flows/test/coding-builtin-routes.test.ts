@@ -127,13 +127,17 @@ test("fresh and reused hosts retire CI, Feature and Chores command doors", async
       const { routes } = yield* FileRouter.scan({ root })
       const commands = yield* Command.make(routes)
       for (const job of ["ci", "feature", "chores"]) {
-        assert.equal(routes.some(route => route.name === `repository-jobs/${job}`), false)
+        assert.equal(routes.some((route) => route.name === `repository-jobs/${job}`), false)
         const result = yield* commands.execute(`repository-jobs ${job}`).pipe(Effect.result)
         assert.equal(result._tag, "Failure", job)
       }
     }).pipe(
-      Effect.provideService(FlowInvoker.FlowInvoker, FlowInvoker.make({ invoke: () => Effect.die("Retired jobs must not dispatch") })),
-      Effect.provide(platform), Effect.runPromise
+      Effect.provideService(
+        FlowInvoker.FlowInvoker,
+        FlowInvoker.make({ invoke: () => Effect.die("Retired jobs must not dispatch") })
+      ),
+      Effect.provide(platform),
+      Effect.runPromise
     )
   }
 })
@@ -149,7 +153,9 @@ export default ({ name: "repository-jobs/ci", description: "Run the reviewed ci 
 `
   await writeFile(join(directory, "flow.ts"), body)
   await Effect.gen(function*() {
-    const registry = yield* Registry.make({ sources: [{ root, source: "repository-host", naming: "path", system: true }] })
+    const registry = yield* Registry.make({
+      sources: [{ root, source: "repository-host", naming: "path", system: true }]
+    })
     const descriptor = yield* registry.get("repository-jobs/ci")
     const executable = yield* Executable.fromDescriptor(descriptor, {
       delegates: [RunJob],
@@ -157,22 +163,37 @@ export default ({ name: "repository-jobs/ci", description: "Run the reviewed ci 
       // admission; this temporary root has no package installation.
       load: (_file, source) => {
         assert.equal(new TextDecoder().decode(source.bytes), body)
-        return Effect.succeed({ default: {
-          name: "repository-jobs/ci", description: "Run the reviewed ci responsibility with recorded evidence.",
-          capabilities: ["*"], flows: [RunJob._tag], effects: undefined, input: Schema.Unknown, output: Schema.Unknown
-        } })
+        return Effect.succeed({
+          default: {
+            name: "repository-jobs/ci",
+            description: "Run the reviewed ci responsibility with recorded evidence.",
+            capabilities: ["*"],
+            flows: [RunJob._tag],
+            effects: undefined,
+            input: Schema.Unknown,
+            output: Schema.Unknown
+          }
+        })
       }
     })
     const digest = Descriptor.executionDigest(executable.descriptor)!
     const snapshots = yield* ExecutionSnapshot.makeFileSystem({ root: repositoryPath })
     yield* snapshots.pin(executable)
-    yield* provisionHostBuiltins(stateRoot, policy, { planning: { ...project, implementation: "coding/implementation" }, landing })
+    yield* provisionHostBuiltins(stateRoot, policy, {
+      planning: { ...project, implementation: "coding/implementation" },
+      landing
+    })
     const restored = yield* snapshots.restore(digest)
     assert.equal(restored.descriptor.name, "repository-jobs/ci")
     assert.equal(Descriptor.executionDigest(restored.descriptor), digest)
     assert.equal(restored.descriptor.body._tag, "Module")
     assert.equal(new TextDecoder().decode(restored.bytes), body)
-  }).pipe(Effect.provide(Discovery.layer), Effect.provide(NodeCrypto.layer), Effect.provide(platform), Effect.runPromise)
+  }).pipe(
+    Effect.provide(Discovery.layer),
+    Effect.provide(NodeCrypto.layer),
+    Effect.provide(platform),
+    Effect.runPromise
+  )
   await assert.rejects(access(directory), { code: "ENOENT" })
 })
 
@@ -370,7 +391,18 @@ for (
   })
 }
 
-const requestSteps = ["coding/RequestFeedback", "coding/prepare-stack-base", "coding/create-stack-base", "coding/install-dependency-pages", "factory/Todo", "coding/PrepareRequest", "coding/admit-retained-source", "coding/CoordinateRequest", "factory/stamp-route", "coding/Request"]
+const requestSteps = [
+  "coding/RequestFeedback",
+  "coding/prepare-stack-base",
+  "coding/create-stack-base",
+  "coding/install-dependency-pages",
+  "factory/Todo",
+  "coding/PrepareRequest",
+  "coding/admit-retained-source",
+  "coding/CoordinateRequest",
+  "factory/stamp-route",
+  "coding/Request"
+]
 const pauseBoundary = ["coding/todo-pause-requested", "system/wait-for", "coding/todo-resume", "coding/todo-boundary"]
 
 // Composition inspection does not claim the joint guest/Active-source gate.
@@ -388,8 +420,23 @@ test("the TODO composition reuses request steps and inlines delivery while no ho
   const calls = graph.nodes.flatMap(({ ast }) =>
     ast._tag === "FlowCall" ? [ast.flow] : ast._tag === "ActionCall" ? [ast.action] : []
   )
-  assert.deepEqual(calls, [...pauseBoundary, ...requestSteps, ...pauseBoundary, "coding/todo-delivery", "coding/AdmitVibe", "coding/CleanVibeHistory", "coding/LandVibe", "coding/Vibe", ...pauseBoundary, "todo"])
-  assert.equal(calls.includes("coding/todo-review"), false, "E-19 ends delivery instead of parking the TODO run for review")
+  assert.deepEqual(calls, [
+    ...pauseBoundary,
+    ...requestSteps,
+    ...pauseBoundary,
+    "coding/todo-delivery",
+    "coding/AdmitVibe",
+    "coding/CleanVibeHistory",
+    "coding/LandVibe",
+    "coding/Vibe",
+    ...pauseBoundary,
+    "todo"
+  ])
+  assert.equal(
+    calls.includes("coding/todo-review"),
+    false,
+    "E-19 ends delivery instead of parking the TODO run for review"
+  )
   assert.equal(calls.includes("coding/Verify"), false, "verification remains an engine launch")
   assert.equal(calls.includes("review/change"), false, "review remains an engine launch")
   const { repositoryPath, stateRoot } = await workspace(t)
@@ -616,9 +663,8 @@ test("a packaged review whose modules changed on disk is refused before its comp
     }).pipe(Effect.provide(Discovery.layer))
     const descriptor = yield* registry.get("review")
     assert.equal(
-      descriptor.body._tag === "Module" && descriptor.body.imports?.some((entry) =>
-        entry.path === "src/workflow/reviewFlow.ts"
-      ),
+      descriptor.body._tag === "Module" &&
+        descriptor.body.imports?.some((entry) => entry.path === "src/workflow/reviewFlow.ts"),
       true
     )
     const built = yield* Executable.catalog({ delegates: [], load: builtins.load }).pipe(

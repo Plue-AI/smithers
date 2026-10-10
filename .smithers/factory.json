@@ -669,6 +669,20 @@
       "flows": []
     },
     {
+      "id": "coding/rebase-conflict",
+      "description": "Resolve a retained rebase conflict within the existing coding attempt.",
+      "summary": null,
+      "featured": false,
+      "kind": "ts",
+      "path": "flows/coding/rebase-conflict/flow.ts",
+      "capabilities": [
+        "*"
+      ],
+      "model": null,
+      "modelInvocable": false,
+      "flows": []
+    },
+    {
       "id": "coding/verify",
       "description": "Run the project's required checks on one retained commit of the repository's mythical stack.",
       "summary": null,
@@ -1209,9 +1223,7 @@
       "featured": false,
       "kind": "mdx",
       "path": "flows/review/change/flow.mdx",
-      "capabilities": [
-        "fs:read:**"
-      ],
+      "capabilities": [],
       "model": "coding/review",
       "modelInvocable": false,
       "inputSchema": {

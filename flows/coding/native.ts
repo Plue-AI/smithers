@@ -171,7 +171,7 @@ export const nativeLayer = (options: NativeOptions) =>
           const refusalSite = error.code === "source_refused"
             ? stderr.match(/source_refused: ([a-z_]+)/)?.[1]
             : undefined
-          const message = refusalSite ? error.message + " (" + sourceRefusal(refusalSite) + ")" : error.message
+          const message = refusalSite ? error.message + " (" + (yield* sourceRefusal(refusalSite)) + ")" : error.message
           // The envelope comes from another process, so its code is a
           // string until this repo's own vocabulary admits it. A code nothing here
           // declares is not passed through: it would put an unauthored code on the
@@ -232,7 +232,7 @@ export const nativeLayer = (options: NativeOptions) =>
           return yield* failure(
             "source_refused",
             "Current TODO run and machine authority is unavailable (" +
-              sourceRefusal("native_stack_authority_missing", { operation: request.operation }) + ")"
+              (yield* sourceRefusal("native_stack_authority_missing", { operation: request.operation })) + ")"
           )
         }
         yield* Schema.decodeUnknownEffect(PublishSource.fields.requestId)(request.requestId).pipe(
@@ -320,14 +320,17 @@ export const nativeLayer = (options: NativeOptions) =>
       importSource: (request: typeof ImportSource.Type) =>
         Effect.gen(function*() {
           const input = yield* Schema.decodeUnknownEffect(ImportSource)(request).pipe(
-            Effect.mapError(() =>
-              failure(
-                "source_refused",
-                "Native source import requires exact immutable source refs (" +
-                  sourceRefusal("native_import_identity_invalid", {
-                    commits: Array.isArray(request.commits) ? request.commits.map((c) => c?.commitId) : []
-                  }) + ")"
-              )
+            Effect.catch(() =>
+              sourceRefusal("native_import_identity_invalid", {
+                commits: Array.isArray(request.commits) ? request.commits.map((c) => c?.commitId) : []
+              }).pipe(Effect.flatMap((refusal) =>
+                Effect.fail(
+                  failure(
+                    "source_refused",
+                    "Native source import requires exact immutable source refs (" + refusal + ")"
+                  )
+                )
+              ))
             )
           )
           if (
@@ -337,7 +340,9 @@ export const nativeLayer = (options: NativeOptions) =>
             return yield* failure(
               "source_refused",
               "Native source import needs distinct nonempty commits (" +
-                sourceRefusal("native_import_duplicate_or_zero", { commits: input.commits.map((c) => c.commitId) }) +
+                (yield* sourceRefusal("native_import_duplicate_or_zero", {
+                  commits: input.commits.map((c) => c.commitId)
+                })) +
                 ")"
             )
           }

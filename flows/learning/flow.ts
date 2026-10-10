@@ -11,25 +11,44 @@ const Todo = Schema.Int.check(Schema.isGreaterThan(0))
 export const Failure = Schema.Struct({ signature: Text, text: Text })
 export const Outcome = Schema.Struct({ todo: Todo, failures: Schema.Array(Failure) })
 export const Snapshot = Schema.Struct({
-  repository: Text, todo: Todo, run: Text, state: Schema.Literal("merged"),
-  change: Text, commit: Text, attempts: Schema.Array(Text),
-  journal: Schema.Array(MemoryMine.Row), outcomes: Schema.Array(Outcome)
+  repository: Text,
+  todo: Todo,
+  run: Text,
+  state: Schema.Literal("merged"),
+  change: Text,
+  commit: Text,
+  attempts: Schema.Array(Text),
+  journal: Schema.Array(MemoryMine.Row),
+  outcomes: Schema.Array(Outcome)
 })
 export type Snapshot = typeof Snapshot.Type
 export const Output = Schema.Struct({
-  repository: Text, todo: Todo, run: Text,
+  repository: Text,
+  todo: Todo,
+  run: Text,
   pages: Schema.Array(Schema.Struct({ title: Text, body: Text })),
   proposals: Schema.Array(Schema.Struct({
-    signature: Text, title: Text, evidence: Schema.Array(Text), todos: Schema.Array(Todo), prompt: Text, diff: Schema.optional(Schema.String)
+    signature: Text,
+    title: Text,
+    evidence: Schema.Array(Text),
+    todos: Schema.Array(Todo),
+    prompt: Text,
+    diff: Schema.optional(Schema.String)
   }))
 })
 export type Output = typeof Output.Type
 export class LearningFailed extends Schema.TaggedError<LearningFailed>()("learning/Failed", {
-  code: Schema.Literals(["unavailable", "invalid_input", "judge_failed"]), message: Text
+  code: Schema.Literals(["unavailable", "invalid_input", "judge_failed"]),
+  message: Text
 }) {}
-Fault.register("learning/Failed", {
-  unavailable: "dependency", invalid_input: "bug", judge_failed: "dependency"
-} satisfies Fault.Rows<LearningFailed["code"]>)
+Fault.register(
+  "learning/Failed",
+  {
+    unavailable: "dependency",
+    invalid_input: "bug",
+    judge_failed: "dependency"
+  } satisfies Fault.Rows<LearningFailed["code"]>
+)
 
 /** Run-credential reads are supplied only inside the isolated machine. No local fallback. */
 export class Binding extends Context.Service<Binding, {
@@ -39,9 +58,11 @@ export class Binding extends Context.Service<Binding, {
 /** Count distinct merged TODOs, not attempts, from the bounded outcome window. */
 export const evidence = (outcomes: Snapshot["outcomes"]) => {
   const window = outcomes.slice(-20)
-  const signatures = [...new Set(window.flatMap(row => row.failures.map(f => f.signature)))].sort()
-  return signatures.map(signature => {
-    const todos = [...new Set(window.filter(row => row.failures.some(f => f.signature === signature)).map(row => row.todo))].sort((a, b) => a - b)
+  const signatures = [...new Set(window.flatMap((row) => row.failures.map((f) => f.signature)))].sort()
+  return signatures.map((signature) => {
+    const todos = [
+      ...new Set(window.filter((row) => row.failures.some((f) => f.signature === signature)).map((row) => row.todo))
+    ].sort((a, b) => a - b)
     return { signature, todos, count: `${todos.length} of the last ${window.length}` }
   })
 }
@@ -50,7 +71,8 @@ export const evidence = (outcomes: Snapshot["outcomes"]) => {
  * The accepting coding run derives the edit and adapts repository check
  * configuration; verification and review remain engine launches.
  */
-const lintPrompt = "Change flows/todo/flow.ts to require lint as a fast required check for every planned change before review; start from the built-in composition when no override exists."
+const lintPrompt =
+  "Change flows/todo/flow.ts to require lint as a fast required check for every planned change before review; start from the built-in composition when no override exists."
 const lintDiff = [
   "--- a/flows/todo/flow.ts",
   "+++ b/flows/todo/flow.ts",
@@ -58,59 +80,90 @@ const lintDiff = [
   "-      Node.andThen(Request.call(input)),",
   "+      Node.andThen(Request.call({",
   "+        ...input,",
-  '+        prompt: `${input.prompt}\\nRequire lint as a fast required check for every planned change before review.`',
+  "+        prompt: `${input.prompt}\\nRequire lint as a fast required check for every planned change before review.`",
   "+      })),"
 ].join("\n")
 
-export const learn = (snapshot: Snapshot) => Effect.gen(function*() {
-  const input = yield* Schema.decodeUnknownEffect(Snapshot)(snapshot).pipe(
-    Effect.mapError(error => new LearningFailed({ code: "invalid_input", message: error.message }))
-  )
-  if (input.outcomes.length > 20 || new Set(input.outcomes.map(row => row.todo)).size !== input.outcomes.length)
-    return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Expected at most 20 distinct merged TODOs" }))
-  const extracted = MemoryMine.extract(input.journal)
-  const judged = yield* MemoryMine.judge(`T${input.todo}`, extracted.candidates).pipe(
-    Effect.mapError(error => new LearningFailed({ code: "judge_failed", message: `${error.reason}: ${error.detail}` }))
-  )
-  // Only Jev-approved issues with recorded failure evidence become proposals.
-  const proposals = evidence(input.outcomes).flatMap(pattern => {
-    // Wait for recurring lint evidence before opening its immutable note.
-    // Otherwise the first merge opens 1-of-1 and suppresses the fifth merge's
-    // 3-of-5 proposal. This is admission, not a rewrite of an open proposal.
-    const lint = pattern.signature === "check:lint@review"
-    if (lint && (input.outcomes.length < 5 || pattern.todos.length < 3)) return []
-    const finding = input.outcomes.flatMap(row => row.failures).find(f => f.signature === pattern.signature)
-    const issue = judged.issues.find(candidate => finding && MemoryMine.normalize(candidate.text) === MemoryMine.normalize(finding.text))
-    return issue ? [{ signature: pattern.signature, title: issue.text,
-      evidence: [`${pattern.count} failed ${pattern.signature}`], todos: pattern.todos, prompt: lint ? lintPrompt : issue.text, ...(lint ? { diff: lintDiff } : {}) }] : []
+export const learn = (snapshot: Snapshot) =>
+  Effect.gen(function*() {
+    const input = yield* Schema.decodeUnknownEffect(Snapshot)(snapshot).pipe(
+      Effect.mapError((error) => new LearningFailed({ code: "invalid_input", message: error.message }))
+    )
+    if (input.outcomes.length > 20 || new Set(input.outcomes.map((row) => row.todo)).size !== input.outcomes.length) {
+      return yield* Effect.fail(
+        new LearningFailed({ code: "invalid_input", message: "Expected at most 20 distinct merged TODOs" })
+      )
+    }
+    const extracted = MemoryMine.extract(input.journal)
+    const judged = yield* MemoryMine.judge(`T${input.todo}`, extracted.candidates).pipe(
+      Effect.mapError((error) =>
+        new LearningFailed({ code: "judge_failed", message: `${error.reason}: ${error.detail}` })
+      )
+    )
+    // Only Jev-approved issues with recorded failure evidence become proposals.
+    const proposals = evidence(input.outcomes).flatMap((pattern) => {
+      // Wait for recurring lint evidence before opening its immutable note.
+      // Otherwise the first merge opens 1-of-1 and suppresses the fifth merge's
+      // 3-of-5 proposal. This is admission, not a rewrite of an open proposal.
+      const lint = pattern.signature === "check:lint@review"
+      if (lint && (input.outcomes.length < 5 || pattern.todos.length < 3)) return []
+      const finding = input.outcomes.flatMap((row) => row.failures).find((f) => f.signature === pattern.signature)
+      const issue = judged.issues.find((candidate) =>
+        finding && MemoryMine.normalize(candidate.text) === MemoryMine.normalize(finding.text)
+      )
+      return issue ?
+        [{
+          signature: pattern.signature,
+          title: issue.text,
+          evidence: [`${pattern.count} failed ${pattern.signature}`],
+          todos: pattern.todos,
+          prompt: lint ? lintPrompt : issue.text,
+          ...(lint ? { diff: lintDiff } : {})
+        }] :
+        []
+    })
+    const pages = extracted.decisions.length === 0 ? [] : [{
+      title: `T${input.todo} decisions`,
+      body: [
+        `Change: ${input.change}`,
+        `Commit: https://github.com/${input.repository}/commit/${input.commit}`,
+        ...input.attempts.map((run) => `Run: ${run}`),
+        ...extracted.decisions.map((decision) =>
+          `- ${decision.text} (learning ${input.run}, evidence seq ${decision.seq})`
+        )
+      ].join("\n")
+    }]
+    return { repository: input.repository, todo: input.todo, run: input.run, pages, proposals } satisfies Output
   })
-  const pages = extracted.decisions.length === 0 ? [] : [{
-    title: `T${input.todo} decisions`,
-    body: [`Change: ${input.change}`, `Commit: https://github.com/${input.repository}/commit/${input.commit}`,
-      ...input.attempts.map(run => `Run: ${run}`),
-      ...extracted.decisions.map(decision => `- ${decision.text} (learning ${input.run}, evidence seq ${decision.seq})`)].join("\n")
-  }]
-  return { repository: input.repository, todo: input.todo, run: input.run, pages, proposals } satisfies Output
-})
 export const Run = Action.make("learning/run", {
-  payload: { todo: Todo }, success: Output, error: LearningFailed, nondeterministic: true
+  payload: { todo: Todo },
+  success: Output,
+  error: LearningFailed,
+  nondeterministic: true
 })
 export default Flow.make("learning", {
   description: "Read merged TODO evidence and return decision pages and proposals.",
   capabilities: ["model:call:typesafe-ai/jev"],
   effects: { reads: ["todo/**"], writes: [], mode: "expected", onConflict: "serialize", tier: "sealed" },
-  modelInvocable: false, payload: { todo: Todo }, success: Output, error: LearningFailed,
-  body: input => Run.call(input)
+  modelInvocable: false,
+  payload: { todo: Todo },
+  success: Output,
+  error: LearningFailed,
+  body: (input) => Run.call(input)
 })
 export const layer = Layer.unwrap(Effect.gen(function*() {
   const binding = yield* Binding
   const evaluator = yield* Evaluator.Evaluator
-  return Run.toLayer(({ todo }) => Effect.gen(function*() {
-    const instance = yield* FlowRuntime.FlowInstance
-    const snapshot = yield* binding.read(todo, instance.executionId)
-    if (snapshot.todo !== todo) return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Wrong TODO" }))
-    return yield* learn(snapshot).pipe(Effect.provideService(Evaluator.Evaluator, evaluator))
-  }))
+  return Run.toLayer(({ todo }) =>
+    Effect.gen(function*() {
+      const instance = yield* FlowRuntime.FlowInstance
+      const snapshot = yield* binding.read(todo, instance.executionId)
+      if (snapshot.todo !== todo) {
+        return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Wrong TODO" }))
+      }
+      return yield* learn(snapshot).pipe(Effect.provideService(Evaluator.Evaluator, evaluator))
+    })
+  )
 }))
 
 /** Packaged guest-only host wiring; operator configuration never comes from payloads. */
@@ -118,46 +171,66 @@ export const machineBinding = (options: {
   readonly origin?: string | undefined
   readonly host: string
   readonly credential?: string | undefined
-}) => Layer.succeed(Binding, {
-  read: (todo, run) => Effect.gen(function*() {
-    const origin = yield* Effect.try({
-      try: () => {
-        const url = new URL(options.origin ?? "")
-        if (!["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" || url.search || url.hash || !options.host || !options.credential)
-          throw new Error("Learning host binding unavailable")
-        return url.origin
-      },
-      catch: () => new LearningFailed({ code: "unavailable", message: "Learning host binding unavailable" })
-    })
-    const value = yield* Effect.tryPromise({
-      try: async signal => {
-        const response = await fetch(`${origin}/api/gateways/${encodeURIComponent(options.host)}/learning/${encodeURIComponent(run)}/evidence`, {
-          headers: { Authorization: `Bearer ${options.credential}` }, signal, redirect: "error"
+}) =>
+  Layer.succeed(Binding, {
+    read: (todo, run) =>
+      Effect.gen(function*() {
+        const origin = yield* Effect.try({
+          try: () => {
+            const url = new URL(options.origin ?? "")
+            if (
+              !["http:", "https:"].includes(url.protocol) || url.username || url.password || url.pathname !== "/" ||
+              url.search || url.hash || !options.host || !options.credential
+            ) {
+              throw new Error("Learning host binding unavailable")
+            }
+            return url.origin
+          },
+          catch: () => new LearningFailed({ code: "unavailable", message: "Learning host binding unavailable" })
         })
-        if (!response.ok) { await response.body?.cancel(); throw new Error("Learning evidence refused") }
-        const reader = response.body?.getReader()
-        if (!reader) throw new Error("Learning evidence missing")
-        const decoder = new TextDecoder()
-        let bytes = 0, text = ""
-        try {
-          while (true) {
-            const chunk = await reader.read()
-            if (chunk.done) break
-            bytes += chunk.value.byteLength
-            if (bytes > 2 * 1024 * 1024) throw new Error("Learning evidence exceeds limit")
-            text += decoder.decode(chunk.value, { stream: true })
-          }
-          text += decoder.decode()
-          return JSON.parse(text) as unknown
-        } finally { await reader.cancel(); reader.releaseLock() }
-      },
-      catch: () => new LearningFailed({ code: "unavailable", message: "Learning evidence unavailable" })
-    })
-    const snapshot = yield* Schema.decodeUnknownEffect(Snapshot)(value).pipe(
-      Effect.mapError(() => new LearningFailed({ code: "invalid_input", message: "Invalid Learning evidence" }))
-    )
-    if (snapshot.todo !== todo || snapshot.run !== run)
-      return yield* Effect.fail(new LearningFailed({ code: "invalid_input", message: "Wrong Learning evidence binding" }))
-    return snapshot
+        const value = yield* Effect.tryPromise({
+          try: async (signal) => {
+            const response = await fetch(
+              `${origin}/api/gateways/${encodeURIComponent(options.host)}/learning/${encodeURIComponent(run)}/evidence`,
+              {
+                headers: { Authorization: `Bearer ${options.credential}` },
+                signal,
+                redirect: "error"
+              }
+            )
+            if (!response.ok) {
+              await response.body?.cancel()
+              throw new Error("Learning evidence refused")
+            }
+            const reader = response.body?.getReader()
+            if (!reader) throw new Error("Learning evidence missing")
+            const decoder = new TextDecoder()
+            let bytes = 0, text = ""
+            try {
+              while (true) {
+                const chunk = await reader.read()
+                if (chunk.done) break
+                bytes += chunk.value.byteLength
+                if (bytes > 2 * 1024 * 1024) throw new Error("Learning evidence exceeds limit")
+                text += decoder.decode(chunk.value, { stream: true })
+              }
+              text += decoder.decode()
+              return JSON.parse(text) as unknown
+            } finally {
+              await reader.cancel()
+              reader.releaseLock()
+            }
+          },
+          catch: () => new LearningFailed({ code: "unavailable", message: "Learning evidence unavailable" })
+        })
+        const snapshot = yield* Schema.decodeUnknownEffect(Snapshot)(value).pipe(
+          Effect.mapError(() => new LearningFailed({ code: "invalid_input", message: "Invalid Learning evidence" }))
+        )
+        if (snapshot.todo !== todo || snapshot.run !== run) {
+          return yield* Effect.fail(
+            new LearningFailed({ code: "invalid_input", message: "Wrong Learning evidence binding" })
+          )
+        }
+        return snapshot
+      })
   })
-})

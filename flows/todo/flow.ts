@@ -32,7 +32,9 @@ export default Flow.make("todo", {
   body: (input) =>
     TodoBoundary.call({}).pipe(
       Node.andThen(Request.call(input)),
-      Node.bindPlanned((request) => Node.succeed(request).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(Node.succeed(request)))),
+      Node.bindPlanned((request) =>
+        Node.succeed(request).pipe(Node.andThen(TodoBoundary.call({})), Node.andThen(Node.succeed(request)))
+      ),
       Node.bindPlanned((request) => TodoDelivery.call({ request })),
       Node.bindPlanned((delivery) => Vibe.call(delivery)),
       Node.bindPlanned((delivered) =>

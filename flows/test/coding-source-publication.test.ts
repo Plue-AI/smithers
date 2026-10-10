@@ -124,7 +124,9 @@ test("cloud admission retains before any snapshot, then refuses source movement;
 
 test("admission snapshot failures distinguish changed source, refusals and outages", async (t) => {
   const logs: unknown[][] = []
-  t.mock.method(console, "warn", (...args: unknown[]) => { logs.push(args) })
+  t.mock.method(console, "warn", (...args: unknown[]) => {
+    logs.push(args)
+  })
   const capability = Capability.make("fs:write", "/workspace")
   const cases = [
     ...Jj.JjErrorCode.literals.map((code) => ({

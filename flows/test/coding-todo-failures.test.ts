@@ -29,10 +29,10 @@ import { checkInputDigest, CodingError, Implementation, type Plan, Receipt } fro
 import { AdmitSource, sourceAdmission } from "../coding/source-admission.ts"
 import { CreateStackBase, PrepareStackBase, stackBaseLayer } from "../coding/stack.ts"
 import { ReceiveFeedback } from "../coding/steering.ts"
+import { TodoBoundary, TodoPauseRequested, todoResumeLayer } from "../coding/todo-pause.ts"
 import { TodoDelivery, todoLayers } from "../coding/todo.ts"
 import { InstallDependencyPages } from "../coding/wiki-refresh.ts"
 import { Implement, policyLayers, RunCheck } from "../coding/workflow.ts"
-import { TodoBoundary, TodoPauseRequested, todoResumeLayer } from "../coding/todo-pause.ts"
 import Todo from "../todo/flow.ts"
 
 const base = {

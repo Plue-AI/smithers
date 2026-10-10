@@ -8,7 +8,7 @@ import * as Memory from "@smthrs/agent/Memory"
 import * as Digest from "@smthrs/core/Digest"
 import * as Descriptor from "@smthrs/registry/Descriptor"
 import * as Executable from "@smthrs/registry/Executable"
-import { Effect, FileSystem, Layer, Schema } from "effect"
+import { Effect, type FileSystem, Layer, Schema } from "effect"
 import * as Jj from "../../packages/smithers/flows/jj/src/Jj.ts"
 import { operations as wikiOperations } from "../wiki/operations.ts"
 import type { PageSpec } from "../wiki/schema.ts"
@@ -240,7 +240,7 @@ export const gather = (
       })
     }
     const memory: Array<typeof PlanningContext.Type["memory"][number]> = []
-    const wikiCitations: NonNullable<typeof PlanningContext.Type["wikiCitations"]>[number][] = []
+    const wikiCitations: Array<NonNullable<typeof PlanningContext.Type["wikiCitations"]>[number]> = []
     for (const page of wiki.pages) {
       const note = {
         id: page.id,

@@ -12,8 +12,8 @@ import {
   makePlacementSlots,
   minFreeBytes,
   parkedFor,
-  releasesClaim,
   releaseCommand,
+  releasesClaim,
   roundStats,
   type SelectSeams,
   selectWith,
@@ -325,10 +325,22 @@ test("discovery narrows selected open issue after preserving all open workspaces
 // T-PRC-03: a sweep without named-check receipts releases, leaving closure to the owner.
 test("landed sweeps record their commit and release without attempting evidence-free closure", () => {
   const sha = "a".repeat(40)
-  assert.deepEqual(releaseCommand("o/r#7", "sweep", "landed", sha),
-    ["release", "o/r#7", "--by", "sweep", "--note", `landed: ${sha}`])
+  assert.deepEqual(releaseCommand("o/r#7", "sweep", "landed", sha), [
+    "release",
+    "o/r#7",
+    "--by",
+    "sweep",
+    "--note",
+    `landed: ${sha}`
+  ])
   for (const status of ["failed", "held", "skipped"] as const) {
-    assert.deepEqual(releaseCommand("o/r#7", "sweep", status, "reason"),
-      ["release", "o/r#7", "--by", "sweep", "--note", `${status}: reason`])
+    assert.deepEqual(releaseCommand("o/r#7", "sweep", status, "reason"), [
+      "release",
+      "o/r#7",
+      "--by",
+      "sweep",
+      "--note",
+      `${status}: reason`
+    ])
   }
 })

@@ -11,6 +11,11 @@ import { sourceEvent } from "./events.ts"
 import { RepositoryRemote, RetainSourceRequest } from "./remote.ts"
 import type { Event } from "./schema.ts"
 
+/** Fails with the named refusal after its diagnostic is written. */
+const refused = (reason: string, values: Readonly<Record<string, unknown>>) =>
+  sourceRefusal(reason, values).pipe(
+    Effect.flatMap((message) => Effect.fail(new CodingError({ code: "source_refused", message })))
+  )
 const object = (value: unknown): Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : {}
 export const sourceRequest = (event: typeof Event.Type, capturedPayload: Schema.Json) =>
@@ -18,16 +23,13 @@ export const sourceRequest = (event: typeof Event.Type, capturedPayload: Schema.
     const payload = object(capturedPayload), pr = object(payload.pull_request)
     let request: unknown
     if (event.source === "github" && event.type === "push") {
-      const normalized = yield* Effect.try({
-        try: () => sourceEvent(event),
-        catch: (error) =>
+      const normalized = yield* Effect.try({ try: () => sourceEvent(event), catch: (error) => error }).pipe(
+        Effect.catch((error) =>
           error instanceof CodingError
-            ? error
-            : new CodingError({
-              code: "source_refused",
-              message: sourceRefusal("event_invalid", { source: event.source, type: event.type })
-            })
-      })
+            ? Effect.fail(error)
+            : refused("event_invalid", { source: event.source, type: event.type })
+        )
+      )
       if (normalized.ignored) return undefined
       const pushed = object(normalized.payload)
       request = {
@@ -49,12 +51,7 @@ export const sourceRequest = (event: typeof Event.Type, capturedPayload: Schema.
       request = { kind: "pull_request", number, head: object(pr.head).sha, base: object(pr.base).sha }
     } else return undefined
     return yield* Schema.decodeUnknownEffect(RetainSourceRequest)(request).pipe(
-      Effect.mapError(() =>
-        new CodingError({
-          code: "source_refused",
-          message: sourceRefusal("event_identity_invalid", { source: event.source, type: event.type })
-        })
-      )
+      Effect.catch(() => refused("event_identity_invalid", { source: event.source, type: event.type }))
     )
   })
 
@@ -68,10 +65,7 @@ const lookupSourceCommits = (options: ImmutableSourceOptions, commits: ReadonlyA
       !commits.length || commits.length > 2 || commits.some((commit) => !/^(?!0{40}$)[0-9a-f]{40}$/.test(commit)) ||
       !/^[0-9a-f]{128}$/.test(operationId)
     ) {
-      return yield* new CodingError({
-        code: "source_refused",
-        message: sourceRefusal("lookup_identity_invalid", { commits, operationId })
-      })
+      return yield* refused("lookup_identity_invalid", { commits, operationId })
     }
     const result = yield* runSourceProcess(
       options,

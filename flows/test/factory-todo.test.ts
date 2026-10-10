@@ -20,8 +20,10 @@ import { dependencyPagesLayer } from "../coding/wiki-route.ts"
 
 // Exercise the same inlined Request body used by TODO; keep its retired host door absent.
 const InlineRequest = Flow.make("test/factory-todo-request", {
-  payload: Request.payloadSchema, success: Request.successSchema, error: Request.errorSchema,
-  body: input => Request.call(input)
+  payload: Request.payloadSchema,
+  success: Request.successSchema,
+  error: Request.errorSchema,
+  body: (input) => Request.call(input)
 })
 
 const prompt =
@@ -261,7 +263,9 @@ test("a TODO's checkout gets the stack's dependency pages, and no other page", {
 test("a request without a stack base is not a TODO and is never routed", { timeout: 60_000 }, async (t) => {
   const f = fixture("close")
   t.after(() => f.host.dispose())
-  const result = await f.host.runPromise(InlineRequest.execute({ prompt, feedback: "as written" }, { executionId: "chat" }))
+  const result = await f.host.runPromise(
+    InlineRequest.execute({ prompt, feedback: "as written" }, { executionId: "chat" })
+  )
   assert.deepEqual(f.events, ["plan", "implement"])
   assert.equal(result.route, undefined)
   assert.equal(f.planned[0], "as written")

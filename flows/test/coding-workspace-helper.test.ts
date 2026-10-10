@@ -50,10 +50,12 @@ test("packaged helper restores outside edits while unregistered coding writes re
         Effect.provideService(FileSystem.FileSystem, guarded),
         Effect.provideService(Read.ReadSession, "fixture")
       )
-      const refusal = yield* Effect.flip(Write.run({ path, content: "after\n" }).pipe(
-        Effect.provideService(FileSystem.FileSystem, guarded),
-        Effect.provideService(Read.ReadSession, "fixture")
-      ))
+      const refusal = yield* Effect.flip(
+        Write.run({ path, content: "after\n" }).pipe(
+          Effect.provideService(FileSystem.FileSystem, guarded),
+          Effect.provideService(Read.ReadSession, "fixture")
+        )
+      )
       assert.equal(refusal.code, "provider_unavailable")
       assert.equal(yield* fs.readFileString(path), "before\n")
     }).pipe(Effect.provide(NodeServices.layer))

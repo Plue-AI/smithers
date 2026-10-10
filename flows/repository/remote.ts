@@ -163,7 +163,7 @@ export const makeRemote = (options: RemoteOptions) =>
             const reason = string(body.message ?? object(body.error).message, 200)
             const named = refusal[0] !== "source_refused" ? refusal[1] : /^source_refused: [a-z_]+$/.test(reason)
               ? reason
-              : sourceRefusal("remote_http_refused", {
+              : yield* sourceRefusal("remote_http_refused", {
                 repository: options.repositorySlug,
                 workspace: options.workspaceId
               })
@@ -293,12 +293,15 @@ export const makeRemote = (options: RemoteOptions) =>
       retainMain: (commitId) =>
         Effect.gen(function*() {
           const commit = yield* Schema.decodeUnknownEffect(SourceCommit)(commitId).pipe(
-            Effect.mapError(() =>
-              new CodingError({
-                code: "source_refused",
-                message: "Main retention requires an exact immutable commit (" +
-                  sourceRefusal("main_commit_invalid", { commitId }) + ")"
-              })
+            Effect.catch(() =>
+              sourceRefusal("main_commit_invalid", { commitId }).pipe(Effect.flatMap((refusal) =>
+                Effect.fail(
+                  new CodingError({
+                    code: "source_refused",
+                    message: "Main retention requires an exact immutable commit (" + refusal + ")"
+                  })
+                )
+              ))
             )
           )
           const retained = yield* send(
@@ -339,11 +342,10 @@ export const makeRemote = (options: RemoteOptions) =>
       retainSource: (request) =>
         Effect.gen(function*() {
           const input = yield* Schema.decodeUnknownEffect(RetainSourceRequest)(request).pipe(
-            Effect.mapError(() =>
-              new CodingError({
-                code: "source_refused",
-                message: sourceRefusal("retention_identity_invalid", { head: request.head, base: request.base })
-              })
+            Effect.catch(() =>
+              sourceRefusal("retention_identity_invalid", { head: request.head, base: request.base }).pipe(
+                Effect.flatMap((message) => Effect.fail(new CodingError({ code: "source_refused", message })))
+              )
             )
           )
           const metadata = object(yield* send(HttpClientRequest.get(`${base}/repository-source`), false, true))
@@ -353,7 +355,10 @@ export const makeRemote = (options: RemoteOptions) =>
           ) {
             return yield* new CodingError({
               code: "source_refused",
-              message: sourceRefusal("remote_source_invalid", { source: metadata.source, name: metadata.full_name })
+              message: yield* sourceRefusal("remote_source_invalid", {
+                source: metadata.source,
+                name: metadata.full_name
+              })
             })
           }
           const retained = yield* send(

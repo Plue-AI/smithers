@@ -456,9 +456,12 @@ const ref = (args: Args) => `${repoOf(args)}#${args.item.number}`
 export const releasesClaim = (status: Burndown.Status): boolean => status !== "requeued"
 
 /** Release the claim and record the outcome without claiming acceptance evidence. @since 0.1.0 */
-export const releaseCommand = (issue: string, by: string, status: Burndown.Status, note: string): ReadonlyArray<string> =>
-  ["release", issue, "--by", by, "--note", `${status}: ${note}`]
-
+export const releaseCommand = (
+  issue: string,
+  by: string,
+  status: Burndown.Status,
+  note: string
+): ReadonlyArray<string> => ["release", issue, "--by", by, "--note", `${status}: ${note}`]
 
 /**
  * Records a no-change verdict on the issue, then fails with it, so the item

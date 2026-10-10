@@ -47,12 +47,15 @@ export const routeMessages = (
           run.planId === undefined || run.status === "cancelled" || run.status === "failed" ||
           run.status === "completed"
         ) {
-          return yield* Effect.fail(todo && run.status !== "running" && run.planId !== undefined
-            ? new NotificationQueue.NotificationError({
-              code: "notification_closed", notificationId: notification.id,
-              message: "The TODO run has finished receiving feedback"
-            })
-            : unavailable(notification.id))
+          return yield* Effect.fail(
+            todo && run.status !== "running" && run.planId !== undefined
+              ? new NotificationQueue.NotificationError({
+                code: "notification_closed",
+                notificationId: notification.id,
+                message: "The TODO run has finished receiving feedback"
+              })
+              : unavailable(notification.id)
+          )
         }
         const plan = yield* control.getPlan(run.planId).pipe(Effect.mapError(() => unavailable(notification.id)))
         if (
@@ -101,8 +104,15 @@ export const routeMessages = (
 })
 
 const Boundary = Schema.Literals([
-  "route", "plan", "poc", "implement", "correct", "deliver",
-  "after-poc", "before-implementation", "after-correction"
+  "route",
+  "plan",
+  "poc",
+  "implement",
+  "correct",
+  "deliver",
+  "after-poc",
+  "before-implementation",
+  "after-correction"
 ])
 const Revision = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))
 const BoundaryTuple = Schema.Tuple([Schema.NonEmptyString, Boundary, Revision])

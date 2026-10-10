@@ -1,6 +1,6 @@
 /** Semantic checking runs only on the unprivileged flow-load guest. */
-import ts from "typescript"
 import { dirname, relative, resolve } from "node:path"
+import ts from "typescript"
 
 interface TypeInputs {
   readonly files: Readonly<Record<string, string>>
@@ -25,11 +25,17 @@ const trustedSources = new Map<string, ts.SourceFile>()
 export const checkFlowTypes = (repository: string, entries: ReadonlyArray<string>): ReadonlyMap<string, string> => {
   const trusted = inputs()
   const options: ts.CompilerOptions = {
-    target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
-    strict: true, noUncheckedIndexedAccess: true, exactOptionalPropertyTypes: true,
-    allowImportingTsExtensions: true, skipLibCheck: true, noEmit: true,
-    types: [], lib: [trusted.lib],
+    strict: true,
+    noUncheckedIndexedAccess: true,
+    exactOptionalPropertyTypes: true,
+    allowImportingTsExtensions: true,
+    skipLibCheck: true,
+    noEmit: true,
+    types: [],
+    lib: [trusted.lib],
     paths: Object.fromEntries(Object.entries(trusted.entries).map(([key, value]) => [key, [value]]))
   }
   // Never read tsconfig plugins or execute a repository compiler. Filesystem
@@ -46,10 +52,10 @@ export const checkFlowTypes = (repository: string, entries: ReadonlyArray<string
       if (parent === resolve(parent, "..")) break
     }
   }
-  host.fileExists = name => name.startsWith(prefix) ? trusted.files[name] !== undefined : fileExists(name)
-  host.readFile = name => name.startsWith(prefix) ? trusted.files[name] : readFile(name)
-  host.directoryExists = name => name.startsWith(prefix) ? directories.has(name) : directoryExists(name)
-  host.realpath = name => name.startsWith(prefix) ? name : ts.sys.realpath?.(name) ?? name
+  host.fileExists = (name) => name.startsWith(prefix) ? trusted.files[name] !== undefined : fileExists(name)
+  host.readFile = (name) => name.startsWith(prefix) ? trusted.files[name] : readFile(name)
+  host.directoryExists = (name) => name.startsWith(prefix) ? directories.has(name) : directoryExists(name)
+  host.realpath = (name) => name.startsWith(prefix) ? name : ts.sys.realpath?.(name) ?? name
   const sources = new Map<string, ts.SourceFile>()
   host.getSourceFile = (name, languageVersion) => {
     const cache = name.startsWith(prefix) ? trustedSources : sources
@@ -64,20 +70,29 @@ export const checkFlowTypes = (repository: string, entries: ReadonlyArray<string
   const failures = new Map<string, string>()
   for (const entry of entries) {
     const program = ts.createProgram([entry, trusted.node], options, host)
-    const repositorySources = program.getSourceFiles().filter(source => !source.fileName.startsWith(prefix))
+    const repositorySources = program.getSourceFiles().filter((source) => !source.fileName.startsWith(prefix))
     const diagnostics = [
-      ...program.getOptionsDiagnostics(), ...program.getGlobalDiagnostics(),
-      ...repositorySources.flatMap(source => [...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source)])
-    ].filter(diagnostic =>
+      ...program.getOptionsDiagnostics(),
+      ...program.getGlobalDiagnostics(),
+      ...repositorySources.flatMap(
+        (source) => [...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source)]
+      )
+    ].filter((diagnostic) =>
       diagnostic.category === ts.DiagnosticCategory.Error &&
-      (diagnostic.file === undefined || !diagnostic.file.fileName.startsWith(prefix) || [2307, 2688, 6053].includes(diagnostic.code))
+      (diagnostic.file === undefined || !diagnostic.file.fileName.startsWith(prefix) ||
+        [2307, 2688, 6053].includes(diagnostic.code))
     )
     const diagnostic = diagnostics[0]
     if (diagnostic === undefined) continue
     const file = diagnostic.file
     const location = file === undefined ? relative(repository, entry) : relative(repository, file.fileName)
-    const line = file === undefined || diagnostic.start === undefined ? "" : `:${file.getLineAndCharacterOfPosition(diagnostic.start).line + 1}`
-    failures.set(entry, `${location}${line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`.slice(0, 2000))
+    const line = file === undefined || diagnostic.start === undefined
+      ? ""
+      : `:${file.getLineAndCharacterOfPosition(diagnostic.start).line + 1}`
+    failures.set(
+      entry,
+      `${location}${line}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`.slice(0, 2000)
+    )
   }
   return failures
 }

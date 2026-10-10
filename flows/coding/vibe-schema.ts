@@ -78,7 +78,11 @@ export const VibeSubmitted = Schema.Struct({
 })
 export type VibeSubmitted = typeof VibeSubmitted.Type
 /** A TODO delivered through the reserved candidate and proposal actions. */
-export const VibeStackProposed = Schema.Struct({ cleanup: VibeCleanup, cleanedSource: SourcePublication, proposal: StackProposal })
+export const VibeStackProposed = Schema.Struct({
+  cleanup: VibeCleanup,
+  cleanedSource: SourcePublication,
+  proposal: StackProposal
+})
 export type VibeStackProposed = typeof VibeStackProposed.Type
 /** A host without the backend fast-forwarded main to the one verified candidate commit. */
 export const VibeFastForwarded = Schema.Struct({

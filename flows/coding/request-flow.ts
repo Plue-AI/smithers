@@ -36,12 +36,17 @@ export const RequestFeedback = Flow.make("coding/RequestFeedback", {
   payload: PlanningInput,
   success: PlanningInput.fields.feedback,
   error: CodingError,
-  body: (input) => ReceiveFeedback.call({ boundary: "plan", revision: 0 }).pipe(
-    Node.bindPlanned((receipt) => MergeFeedback.call({
-      cursor: { ...input, maxRounds: 3, revision: 0 }, receipt, advance: false
-    })),
-    Node.map((ready) => ready.feedback)
-  )
+  body: (input) =>
+    ReceiveFeedback.call({ boundary: "plan", revision: 0 }).pipe(
+      Node.bindPlanned((receipt) =>
+        MergeFeedback.call({
+          cursor: { ...input, maxRounds: 3, revision: 0 },
+          receipt,
+          advance: false
+        })
+      ),
+      Node.map((ready) => ready.feedback)
+    )
 })
 
 export const RefusePlan = Action.make("coding/refuse-plan-approval", {
@@ -151,7 +156,12 @@ export const Coordinate: CoordinateFlow = Flow.make("coding/CoordinateRequest", 
                                       MergeFeedback.call({ cursor, receipt, advance: true }).pipe(
                                         Node.bindPlanned((next) => Coordinate.to(next))
                                       ),
-                                    else: () => Flow.done({ plan, outcome, ...(cursor.requestRoute === undefined ? {} : { route: cursor.requestRoute }) })
+                                    else: () =>
+                                      Flow.done({
+                                        plan,
+                                        outcome,
+                                        ...(cursor.requestRoute === undefined ? {} : { route: cursor.requestRoute })
+                                      })
                                   })
                                 )
                               )
@@ -206,20 +216,24 @@ export default Flow.make("coding/Request", {
     // tip, and factory/Todo routes it before it is planned. Its result and
     // its failure both carry the route, which the stack keeps.
     // The dependency pages the stack published reach this checkout first.
-    const dependencyPages = Node.succeed(input.wiki?.pages ?? []).pipe(Node.map((pages) => pages.filter(isDependencyPage)))
+    const dependencyPages = Node.succeed(input.wiki?.pages ?? []).pipe(
+      Node.map((pages) => pages.filter(isDependencyPage))
+    )
     // Receive already-committed input before the first planning model call,
     // including a new implementation launch under a retained TODO run.
     return RequestFeedback.child({ prompt: input.prompt, feedback: input.feedback ?? "", ...wiki, ...answers }).pipe(
-      Node.bindPlanned((feedback) => input.base === undefined ? implement(feedback) : admitStackBase(input.base).pipe(
-        Node.andThen(dependencyPages.pipe(Node.bindPlanned((pages) => InstallDependencyPages.call({ pages })))),
-        Node.andThen(RouteRequest.child({ prompt: input.prompt, feedback })),
-        Node.bindPlanned((routed) =>
-          Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback, routed.route) }).pipe(
-            Node.map(({ result, routed }) => ({ ...result, route: routed.route })),
-            Node.catch({ error: CodingError, onFailure: (error) => StampRoute.call({ error, route: routed.route }) })
+      Node.bindPlanned((feedback) =>
+        input.base === undefined ? implement(feedback) : admitStackBase(input.base).pipe(
+          Node.andThen(dependencyPages.pipe(Node.bindPlanned((pages) => InstallDependencyPages.call({ pages })))),
+          Node.andThen(RouteRequest.child({ prompt: input.prompt, feedback })),
+          Node.bindPlanned((routed) =>
+            Node.all({ routed: Node.succeed(routed), result: implement(routed.feedback, routed.route) }).pipe(
+              Node.map(({ result, routed }) => ({ ...result, route: routed.route })),
+              Node.catch({ error: CodingError, onFailure: (error) => StampRoute.call({ error, route: routed.route }) })
+            )
           )
         )
-      ))
+      )
     )
   }
 })

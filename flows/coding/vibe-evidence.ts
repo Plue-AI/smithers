@@ -10,8 +10,8 @@ import { Effect, Exit, Option, Schema } from "effect"
 import { ModuleOwner } from "../../packages/smithers/src/internal/ModuleOwner.ts"
 import { Poc, PocInput } from "./poc.ts"
 import { PrepareRequest } from "./preparation.ts"
-import { Coordinate, Request } from "./request.ts"
 import { Cursor, RequestFeedback } from "./request-flow.ts"
+import { Coordinate, Request } from "./request.ts"
 import { CodingError, RequestInput, type RequestResult, sameRevision } from "./schema.ts"
 import { leafFeedback } from "./todo-route.ts"
 import { VibeEvidence, VibeInput } from "./vibe-schema.ts"
@@ -42,9 +42,11 @@ const completed = <
  * native histories keep their original Request row and source receipt. */
 const requestChildren = (catalog: RunCatalogRead.Service, parentRunId: string) =>
   catalog.listRuns({ filters: { flowName: Request._tag, parentRunId }, limit: 2 }).pipe(
-    Effect.flatMap((legacy) => legacy.cursor !== null || legacy.runs.length !== 0
-      ? Effect.succeed(legacy)
-      : catalog.listRuns({ filters: { flowName: Coordinate._tag, parentRunId }, limit: 2 }))
+    Effect.flatMap((legacy) =>
+      legacy.cursor !== null || legacy.runs.length !== 0
+        ? Effect.succeed(legacy)
+        : catalog.listRuns({ filters: { flowName: Coordinate._tag, parentRunId }, limit: 2 })
+    )
   )
 
 const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typeof RequestResult.Type) =>
@@ -104,7 +106,10 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       // Settled launches remain evidence under this same control run. Only
       // its active launch can supply a new candidate; ancestry below binds
       // the selected request to that launch and the attempt's approved pin.
-      const bridges = yield* catalog.listRuns({ filters: { flowName: todoTag, parentRunId: owner.rootId, status: "running" }, limit: 2 })
+      const bridges = yield* catalog.listRuns({
+        filters: { flowName: todoTag, parentRunId: owner.rootId, status: "running" },
+        limit: 2
+      })
       if (bridges.cursor !== null || bridges.runs.length !== 1) {
         return yield* invalid("TODO delivery requires one active composition launch in its current attempt")
       }
@@ -157,7 +162,9 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     const payload = Schema.decodeUnknownOption(RequestInput)(
       coordinated
         ? cursor.pipe(Option.map((value) => value.requestInput), Option.getOrUndefined)
-        : inlined ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input : requestRow.state.payload
+        : inlined
+        ? (requestRow.state.payload as { readonly input?: unknown } | null)?.input
+        : requestRow.state.payload
     )
     if (
       Option.isNone(payload) || (composed && payload.value.base === undefined &&
@@ -270,7 +277,8 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
     let initialFeedback = payload.value.feedback ?? ""
     if (composed && owner.launchOrdinal !== undefined) {
       const contexts = yield* catalog.listRuns({
-        filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent }, limit: 2
+        filters: { flowName: RequestFeedback._tag, parentRunId: preparationParent },
+        limit: 2
       })
       if (contexts.cursor !== null || contexts.runs.length !== 1) {
         return yield* invalid("The request needs exactly one retained initial feedback receipt")
@@ -278,12 +286,17 @@ const readRequestEvidence = (input: typeof VibeInput.Type, expectedRequest?: typ
       const contextId = contexts.runs[0]!.runId
       const context = yield* read(contextId)
       const contextParents = yield* graph.runParents(contextId)
-      const expected = { prompt: payload.value.prompt, feedback: initialFeedback,
+      const expected = {
+        prompt: payload.value.prompt,
+        feedback: initialFeedback,
         ...(payload.value.wiki === undefined ? {} : { wiki: payload.value.wiki }),
-        ...(payload.value.answers === undefined ? {} : { answers: payload.value.answers }) }
-      if (context.state.flowName !== RequestFeedback._tag || context.state.parentExecutionId !== preparationParent ||
+        ...(payload.value.answers === undefined ? {} : { answers: payload.value.answers })
+      }
+      if (
+        context.state.flowName !== RequestFeedback._tag || context.state.parentExecutionId !== preparationParent ||
         contextParents.length !== 1 || contextParents[0]!.parentId !== preparationParent ||
-        Digest.canonical(context.state.payload) !== Digest.canonical(expected)) {
+        Digest.canonical(context.state.payload) !== Digest.canonical(expected)
+      ) {
         return yield* invalid("The initial feedback receipt does not match the approved request input")
       }
       initialFeedback = yield* completed(context.state, RequestFeedback.successSchema, RequestFeedback.errorSchema)

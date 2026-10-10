@@ -260,8 +260,10 @@ export const make = (
               // batch. Transport errors, invalid receipts and interruption can
               // hide an applied prefix, including a stopped path with old bytes.
               const error = Cause.squash(cause)
-              if (!(error instanceof StdError) ||
-                (error.code !== "stale_read" && error.code !== "moved_off")) {
+              if (
+                !(error instanceof StdError) ||
+                (error.code !== "stale_read" && error.code !== "moved_off")
+              ) {
                 for (const change of request) ledgers.get(run)?.delete(change.path)
               }
               return Effect.failCause(cause)

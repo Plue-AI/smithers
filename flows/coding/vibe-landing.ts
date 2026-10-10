@@ -22,6 +22,7 @@ import {
 import { Landing, requireBackend } from "./landing.ts"
 import { requestIdFor } from "./native.ts"
 import { type Check, CodingError, type Implementation, Receipt } from "./schema.ts"
+import { Candidate, Propose } from "./stack.ts"
 import { verifySummary } from "./verify-schema.ts"
 import { ReadLander } from "./vibe-lander.ts"
 import { PublishVibeSource } from "./vibe-publication.ts"
@@ -36,7 +37,6 @@ import {
   VibeSubmitted
 } from "./vibe-schema.ts"
 import { RunCheck } from "./workflow.ts"
-import { Candidate, Propose } from "./stack.ts"
 
 const invalid = (message: string) => new CodingError({ code: "invalid_receipt", message })
 /** Existing landing policy runs in Plue's worker; this bound covers full-history inspection. */
@@ -223,7 +223,12 @@ const AwaitAppend = Poll.make("coding/AwaitVibeAppend", {
         })
     }))
 })
-export const LandVibeError = Schema.Union([RunCheck.errorSchema, Poll.Failure, Candidate.errorSchema, Propose.errorSchema])
+export const LandVibeError = Schema.Union([
+  RunCheck.errorSchema,
+  Poll.Failure,
+  Candidate.errorSchema,
+  Propose.errorSchema
+])
 /** Fast-forward: the project's checks on the candidate, then main moves or the candidate is evicted. */
 const fastForward = (cleanup: VibeCleanup) =>
   PrepareCandidate.call({ cleanup }).pipe(
@@ -266,16 +271,18 @@ const backend = (cleanup: VibeCleanup) =>
         Node.andThen(ReadStack.call({ cleanup })),
         Node.branch({
           if: (stacked) => stacked,
-          then: () => Node.succeed(cleanup.admission.fromStack === true).pipe(
-            Node.branch({
-              if: (fromStack) => fromStack,
-              then: () => Candidate.call({ plan: cleanup.admission.request.plan }).pipe(
-                Node.bindPlanned((candidate) => Propose.call({ generation: candidate.generation })),
-                Node.bindPlanned((proposal) => Node.succeed({ cleanup, cleanedSource, proposal }))
-              ),
-              else: () => SubmitLane.call({ cleanup, cleanedSource })
-            })
-          ),
+          then: () =>
+            Node.succeed(cleanup.admission.fromStack === true).pipe(
+              Node.branch({
+                if: (fromStack) => fromStack,
+                then: () =>
+                  Candidate.call({ plan: cleanup.admission.request.plan }).pipe(
+                    Node.bindPlanned((candidate) => Propose.call({ generation: candidate.generation })),
+                    Node.bindPlanned((proposal) => Node.succeed({ cleanup, cleanedSource, proposal }))
+                  ),
+                else: () => SubmitLane.call({ cleanup, cleanedSource })
+              })
+            ),
           else: () =>
             Node.succeed(cleanedSource).pipe(
               Node.andThen(PrepareAppend.call({ cleanup })),
