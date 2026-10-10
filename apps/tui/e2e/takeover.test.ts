@@ -1,13 +1,15 @@
-/** `t` takes over a running worker: each frame waits for the person's message; ctrl+y releases it to run on. */
+/** Alt+T takes over a running worker: each frame waits for the person's message; ctrl+y releases it to run on. */
 import { expect, it } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { key, Tui, workerTab } from "./tmux.ts"
 
+const altT = "\x1bt"
+
 const app = resolve(import.meta.dir, "..")
 
-it("takes over a worker with t, drives a frame from the composer, and releases it with ctrl+y", async () => {
+it("takes over a worker with alt+t, drives a frame from the composer, and releases it with ctrl+y", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-take-"))
   let tui: Tui | undefined
   try {
@@ -25,15 +27,16 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
     await tui.press("\x1b[1;5C") // ctrl+right: Summary
     await tui.press("\x1b[1;5C") // the worker
     await tui.until(
-      (screen) => workerTab("implement/session")(screen) && screen.includes("t Take over"),
+      (screen) => workerTab("implement/session")(screen) && screen.includes("alt+t Take over"),
       5_000,
       "worker tab"
     )
-    await tui.press("t")
+    // Agent tabs open in the composer, where letters type; Take over is Alt+T (573ce2ed81, #3037).
+    await tui.press(altT)
     await tui.until(
       (screen) =>
-        screen.includes("⇄ you drive") && screen.includes("Release (ctrl+y)") &&
-        screen.includes("⇄ driving implement/session  ·  luna"),
+        screen.includes("⇄ you took over") && screen.includes("Release (ctrl+y)") &&
+        screen.includes("⇄ driving implement/session  ·  GPT-6 Luna"),
       5_000,
       "driving"
     )
@@ -42,9 +45,12 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
     await tui.press(key.enter)
     await tui.type("use the session cookie")
     await tui.press(key.enter)
+    await tui.until((screen) => screen.includes("read src/session.ts#"), 15_000, "a frame ran")
+    // A frame's own text is program detail, shown with Ctrl+O (7ae2587fce, #3038).
+    await tui.press(key.ctrlO)
     await tui.until(
       (screen) => /Frame \d: use the session cookie/.test(screen),
-      15_000,
+      5_000,
       "the frame ran with the message"
     )
     expect(tui.screen()).not.toMatch(/Frame \d: \/conversation/)
@@ -79,7 +85,7 @@ it("takes over a worker with t from the Summary overview, where it waits under N
     await tui.press(key.ctrlS)
     await tui.until((screen) => screen.includes("Working 1"), 5_000, "overview")
     await tui.press("t")
-    await tui.until((screen) => screen.includes("⇄ you drive"), 5_000, "taken over from the overview")
+    await tui.until((screen) => screen.includes("⇄ you took over"), 5_000, "taken over from the overview")
     await tui.click("Summary")
     await tui.until(
       (screen) => screen.includes("Needs you 1") && screen.includes("⇄ implement/session"),

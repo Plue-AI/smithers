@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { key, Tui, workerTab } from "./tmux.ts"
 
+const altX = "\x1bx"
+
 const fixture = join(resolve(import.meta.dir, ".."), "e2e", "continue-fixture.tsx")
 
 for (const status of ["done", "failed", "stopped"] as const) {
@@ -29,15 +31,18 @@ for (const status of ["done", "failed", "stopped"] as const) {
       await tui.click("Review")
       await tui.until(workerTab("Review"), 5_000, "worker tab")
       if (status === "stopped") {
-        await tui.press("x")
-        await tui.until((screen) => screen.includes("Stopped"), 5_000, "worker stopped")
+        // Agent tabs open in the composer, so Stop is Alt+X and Enter confirms it (573ce2ed81, #3037).
+        await tui.press(altX)
+        await tui.until((screen) => screen.includes("Stop Review?"), 5_000, "stop confirmation")
+        await tui.press(key.enter)
+        await tui.until((screen) => screen.includes("■ stopped"), 5_000, "worker stopped")
       } else if (status === "failed") {
         await tui.until((screen) => screen.includes("Worker stopped unexpectedly"), 5_000, "worker failed")
       } else {
         await tui.until((screen) => screen.includes("Initial answer"), 5_000, "worker finished")
       }
       await tui.until((screen) => screen.includes("Continue Review"), 5_000, "continuation placeholder")
-      await tui.press("i")
+      // The composer is already focused; printable keys type.
       await tui.type("check another case")
       await tui.until((screen) => /┃\s+check another case/.test(screen), 5_000, "continuation draft")
       await tui.press(key.enter)
