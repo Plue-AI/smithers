@@ -147,7 +147,10 @@ func gitServiceEnvWithCache(command string, maxInputSize, viewer int64, advertis
 		section = "receive"
 		// Keep every pack whole, so the stored bytes track the pack bytes a
 		// storage quota caps (smithersai/plue#593); maintenance repacks.
-		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10), "receive.unpackLimit", "1")
+		// receive-pack never starts git's automatic maintenance, even where the
+		// repository's config does not turn it off yet: git 2.55 detaches it,
+		// outside the repository lock (maintenance.go).
+		config = append(config, "receive.maxInputSize", strconv.FormatInt(maxInputSize, 10), "receive.unpackLimit", "1", "receive.autogc", "false")
 	}
 	for _, ref := range hiddenRefs(viewer) {
 		config = append(config, section+".hideRefs", ref)

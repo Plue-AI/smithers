@@ -362,7 +362,10 @@ func TestStartupTerminatesOrphanedMaintenanceBeforeWrites(t *testing.T) {
 		// gc holding packed-refs.lock, and a child that ignores SIGTERM.
 		return exec.CommandContext(ctx, "sh", "-c", `echo $$ >&3; : > `+lock+`; sh -c 'trap "" TERM; sleep 60' & echo $! > `+childPid+`; wait`)
 	}
-	maintenanceWaitDelay = 200 * time.Millisecond
+	// The child ignores SIGTERM, so startup always waits one full delay before
+	// SIGKILL and then up to one more for the lock to drop. A killed process
+	// stalled in I/O on a loaded host (nyc-01, 2026-10-10) outlived 200 ms.
+	maintenanceWaitDelay = 2 * time.Second
 	t.Cleanup(func() { maintenanceCommandContext, maintenanceWaitDelay = exec.CommandContext, 10*time.Second })
 
 	// The crashed repo-host's maintenance, still running: nothing cancels it.
