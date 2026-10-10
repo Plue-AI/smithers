@@ -13,7 +13,8 @@ it("shows a real durable park and question without claiming the run is still exe
   mkdirSync(join(project, "flows/ask"), { recursive: true })
   writeFileSync(
     join(project, "flows/ask/flow.mdx"),
-    "---\ndescription: Ask a question\nmodel: openai:gpt-6-sol\n---\nAsk which branch to use.\n"
+    // A declared key runs the flow on the control plane; `/flow` would run it as an agent (d6300e6f9b).
+    "---\ndescription: Ask a question\nmodel: openai:gpt-6-sol\nmetadata:\n  tui:\n    keys:\n      - key: alt+k\n        label: Ask\n        action: { kind: flow, flow: ask }\n---\nAsk which branch to use.\n"
   )
   let tui: Tui | undefined
   try {
@@ -28,10 +29,10 @@ it("shows a real durable park and question without claiming the run is still exe
       }
     })
     await tui.until(drawn, 20_000, "first draw")
-    await tui.type("/flow ask")
-    await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("⏸ ask"), 30_000, "paused flow tab")
-    expect(tui.screen()).not.toContain("ask · running")
+    await tui.until((screen) => screen.includes("alt+k Ask"), 10_000, "declared key hint")
+    await tui.press("\x1bk")
+    // A parked run's card holds still with a stopped clock (634d03f97b); a running one spins.
+    await tui.until((screen) => /● ask · \d/.test(screen), 30_000, "parked run card")
     const db = new Database(join(project, ".flows/control.db"), { readonly: true })
     try {
       const events = () =>
@@ -50,6 +51,8 @@ it("shows a real durable park and question without claiming the run is still exe
         "mirrored approval and park receipts"
       )
       expect(events().some((event) => event.event_type === "control.run.parked")).toBe(true)
+      expect(tui.screen()).toMatch(/● ask · \d/)
+      expect(tui.screen()).not.toMatch(/[◐◓◑◒] ask · /)
     } finally {
       db.close()
     }
@@ -58,16 +61,18 @@ it("shows a real durable park and question without claiming the run is still exe
     await tui.until((screen) => screen.includes("Still here."), 10_000, "chat while parked")
     await tui.press(key.ctrlBracket + key.ctrlBracket)
     await tui.until((screen) => screen.includes("Which branch?"), 10_000, "parked question")
-    expect(tui.screen()).toContain("r Resume")
-    expect(tui.screen()).toContain("x Stop")
+    // A parked flow tab offers Continue and Stop (cf8d2e702e); Stop is alt+x beside the composer (573ce2ed81).
+    expect(tui.screen()).toContain("⏸ ask")
+    expect(tui.screen()).toContain("c Continue")
+    expect(tui.screen()).toContain("alt+x Stop")
     await tui.type("x")
     await tui.until(
       (screen) => screen.includes("■ ask") && screen.includes("stopped"),
       15_000,
       "cancelled receipt"
     )
-    expect(tui.screen()).toContain("r Resume")
-    expect(tui.screen()).not.toContain("x Stop")
+    expect(tui.screen()).toContain("alt+r Resume")
+    expect(tui.screen()).not.toContain("alt+x Stop")
   } catch (error) {
     if (process.env.TUI_PARK_EVIDENCE_DIR !== undefined) {
       const saved = join(process.env.TUI_PARK_EVIDENCE_DIR, String(Date.now()))

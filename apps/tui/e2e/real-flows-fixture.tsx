@@ -2,8 +2,8 @@
  * PTY host whose flow port is the real one: `FlowControl.make` over the
  * working directory's `flows/`, launching durable runs on the native control
  * plane. Only the network edges are local: a subscription pool that
- * answers every prompt flow with one cell, and a judge that passes the
- * completion. Chat is a fixed reply, since chat is not under test here.
+ * answers every prompt flow with one cell, and Jev, the judge, which passes
+ * the completion. Chat is a fixed reply, since chat is not under test here.
  */
 import { createCliRenderer } from "@opentui/core"
 import { createRoot } from "@opentui/react"
@@ -22,29 +22,27 @@ const passing = new Set(["on_target", "complete"])
 const model = Bun.serve({
   port: 0,
   fetch: async (request) => {
-    if (new URL(request.url).pathname === "/routes") return Response.json({ routes: ["chatgpt"] })
-    const body = await request.json() as {
-      model: string
-      instructions?: string
-      input: Array<{ role?: string; content?: Array<{ text?: string }> }>
-    }
-    if (body.instructions?.startsWith("Judge the supplied evidence")) {
-      const prompt = body.input.find((item) => item.role === "user")?.content?.[0]?.text ?? ""
-      const { questions } = JSON.parse(prompt) as {
+    const path = new URL(request.url).pathname
+    if (path === "/routes") return Response.json({ routes: ["chatgpt"] })
+    // Jev: a missing key fails every judgment typed since b29feaed18, so the host has one.
+    if (path === "/jev") {
+      const { questions } = await request.json() as {
         questions: Record<string, { type: string; criteria?: Record<string, string> }>
       }
-      const answers = Object.fromEntries(
-        Object.entries(questions).map(([id, question]) => [
-          id,
-          question.type === "boolean"
-            ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
-            : question.type === "choice"
-            ? { type: "choice", choice: Object.keys(question.criteria ?? {})[0] ?? "" }
-            : { type: "score", score: 0 }
-        ])
-      )
-      return new Response(stream(JSON.stringify({ answers })), { headers: { "content-type": "text/event-stream" } })
+      return Response.json({
+        answers: Object.fromEntries(
+          Object.entries(questions).map(([id, question]) => [
+            id,
+            question.type === "boolean"
+              ? { type: "boolean", probability: passing.has(id) ? 0.99 : 0.01 }
+              : question.type === "choice"
+              ? { type: "choice", choice: Object.keys(question.criteria ?? {})[0] ?? "" }
+              : { type: "score", score: 0 }
+          ])
+        )
+      })
     }
+    const body = await request.json() as { model: string }
     if (process.env.TUI_MODEL_LOG) appendFileSync(process.env.TUI_MODEL_LOG, body.model + "\n")
     if (body.model === process.env.TUI_REFUSED_MODEL) {
       return process.env.TUI_REFUSAL === "overflow"
@@ -62,6 +60,8 @@ Object.assign(process.env, {
   SMITHERS_ACCOUNT_POOL_URL: `http://127.0.0.1:${model.port}`,
   SMITHERS_ACCOUNT_POOL_KEY: "fixture-host",
   SMITHERS_ACCOUNT_POOL_PROVIDERS: "chatgpt",
+  AI_GATEWAY_API_KEY: "fixture-jev",
+  SMITHERS_EVALUATOR_BASE_URL: `http://127.0.0.1:${model.port}/jev`,
   CODEX_HOME: "/nonexistent",
   NO_PROXY: "*"
 })

@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { drawn, key, Tui } from "./tmux.ts"
+import { drawn, Tui } from "./tmux.ts"
 
 it("runs the next declared model after context overflow", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-fallback-"))
@@ -30,8 +30,9 @@ it("runs the next declared model after context overflow", async () => {
       }
     })
     await tui.until(drawn, 20_000, "first draw")
-    await tui.type("/flow fallback")
-    await tui.press(key.enter)
+    // `/flow` runs a markdown flow as an agent (d6300e6f9b); its declared key runs it on the control plane.
+    await tui.until((screen) => screen.includes("alt+p Fallback"), 10_000, "declared key hint")
+    await tui.press("\x1bp")
     // The run's chat card settles with the second model's answer.
     await tui.until((screen) => /✓ fallback · \d+m?s → Pong\./.test(screen), 30_000, "fallback completion")
     const requests = readFileSync(log, "utf8").trim().split("\n")
