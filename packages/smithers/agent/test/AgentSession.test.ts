@@ -2494,7 +2494,10 @@ describe("AgentSession", () => {
         const toolStarted = yield* Deferred.make<void>()
         return yield* Effect.gen(function*() {
           const runtime = yield* ControlRuntime.ControlRuntime
-          const runId = yield* launchWithDeadline("agents/notes", {}, 400, "run:deadline-running")
+          // Two seconds, not a fraction of one: the deadline must outlast the
+          // run reaching `note/save` on a loaded host, or it fires first and
+          // `toolStarted` is never set (a 60 s timeout on nyc-01 under load).
+          const runId = yield* launchWithDeadline("agents/notes", {}, 2_000, "run:deadline-running")
           // The first cell blocks in `note/save`, whose gate never opens.
           yield* Deferred.await(toolStarted)
           yield* awaitStatusFor(runtime, runId, "failed")
@@ -2504,7 +2507,7 @@ describe("AgentSession", () => {
       }).pipe(Effect.scoped)
     )
 
-    expect(observed.deadline).toBe(400)
+    expect(observed.deadline).toBe(2_000)
     expect(observed.cause).toContain("deadline")
     expect(notes).toEqual([])
   }, 60_000)
