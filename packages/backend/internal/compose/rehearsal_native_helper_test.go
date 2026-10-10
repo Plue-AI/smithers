@@ -18,6 +18,7 @@ func TestRehearsalNativeHelperUsesCheckout(t *testing.T) {
 	require.NoError(t, os.WriteFile(stale, []byte("#!/bin/sh\nexit 99\n"), 0700))
 	t.Setenv("SMITHERS_FFI_LIBRARY_PATH", filepath.Join(filepath.Dir(stale), "libsmithers_ffi.so"))
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", "")
+	t.Setenv("SMITHERS_REHEARSAL_JJ_EXPORT_BINARY", "")
 	// Only replace the build tool in this selection test. J1/J2 exercise the
 	// real Cargo build and helper through the composed install's TODO boundary.
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "cargo"), []byte("#!/bin/sh\npwd > build.cwd\nprintf '%s\\n' \"$@\" >> build.args\n"), 0700))
@@ -39,6 +40,14 @@ func TestRehearsalNativeHelperUsesCheckout(t *testing.T) {
 	t.Setenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY", stale)
 	require.Equal(t, stale, rehearsalJJExport(t, root))
 	after, err := os.ReadFile(filepath.Join(root, "build.args"))
+	require.NoError(t, err)
+	require.Equal(t, repeated, after)
+	// A confined suite's prebuilt rehearsal helper wins over the installed
+	// release helper, which cannot bind a trusted process, and builds nothing.
+	rehearsal := filepath.Join(root, ".rehearsal-native", "smithers-jj-export")
+	t.Setenv("SMITHERS_REHEARSAL_JJ_EXPORT_BINARY", rehearsal)
+	require.Equal(t, rehearsal, rehearsalJJExport(t, root))
+	after, err = os.ReadFile(filepath.Join(root, "build.args"))
 	require.NoError(t, err)
 	require.Equal(t, repeated, after)
 }

@@ -1716,8 +1716,17 @@ func buildRehearsalCodingHost(t *testing.T, node, root string, fixture ...bool) 
 // an unrelated FFI library can predate the host's native operations (22743e7443
 // exposed this with stack.candidate). Cargo checks all source/dependency inputs
 // on each rehearsal; an executable's presence is not a freshness receipt.
+//
+// A confined suite cannot run Cargo, and the installed helper CI exports is a
+// release build without trusted-process-binding, so a rehearsal there composed
+// no machine daemons and its TODO never started. The //:rehearsalNative target
+// builds this checkout's helper and names it in SMITHERS_REHEARSAL_JJ_EXPORT_BINARY.
 func rehearsalJJExport(t *testing.T, root string) string {
 	t.Helper()
+	if binary := os.Getenv("SMITHERS_REHEARSAL_JJ_EXPORT_BINARY"); binary != "" {
+		require.True(t, filepath.IsAbs(binary), "rehearsal native helper must be absolute")
+		return binary
+	}
 	if binary := os.Getenv("SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"); binary != "" {
 		require.True(t, filepath.IsAbs(binary), "explicit native helper must be absolute")
 		return binary

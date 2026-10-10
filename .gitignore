@@ -25,6 +25,7 @@ app/.electrobun/
 .backend-sqlc/
 .native-ffi/
 .native-ffi-check/
+.rehearsal-native/
 .nyc_output/
 coverage/
 # Browser qualification sources, not generated coverage output.

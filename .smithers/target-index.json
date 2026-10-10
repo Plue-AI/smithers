@@ -128,6 +128,7 @@
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfiLib",
+      "//:rehearsalNative",
       "//apps/app:solidCodegenInputs",
       "//apps/model-host:backendInputs",
       "//flows:codingHostInputs",
@@ -192,6 +193,7 @@
       "//:backendGoModules",
       "//:backendSQLC",
       "//:nativeFfiLib",
+      "//:rehearsalNative",
       "//packages/backend:buildInputs"
     ],
     "source": {
@@ -8334,6 +8336,52 @@
       "package.json"
     ],
     "dependencies": [],
+    "source": {
+      "file": "PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//:rehearsalNative",
+    "package": "",
+    "name": "rehearsalNative",
+    "rule": "Shell.Build",
+    "kinds": [
+      "build"
+    ],
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "file",
+        "path": "Cargo.toml"
+      },
+      {
+        "kind": "file",
+        "path": "Cargo.lock"
+      },
+      {
+        "kind": "file",
+        "path": "rust-toolchain.toml"
+      },
+      {
+        "kind": "file",
+        "path": "crates/flows-jj/Cargo.toml"
+      },
+      {
+        "kind": "glob",
+        "pattern": "crates/smithers-ffi/**/*.rs",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "crates/smithers-ffi/Cargo.toml"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//crates/flows-jj:nativeSources",
+      "//crates/smithers-machined:buildInputs",
+      "//packages/backend:machineContractInputs"
+    ],
     "source": {
       "file": "PACKAGE.ts"
     }
