@@ -48,7 +48,11 @@ func TestSystemCredentialPushNeverSavesWorkflowCachesPostgres(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = store.Close() })
 	cache := services.NewWorkflowCacheService(q, store, services.WorkflowCacheConfig{})
-	hook := &routes.InternalPushHookHandler{RepoResolver: q, Events: q, WorkflowRun: services.NewWorkflowRunService(q)}
+	// Since 83e105a606 a push starts workflows only while it is its ref's
+	// current head, and reads their definitions from the pushed commit.
+	heads := &systemPushHeads{definition: services.LoadedWorkflowDefinition{Name: "CI", Path: ".smithers/workflows/ci.tsx", Config: raw}}
+	hook := &routes.InternalPushHookHandler{RepoResolver: q, Events: q, WorkflowRun: services.NewWorkflowRunService(q,
+		services.WithWorkflowRunBookmarkCommitResolver(heads), services.WithWorkflowRunDefinitionCommitLoader(heads))}
 
 	for i, push := range []struct {
 		credential, login, trigger string
@@ -66,6 +70,7 @@ func TestSystemCredentialPushNeverSavesWorkflowCachesPostgres(t *testing.T) {
 			"pusher_id": owner.ID, "pusher_login": push.login, "pusher_credential": push.credential,
 		})
 		require.NoError(t, err)
+		heads.head = fmt.Sprintf("%040d", i+1)
 		rec := httptest.NewRecorder()
 		hook.PostPushEvent(rec, httptest.NewRequest(http.MethodPost, "/internal/push-hook", bytes.NewReader(body)))
 		require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
@@ -91,4 +96,19 @@ func TestSystemCredentialPushNeverSavesWorkflowCachesPostgres(t *testing.T) {
 		require.ErrorAs(t, err, &apiErr, "push by %q", push.credential)
 		assert.Equal(t, http.StatusForbidden, apiErr.Status, "push by %q restores caches and saves none", push.credential)
 	}
+}
+
+// systemPushHeads answers the pushed ref's head (the push under test) and
+// the workflow that commit declares.
+type systemPushHeads struct {
+	head       string
+	definition services.LoadedWorkflowDefinition
+}
+
+func (h *systemPushHeads) ResolveBookmarkCommit(context.Context, int64, string) (string, error) {
+	return h.head, nil
+}
+
+func (h *systemPushHeads) LoadDefinitionsFromCommit(context.Context, int64, string) (services.WorkflowLoadResult, error) {
+	return services.WorkflowLoadResult{Definitions: []services.LoadedWorkflowDefinition{h.definition}}, nil
 }

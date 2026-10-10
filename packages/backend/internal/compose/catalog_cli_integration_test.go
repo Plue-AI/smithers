@@ -239,9 +239,11 @@ func catalogCLIConfirmationsPostgres(t *testing.T, via string) {
 	require.Equal(t, 1, code, receipt)
 	require.Equal(t, "confirmation_unavailable", receipt["code"])
 	require.NotContains(t, receipt, "confirmation")
+	// 5d21b2a5a6 gave Debug API its CLI door through the install's shared
+	// authorization; a delegated CLI credential is refused there with never.
 	code, receipt = invoke("debug", "api")
 	require.Equal(t, 1, code, receipt)
-	require.Equal(t, "COMMAND_NOT_FOUND", receipt["code"])
+	require.Equal(t, "never", receipt["code"])
 	// The independently OAuth-minted issuer crosses the same person-only CLI
 	// door in all three states. Each state must reach the install exactly once;
 	// a local never refusal would conceal both scope and credential death.

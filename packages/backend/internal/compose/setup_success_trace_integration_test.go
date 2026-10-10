@@ -149,8 +149,12 @@ func TestInstallSuccessfulSetupSecretTracePostgres(t *testing.T) {
 	require.True(t, r.setupMachine(), "setup must reach Machine ready through HTTP")
 	_, err := r.expect("PUT", "/api/install", `{"chatgpt":false}`, http.StatusOK)
 	require.NoError(t, err)
-	_, err = r.expect("POST", "/api/install/setup/sign_in", `{}`, http.StatusConflict)
+	// A new sign-in request after setup is refused. It needs its own key: the
+	// setup walk sent sign_in under the path's key, and a replay returns the
+	// first admission's receipt before readiness checks (9e9493943c).
+	code, data, err := r.keyed("POST", "/api/install/setup/sign_in", `{}`, r.keyPrefix+"sign-in-after-setup")
 	require.NoError(t, err)
+	require.Equal(t, http.StatusConflict, code, string(data))
 	_, err = r.expect("GET", "/api/status", "", http.StatusOK)
 	require.NoError(t, err)
 }
