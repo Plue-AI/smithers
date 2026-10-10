@@ -343,7 +343,18 @@ func TestRuntimeArtifactsRunningGuestRepairAndProbeFailure(t *testing.T) {
 
 type lifecycleArtifactRuntime struct {
 	artifactRuntime
-	state workspaceapi.WorkspaceState
+	state  workspaceapi.WorkspaceState
+	reaped []string
+}
+
+// StopWorkspace and DeleteWorkspace record the reap of a failed initial start.
+func (r *lifecycleArtifactRuntime) StopWorkspace(_ context.Context, id string) error {
+	r.reaped = append(r.reaped, "stop "+id)
+	return nil
+}
+func (r *lifecycleArtifactRuntime) DeleteWorkspace(_ context.Context, id string) error {
+	r.reaped = append(r.reaped, "delete "+id)
+	return nil
 }
 
 func (r *lifecycleArtifactRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
@@ -364,9 +375,15 @@ func TestRuntimeWorkspaceNeverActivatesBeforeArtifactBootstrap(t *testing.T) {
 		t.Run(scenario.status, func(t *testing.T) {
 			row := sampleDBWorkspace("lifecycle-bootstrap")
 			row.Status = scenario.status
-			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }, updateWorkspaceStatusFn: func(context.Context, db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-				t.Fatal("activated before bootstrap")
-				return db.Workspace{}, nil
+			var statuses []string
+			q := &mockWorkspaceQuerier{getWorkspaceFn: func(context.Context, string) (db.Workspace, error) { return row, nil }, updateWorkspaceStatusFn: func(_ context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
+				if arg.Status == "running" {
+					t.Fatal("activated before bootstrap")
+				}
+				statuses = append(statuses, arg.Status)
+				failed := row
+				failed.Status = arg.Status
+				return failed, nil
 			}}
 			q.updateWorkspaceExecutionInfoFn = func(context.Context, db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
 				t.Fatal("bound runtime before bootstrap")
@@ -383,6 +400,15 @@ func TestRuntimeWorkspaceNeverActivatesBeforeArtifactBootstrap(t *testing.T) {
 			} else {
 				require.ErrorContains(t, err, "transfer interrupted")
 				require.Len(t, client.writes, 1)
+			}
+			if scenario.status == "starting" {
+				// A failed initial start shows its failure and reaps its
+				// machine (59566c2cb3, #3385).
+				require.Equal(t, []string{"failed"}, statuses)
+				require.Equal(t, []string{"stop " + row.ID, "delete " + row.ID}, runtime.reaped)
+			} else {
+				require.Empty(t, statuses)
+				require.Empty(t, runtime.reaped)
 			}
 		})
 	}

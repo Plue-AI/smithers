@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -39,42 +39,37 @@ func TestWorkspaceService_EnsureExistingWorkspaceRunning_TreatsMissingSandboxAsG
 	assert.Contains(t, apiErr.Message, "smithers workspace create")
 }
 
-// Repeated controller failures must preserve the suspended workspace disk.
+// asleepMainMachine seeds the canonical main branch machine, owned by the
+// machine service and asleep with vm, and returns the member who opens it.
+// Since de86a86992 (#3565) CreateWorkspace reserves that machine in one
+// PostgreSQL transaction behind the activation providers and joins it, and
+// the wake passes machine admission (c240bd3cf7, #3568).
+func asleepMainMachine(t *testing.T, vm string) (*pgxpool.Pool, int64, int64, db.Workspace) {
+	t.Helper()
+	ctx := context.Background()
+	pool := newProductTestPool(t)
+	member, repo := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	owner, err := q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	row, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: owner, Name: "primary", TargetBookmark: "main", Kind: "container", Status: "suspended"})
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id=$2 WHERE id=$1`, row.ID, vm)
+	require.NoError(t, err)
+	row, err = q.GetWorkspace(ctx, row.ID)
+	require.NoError(t, err)
+	return pool, member, repo, row
+}
+
+// Repeated controller failures must preserve the asleep machine's disk.
 func TestWorkspaceService_CreateWorkspace_PreservesDiskOnServerFailure(t *testing.T) {
 	t.Parallel()
+	pool, member, repo, asleep := asleepMainMachine(t, "sandbox-unresumable")
 
-	var updatedStatuses []string
-	var executionUpdates []db.UpdateWorkspaceExecutionInfoParams
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace("ws-primary")
-			workspace.VmID = "sandbox-unresumable"
-			workspace.Status = "suspended"
-			return workspace, nil
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			updatedStatuses = append(updatedStatuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = "sandbox-unresumable"
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-		suspendRunningWorkspaceFn: func(ctx context.Context, id string) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			executionUpdates = append(executionUpdates, arg)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
-	var startCalls int
+	var startCalls, creates int
 	var deletedVMs []string
-	svc := newWorkspaceServiceForTests(
-		q,
+	svc := composeHostedSandboxWake(newWorkspaceServiceForTests(
+		db.New(pool),
 		WithWorkspaceGitBaseURL("https://api.smithers.sh"),
 		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 			getVMFn: func(ctx context.Context, vmID string) (sandbox.Sandbox, error) {
@@ -93,6 +88,7 @@ func TestWorkspaceService_CreateWorkspace_PreservesDiskOnServerFailure(t *testin
 				}
 			},
 			createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+				creates++
 				return sandbox.CreateResult{ID: "vm-replacement"}, nil
 			},
 			execAwaitFn: func(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
@@ -100,21 +96,20 @@ func TestWorkspaceService_CreateWorkspace_PreservesDiskOnServerFailure(t *testin
 				return sandbox.ExecResult{StatusCode: &status}, nil
 			},
 		}),
-	)
+	), pool)
 
-	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "roninjin10",
-		RepoName:     "smithers",
-		Name:         "primary",
-	})
-	require.Error(t, err)
+	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{RepositoryID: repo, UserID: member, Name: "primary"})
+	var refusal *pkgerrors.APIError
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, 503, refusal.Status)
+	assert.Positive(t, refusal.RetryAfter)
 	assert.Equal(t, 2, startCalls)
-	assert.Empty(t, executionUpdates)
+	assert.Zero(t, creates)
 	assert.Empty(t, deletedVMs)
-	assert.Empty(t, updatedStatuses)
-
+	row, err := db.New(pool).GetWorkspace(context.Background(), asleep.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "sandbox-unresumable", row.VmID)
+	assert.Equal(t, "suspended", row.Status)
 }
 
 // A single transient 500 from StartSandbox must be absorbed by the immediate retry:
@@ -122,26 +117,12 @@ func TestWorkspaceService_CreateWorkspace_PreservesDiskOnServerFailure(t *testin
 // genuinely flaky resumes from unnecessary (data-losing) VM reprovisioning.
 func TestWorkspaceService_CreateWorkspace_RetryResumeSavesVM(t *testing.T) {
 	t.Parallel()
-
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace("ws-flaky")
-			workspace.VmID = "vm-flaky"
-			workspace.Status = "suspended"
-			return workspace, nil
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = "vm-flaky"
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
+	pool, member, repo, asleep := asleepMainMachine(t, "vm-flaky")
 
 	var startCalls int
 	createVMCalled := false
-	svc := newWorkspaceServiceForTests(
-		q,
+	svc := composeHostedSandboxWake(newWorkspaceServiceForTests(
+		db.New(pool),
 		WithWorkspaceGitBaseURL("https://api.smithers.sh"),
 		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 			getVMFn: func(ctx context.Context, vmID string) (sandbox.Sandbox, error) {
@@ -159,16 +140,11 @@ func TestWorkspaceService_CreateWorkspace_RetryResumeSavesVM(t *testing.T) {
 				return sandbox.CreateResult{ID: "vm-should-not-exist"}, nil
 			},
 		}),
-	)
+	), pool)
 
-	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "roninjin10",
-		RepoName:     "smithers",
-		Name:         "primary",
-	})
+	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{RepositoryID: repo, UserID: member, Name: "primary"})
 	require.NoError(t, err)
+	assert.Equal(t, asleep.ID, workspace.ID, "create joins the branch's machine")
 	assert.Equal(t, 2, startCalls, "the resume must be retried exactly once and then succeed")
 	assert.False(t, createVMCalled, "a retry that succeeds must NOT reprovision a fresh VM")
 	assert.Equal(t, "vm-flaky", workspace.VMID, "the original VM must be preserved")

@@ -18,6 +18,7 @@ import (
 )
 
 func TestRegressionResumeOutagePreservesDisk(t *testing.T) {
+	pool := newProductTestPool(t)
 	for _, code := range []int{500, 502, 504, 0} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			ws := sampleDBWorkspace("ws-1")
@@ -27,7 +28,9 @@ func TestRegressionResumeOutagePreservesDisk(t *testing.T) {
 				resets++
 				return ws, nil
 			}}
-			svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+			// The wake passes machine admission and the activation providers
+			// (c240bd3cf7, #3568) before the controller is asked to start.
+			svc := composeHostedSandboxWake(newWorkspaceServiceForTests(ownerlessWorkspaceQuerier{q, noBranchMachineOwner{}}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 				getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
 					return sandbox.Sandbox{State: sandbox.StateStopped}, nil
 				},
@@ -43,7 +46,7 @@ func TestRegressionResumeOutagePreservesDisk(t *testing.T) {
 					creates++
 					return sandbox.CreateResult{}, errors.New("unexpected replacement")
 				},
-			}))
+			})), pool)
 			got, err := svc.ensureWorkspaceRunning(context.Background(), ws, CreateWorkspaceSessionInput{RepositoryID: 101, UserID: 1, RepoOwner: "alice", RepoName: "repo"})
 			require.Zero(t, deletes)
 			require.Zero(t, creates)

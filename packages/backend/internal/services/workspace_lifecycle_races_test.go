@@ -82,10 +82,10 @@ func TestResumeWorkspaceVM_GaugeIncrementOnlyOnCASWin(t *testing.T) {
 				return db.Workspace{}, pgx.ErrNoRows
 			},
 		}
-		svc := newWorkspaceServiceForTests(q,
+		svc := composeHostedSandboxWake(newWorkspaceServiceForTests(q,
 			WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}),
 			WithWorkspaceSandboxMetrics(metrics),
-		)
+		), unopenedBranchTransactions{t})
 
 		ws := sampleDBWorkspace("ws-115")
 		ws.Status = "suspended"
@@ -98,10 +98,10 @@ func TestResumeWorkspaceVM_GaugeIncrementOnlyOnCASWin(t *testing.T) {
 	t.Run("won CAS increments exactly once", func(t *testing.T) {
 		t.Parallel()
 		metrics := &workspaceRaceMetricsRecorder{}
-		svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{},
+		svc := composeHostedSandboxWake(newWorkspaceServiceForTests(&mockWorkspaceQuerier{},
 			WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}),
 			WithWorkspaceSandboxMetrics(metrics),
-		)
+		), unopenedBranchTransactions{t})
 
 		ws := sampleDBWorkspace("ws-115b")
 		ws.Status = "suspended"
@@ -150,8 +150,9 @@ func TestFinishWorkspaceSessionProvisioning_DoesNotResurrectStoppedSession(t *te
 	assert.Equal(t, "stopped", resp.Status)
 	// No unconditional status write may fire — neither running nor failed.
 	assert.Empty(t, sessionStatusWrites)
-	// The workspace brought up for the now-stopped session is suspended again.
-	assert.Equal(t, []string{ws.VmID}, suspendedVMs)
+	// Since c240bd3cf7 (#3568) automatic release needs admission and a
+	// verified final capture, so the box is never stopped without them.
+	assert.Empty(t, suspendedVMs)
 }
 
 // Issue #312: the last-session destroy must not suspend the VM when the

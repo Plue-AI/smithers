@@ -18,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
 	"github.com/smithersai/smithers/packages/backend/productstore"
 )
@@ -73,8 +75,13 @@ func TestHostedRuntimeWorkspaceReachesRepositoryAfterCreateAndResume(t *testing.
 		Environment: map[string]string{"GIT_CONFIG_NOSYSTEM": "1"}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-	service := newWorkspaceServiceForTests(hostedLeaseWorkspaceStore{productstore.New(pool)},
-		WithWorkspaceRuntime(runtime), WithWorkspaceGitBaseURL(server.URL))
+	// Since c240bd3cf7 (#3568) sleep takes a verified final capture and a wake
+	// passes machine admission; the capture peer stands in for the machine
+	// daemon and the repository host's view of the captured head.
+	capture := &hostedCapturePeer{}
+	service := composeRuntimeWake(newWorkspaceServiceForTests(hostedLeaseWorkspaceStore{productstore.New(pool)},
+		WithWorkspaceRuntime(admittedProcessRuntime{Runtime: runtime}), WithWorkspaceGitBaseURL(server.URL),
+		WithBranchCapture(capture), WithBranchHeads(capture)), pool, &UnlimitedBillingPolicy{})
 	headToken := func() pgtype.Int8 {
 		t.Helper()
 		row, err := queries.GetWorkspace(ctx, id)
@@ -97,8 +104,13 @@ func TestHostedRuntimeWorkspaceReachesRepositoryAfterCreateAndResume(t *testing.
 	created := headToken()
 	require.True(t, created.Valid, "create records the workspace credential so suspend, stop and delete revoke it")
 
+	// The head publisher's report is the durable head a capture must match.
+	_, err = pool.Exec(ctx, `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, id, mainCommit)
+	require.NoError(t, err)
+	capture.heads = scratchHeads{repohost.BranchHeadRef(id): mainCommit}
 	_, err = service.SuspendWorkspace(ctx, id, repositoryID, userID)
 	require.NoError(t, err)
+	require.Equal(t, []string{id}, capture.captured, "sleep stops the machine only after its capture")
 	require.False(t, headToken().Valid)
 	require.False(t, tokenLive(created.Int64), "suspend revokes the workspace credential")
 
@@ -109,4 +121,33 @@ func TestHostedRuntimeWorkspaceReachesRepositoryAfterCreateAndResume(t *testing.
 	replacement := headToken()
 	require.True(t, replacement.Valid, "resume records a fresh workspace credential")
 	require.NotEqual(t, created.Int64, replacement.Int64)
+}
+
+// admittedProcessRuntime grants machine admission to the process runtime as
+// the native runtime does once it takes a slot.
+type admittedProcessRuntime struct {
+	*processruntime.Runtime
+	admissionGranting
+}
+
+// hostedCapturePeer reports the branch's durable head as its verified final
+// capture and serves that head as the branch ref and commit, as the machine
+// daemon and the repository host do after a capture.
+type hostedCapturePeer struct {
+	workspaceSnapshotStore
+	heads    scratchHeads
+	captured []string
+}
+
+func (p *hostedCapturePeer) Capture(_ context.Context, id string) (machined.CaptureResult, error) {
+	p.captured = append(p.captured, id)
+	return machined.CaptureResult{Head: p.heads[repohost.BranchHeadRef(id)], Tree: strings.Repeat("b", 40)}, nil
+}
+
+func (p *hostedCapturePeer) InfoRefsUploadPack(ctx context.Context, owner, repo string) ([]byte, error) {
+	return p.heads.InfoRefsUploadPack(ctx, owner, repo)
+}
+
+func (p *hostedCapturePeer) GetChange(_ context.Context, _, _, commit string) (repohost.Change, error) {
+	return repohost.Change{CommitID: commit}, nil
 }

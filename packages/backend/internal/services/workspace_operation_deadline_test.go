@@ -151,7 +151,7 @@ func TestWorkspaceResumeKeepsFastStartAndAllowsArtifactRepair(t *testing.T) {
 	workspace := sampleDBWorkspace("resume-artifact-deadline")
 	workspace.Status = "suspended"
 	workspace.VmID = "vm-resume-artifact"
-	service := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(client))
+	service := composeHostedSandboxWake(newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(client)), unopenedBranchTransactions{t})
 	_, err := service.resumeWorkspaceVM(t.Context(), workspace)
 	require.NoError(t, err)
 	require.Greater(t, client.artifactDeadline, workspaceResumeTimeout,

@@ -93,9 +93,19 @@ func newCapacityFixture(t *testing.T, id string, resumeErr error) *capacityFixtu
 	return fixture
 }
 
+// service composes the hosted sandbox wake (c240bd3cf7, #3568) and the
+// provisioning lock's PostgreSQL transactions, so each resume reaches the
+// controller whose refusal the test scripts.
 func (f *capacityFixture) service(t *testing.T) *WorkspaceService {
 	t.Helper()
-	return newWorkspaceServiceForTests(f.reg, WithWorkspaceSandboxClient(f.client))
+	store := capacityStore{f.reg, noBranchMachineOwner{}}
+	return composeHostedSandboxWake(newWorkspaceServiceForTests(store, WithWorkspaceSandboxClient(f.client)), newProductTestPool(t))
+}
+
+// capacityStore adds the branch machine owner lookup a composed wake reads.
+type capacityStore struct {
+	*registrarWorkspaceQuerier
+	branchMachineOwnerStore
 }
 
 // assertNoCapacityAPIError checks the contract the app renders: a retryable
@@ -174,17 +184,19 @@ func TestEnsureExistingWorkspaceRunning_NoCapacityKeepsTheBox(t *testing.T) {
 // the runtime path answered 500 fault=bug "start workspace runtime: microsandbox
 // api returned status 503 (no_capacity): ..." (#3079). The runtime start path
 // takes the same verdict as every other resume: a retryable 503 in product
-// words, with the row parked.
+// words, with the row parked. The wake passes machine admission and moves the
+// PostgreSQL branch row (c240bd3cf7, #3568), so each case wakes a real row.
 func TestEnsureRuntimeWorkspaceRunning_NoCapacityKeepsTheBox(t *testing.T) {
 	t.Parallel()
+	pool := newProductTestPool(t)
 
 	for _, status := range []string{"suspended", "running"} {
 		t.Run(status, func(t *testing.T) {
 			t.Parallel()
 			fixture := newCapacityFixture(t, "ws-runtime-no-capacity-"+status, nil)
-			fixture.reg.state.Status = status
+			fixture.reg.state = runtimeWakeRow(t, pool, "runtime-no-capacity-"+status, status, "vm-live")
 			runtime := lostWorkerRuntime{startErr: fmt.Errorf("runtime: %w", noCapacityRefusal())}
-			svc := newWorkspaceServiceForTests(fixture.reg, WithWorkspaceRuntime(runtime), WithWorkspaceBillingPolicy(&countedResumePolicy{}))
+			svc := composeRuntimeWake(newWorkspaceServiceForTests(fixture.reg, WithWorkspaceRuntime(runtime)), pool, &countedResumePolicy{})
 
 			_, err := svc.ensureRuntimeWorkspaceRunningLocked(context.Background(), fixture.reg.state, fixture.reg.state.UserID)
 

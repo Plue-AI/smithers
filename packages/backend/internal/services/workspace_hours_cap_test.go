@@ -26,6 +26,17 @@ func (p *hoursCapPolicy) SandboxEntitlement(_ context.Context, owner int64) (San
 	return p.entitlements[owner], p.errors[owner]
 }
 
+// sleepRefusal is how a pass reports a selected workspace since c240bd3cf7
+// (#3568): sleep needs a verified final capture, which a hosted sandbox lacks,
+// so the workspace keeps running and the next pass tries again.
+func sleepRefusal(id string) string {
+	return "suspend over-quota workspace " + id + ": branch sleep requires verified capture, runtime binding and state publication"
+}
+
+// A pass selects every owner at or past the daily cap, reads each owner's
+// entitlement once, and leaves an owner it cannot read running. Since
+// c240bd3cf7 (#3568) a hosted sandbox cannot be put to sleep, so each
+// selected workspace is refused and keeps its VM, status and open interval.
 func TestWorkspaceService_CleanupOverQuotaWorkspaces(t *testing.T) {
 	workspace := func(id string, owner int64) db.Workspace {
 		ws := sampleDBWorkspace(id)
@@ -71,13 +82,16 @@ func TestWorkspaceService_CleanupOverQuotaWorkspaces(t *testing.T) {
 	}))
 	err := svc.CleanupOverQuotaWorkspaces(context.Background())
 	require.ErrorContains(t, err, "meter unavailable")
-	assert.ElementsMatch(t, []string{"vm-at-cap-a", "vm-at-cap-b", "vm-other-owner", "vm-zero-allowance"}, suspended)
-	assert.ElementsMatch(t, []string{"at-cap-a", "at-cap-b", "other-owner", "zero-allowance"}, statuses)
+	for _, id := range []string{"at-cap-a", "at-cap-b", "other-owner", "zero-allowance"} {
+		assert.ErrorContains(t, err, sleepRefusal(id))
+	}
+	for _, id := range []string{"below-cap", "unlimited", "bad-entitlement", "negative-meter"} {
+		assert.NotContains(t, err.Error(), "suspend over-quota workspace "+id+":")
+	}
+	assert.Empty(t, suspended, "no VM is stopped without a verified capture")
+	assert.Empty(t, statuses)
 	assert.Equal(t, map[int64]int{1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1}, policy.reads)
-	q.requireClose(t, "workspace", "at-cap-a")
-	q.requireClose(t, "workspace", "at-cap-b")
-	q.requireClose(t, "workspace", "other-owner")
-	q.requireClose(t, "workspace", "zero-allowance")
+	assert.Empty(t, q.closes)
 }
 
 func TestWorkspaceService_CleanupOverQuotaWorkspacesListFailureAndNoBilling(t *testing.T) {
@@ -95,7 +109,9 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesListFailureAndNoBilling(t *t
 	assert.Equal(t, 1, listCalls)
 }
 
-func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesProviderFailure(t *testing.T) {
+// A refused sleep leaves the workspace running and is retried on the next
+// pass with a fresh entitlement read.
+func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesRefusedSleep(t *testing.T) {
 	ws := sampleDBWorkspace("retry")
 	policy := &hoursCapPolicy{
 		entitlements: map[int64]SandboxEntitlement{ws.UserID: {HoursPerDay: 4, SecondsUsedToday: 14400}},
@@ -114,20 +130,16 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesProviderFailure(t *te
 	svc := newWorkspaceServiceForTests(q, WithWorkspaceBillingPolicy(policy), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		suspendVMFn: func(context.Context, string) (sandbox.SuspendResult, error) {
 			attempts++
-			if attempts == 1 {
-				return sandbox.SuspendResult{}, errors.New("provider unavailable")
-			}
 			return sandbox.SuspendResult{}, nil
 		},
 	}))
-	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), "provider unavailable")
+	for pass := 1; pass <= 2; pass++ {
+		require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), sleepRefusal(ws.ID))
+		assert.Equal(t, pass, policy.reads[ws.UserID], "the entitlement must be refreshed on retry")
+	}
+	assert.Zero(t, attempts)
 	assert.Zero(t, statusWrites)
 	assert.Empty(t, q.closes)
-	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
-	assert.Equal(t, 2, attempts)
-	assert.Equal(t, 2, policy.reads[ws.UserID], "the entitlement must be refreshed on retry")
-	assert.Equal(t, 1, statusWrites)
-	q.requireClose(t, "workspace", ws.ID)
 }
 
 func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesEntitlementRead(t *testing.T) {
@@ -146,12 +158,15 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesRetriesEntitlementRead(t *te
 			return sandbox.SuspendResult{}, nil
 		},
 	}))
-	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), "meter unavailable")
-	assert.Zero(t, suspends)
+	err := svc.CleanupOverQuotaWorkspaces(context.Background())
+	require.ErrorContains(t, err, "meter unavailable")
+	assert.NotContains(t, err.Error(), "suspend over-quota workspace")
 	delete(policy.errors, ws.UserID)
-	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
+	// Once the meter reads, the pass selects the workspace; its sleep is
+	// refused without a verified capture (c240bd3cf7, #3568).
+	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), sleepRefusal(ws.ID))
 	assert.Equal(t, 2, policy.reads[ws.UserID])
-	assert.Equal(t, 1, suspends)
+	assert.Zero(t, suspends)
 }
 
 func TestWorkspaceService_CleanupOverQuotaWorkspacesCanceledBeforeEntitlement(t *testing.T) {
@@ -198,8 +213,10 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesReadsNewDayAllowance(t *test
 			return sandbox.SuspendResult{}, nil
 		},
 	}))
-	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
-	assert.Equal(t, 1, suspends)
+	// The spent allowance selects the workspace; its sleep is refused without a
+	// verified capture (c240bd3cf7, #3568).
+	require.ErrorContains(t, svc.CleanupOverQuotaWorkspaces(context.Background()), sleepRefusal(ws.ID))
+	assert.Zero(t, suspends)
 	var refusal *pkgerrors.APIError
 	require.ErrorAs(t, policy.AuthorizeSandboxStart(context.Background(), ws.UserID), &refusal)
 	assert.Equal(t, "sandbox_hours_per_day", refusal.LimitKind)
@@ -208,7 +225,7 @@ func TestWorkspaceService_CleanupOverQuotaWorkspacesReadsNewDayAllowance(t *test
 
 	// The midnight boundary resets the daily meter and permits a new start.
 	now = now.Add(time.Second)
-	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()))
-	assert.Equal(t, 1, suspends)
+	require.NoError(t, svc.CleanupOverQuotaWorkspaces(context.Background()), "a new day selects nothing")
+	assert.Zero(t, suspends)
 	require.NoError(t, policy.AuthorizeSandboxStart(context.Background(), ws.UserID))
 }

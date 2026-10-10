@@ -37,6 +37,7 @@ func TestWorkspaceResumePreservesLostWorkerResponseAndRetainedVM(t *testing.T) {
 
 type lostWorkerRuntime struct {
 	workspaceapi.WorkspaceRuntime
+	admissionGranting
 	inspectErr error
 	startErr   error
 }
@@ -55,8 +56,11 @@ func (r lostWorkerRuntime) StartWorkspace(context.Context, string) (workspaceapi
 // 2026-09-29, production: after a release replaced the sandbox workers,
 // /api/workflow/provision answered 500 fault=bug "inspect workspace runtime:
 // ... (host_lease_lost)" for a suspended workspace on the runtime path. The
-// lease loss can surface on inspect or on the start that follows it.
+// lease loss can surface on inspect or on the start that follows it. The
+// start follows machine admission and moves the PostgreSQL branch row
+// (c240bd3cf7, #3568), so each case wakes a real suspended row.
 func TestWorkspaceRuntimeResumeKeepsLostWorkerResponse(t *testing.T) {
+	pool := newProductTestPool(t)
 	lost := fmt.Errorf("runtime: %w", &sandbox.StatusError{StatusCode: http.StatusServiceUnavailable,
 		Code: "host_lease_lost", Message: "The workspace worker is unavailable. Use another workspace, or retry when this worker is available."})
 	for name, runtime := range map[string]lostWorkerRuntime{
@@ -64,10 +68,8 @@ func TestWorkspaceRuntimeResumeKeepsLostWorkerResponse(t *testing.T) {
 		"start":   {startErr: lost},
 	} {
 		t.Run(name, func(t *testing.T) {
-			row := sampleDBWorkspace("ws-runtime-lost")
-			row.Status = "suspended"
-			row.VmID = "vm-lost"
-			svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(runtime), WithWorkspaceBillingPolicy(&countedResumePolicy{}))
+			row := runtimeWakeRow(t, pool, "runtime-lost-"+name, "suspended", "vm-lost")
+			svc := composeRuntimeWake(newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceRuntime(runtime)), pool, &countedResumePolicy{})
 			_, err := svc.ensureRuntimeWorkspaceRunningLocked(context.Background(), row, row.UserID)
 			failure := apiErrorOf(t, err)
 			assert.Equal(t, http.StatusServiceUnavailable, failure.Status)

@@ -34,6 +34,15 @@ func (r *publicationLaunchRuntime) StartService(_ context.Context, _ string, spe
 
 func (r *publicationLaunchRuntime) StopService(context.Context, string, string) error { return nil }
 
+// The preparation receipt is the runtime's one fixed write since 12bccbbc3a
+// (#3560); the embedded interface does not carry it, so forward it to the
+// process runtime.
+func (r *publicationLaunchRuntime) WriteRepositoryReceipt(ctx context.Context, id string, content []byte) error {
+	return r.WorkspaceRuntime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	}).WriteRepositoryReceipt(ctx, id, content)
+}
+
 func (r *publicationLaunchRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
 	if len(command.Args) == 3 && command.Args[2] == runtimeWorkspaceHeadReporterProbe {
 		return workspaceapi.CommandResult{}, nil
