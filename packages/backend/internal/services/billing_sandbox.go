@@ -150,22 +150,6 @@ func sandboxDailyHoursExhausted(entitlement SandboxEntitlement) bool {
 		entitlement.SecondsUsedToday/3600 >= entitlement.HoursPerDay
 }
 
-func authorizeCountedSandboxResumeForUser(ctx context.Context, policy BillingPolicy, userID int64, workspaceID, vmID string) error {
-	if admitted, ok := ctx.Value(sandboxStartAdmissionKey{}).(int64); ok && admitted == userID {
-		return nil
-	}
-	if policy == nil {
-		return nil
-	}
-	if counted, ok := policy.(interface {
-		AuthorizeCountedSandboxResume(context.Context, int64, string, string) error
-	}); ok {
-		return counted.AuthorizeCountedSandboxResume(ctx, userID, workspaceID, vmID)
-	}
-	// Other billing policies retain their normal admission semantics.
-	return authorizeSandboxStartForUser(ctx, policy, userID)
-}
-
 func sandboxPlanLimitError(entitlement SandboxEntitlement, kind string, quantity int64, upgrade, message string) *pkgerrors.APIError {
 	e := pkgerrors.New(pkgerrors.CodePlanLimitExceeded, message)
 	limit, remaining := int(quantity), 0
