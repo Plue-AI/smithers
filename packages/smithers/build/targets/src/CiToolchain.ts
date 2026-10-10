@@ -579,7 +579,7 @@ export const Docker = (options: {
   const mirrors = options.registryMirrors ?? []
   for (const mirror of mirrors) {
     if (!/^https:\/\/[A-Za-z0-9.-]+(?::[0-9]+)?(?:\/[A-Za-z0-9._~/-]*)?$/.test(mirror)) {
-      throw new Error(`CiToolchain.Docker: registry mirror ${JSON.stringify(mirror)} is not an https URL`)
+      throw new TypeError(`CiToolchain.Docker: registry mirror ${JSON.stringify(mirror)} is not an https URL`)
     }
   }
   return DockerSetup.make({
