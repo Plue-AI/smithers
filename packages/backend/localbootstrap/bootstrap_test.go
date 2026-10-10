@@ -13,7 +13,7 @@ import (
 func clearBootstrapEnvironment(t *testing.T) {
 	t.Helper()
 	names := append([]string{}, secretNames...)
-	names = append(names, "SMITHERS_AUTH_MODE", "SMITHERS_DATA_ROOT", "SMITHERS_BLOB_DATA_DIR", "SMITHERS_REPO_STORAGE_PATH", "SMITHERS_PUSH_HOOK_CALLBACK_URL", "SMITHERS_SERVER_ADDR", "SMITHERS_PUBLIC_URL", "PORT", "RAILWAY_PUBLIC_DOMAIN")
+	names = append(names, "SMITHERS_AUTH_MODE", "SMITHERS_DATA_ROOT", "SMITHERS_BLOB_DATA_DIR", "SMITHERS_REPO_STORAGE_PATH", "SMITHERS_SSH_HOST_KEY_DIR", "SMITHERS_PUSH_HOOK_CALLBACK_URL", "SMITHERS_SERVER_ADDR", "SMITHERS_PUBLIC_URL", "PORT", "RAILWAY_PUBLIC_DOMAIN")
 	for _, name := range names {
 		value, exists := os.LookupEnv(name)
 		name := name
@@ -63,6 +63,11 @@ func TestConfigurePersistsSecretsAndStoragePaths(t *testing.T) {
 	if got := os.Getenv("SMITHERS_BLOB_DATA_DIR"); got != filepath.Join(root, "blobs") {
 		t.Fatalf("blob path: %q", got)
 	}
+	// The SSH host key is install state: it belongs under the data root, not
+	// in whatever directory the launcher ran from.
+	if got := os.Getenv("SMITHERS_SSH_HOST_KEY_DIR"); got != filepath.Join(root, "ssh") {
+		t.Fatalf("SSH host key directory: %q", got)
+	}
 	if got := os.Getenv("SMITHERS_PUSH_HOOK_CALLBACK_URL"); got != "http://127.0.0.1:4000/internal/repo-host/push-events" {
 		t.Fatalf("push callback: %q", got)
 	}
@@ -75,6 +80,18 @@ func TestConfigurePersistsSecretsAndStoragePaths(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("secrets permissions: %o", info.Mode().Perm())
+	}
+}
+
+func TestConfigureKeepsAnExplicitSSHHostKeyDirectory(t *testing.T) {
+	clearBootstrapEnvironment(t)
+	keys := filepath.Join(t.TempDir(), "keys")
+	_ = os.Setenv("SMITHERS_SSH_HOST_KEY_DIR", keys)
+	if _, err := configure(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	if got := os.Getenv("SMITHERS_SSH_HOST_KEY_DIR"); got != keys {
+		t.Fatalf("SSH host key directory: %q, want %q", got, keys)
 	}
 }
 

@@ -119,10 +119,14 @@ func configure(root string) (string, error) {
 			}
 		}
 	}
+	// The config default for the SSH host key directory is relative to the
+	// working directory, so a launcher run from a checkout wrote the install's
+	// private host key into that checkout. It is install state like the rest.
 	for name, value := range map[string]string{
 		"SMITHERS_DATA_ROOT":         root,
 		"SMITHERS_BLOB_DATA_DIR":     filepath.Join(root, "blobs"),
 		"SMITHERS_REPO_STORAGE_PATH": filepath.Join(root, "repositories"),
+		"SMITHERS_SSH_HOST_KEY_DIR":  filepath.Join(root, "ssh"),
 	} {
 		if strings.TrimSpace(os.Getenv(name)) == "" {
 			if err := os.Setenv(name, value); err != nil {
