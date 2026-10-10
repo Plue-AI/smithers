@@ -1,12 +1,21 @@
 # Changelog
 
-`@smthrs/scorers` is public at `1.0.0-rc.0` and versioned with the rest of the
-`1.0.0-rc.0` train; `publishConfig` publishes it under the `next` tag. Every
+`@smthrs/scorers` is public and versioned with the rest of the `1.0.0` release
+candidate train; `publishConfig` publishes it under the `next` tag. Every
 `@since` tag in `src/` still reads `0.1.0`, the version the package carried
 while it was workspace-private. Those tags date a member's first appearance and
 are history, not the release that carries it.
 
 ## [Unreleased]
+
+## [1.0.0-rc.3] - 2026-10-09
+
+### Changed
+
+- Release candidate 3 with the workspace package train, and the first `1.0.0`
+  release candidate on npm. No source change since release candidate 2.
+
+## [1.0.0-rc.2] - 2026-10-09
 
 ### Added
 
