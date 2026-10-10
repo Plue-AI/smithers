@@ -691,10 +691,32 @@ func todoSteps(item db.MythicalItem) []map[string]any {
 		}
 		steps = append(steps, map[string]any{"id": id, "label": label, "state": state})
 	}
-	for _, phase := range todoPhases(item) {
+	phases := todoPhases(item)
+	for index, phase := range phases {
+		if index == 0 && item.FlowDigest.Valid && phase.run != "" && todoComposedRunPlanned(item, phases[1:]) {
+			// A composed TODO's one todo run is its Plan step. It keeps
+			// running past delivery until the TODO merges or is dropped
+			// (mvp.md B.5), so how it ends is not the Plan's result once a
+			// later step began from it or the TODO merged.
+			phase.outcome = phase.success
+		}
 		add(phase.id, phase.label, phase.run, phase.outcome, phase.success)
 	}
 	return steps
+}
+
+// todoComposedRunPlanned reports a composed run whose Plan finished: the run
+// completed, a later step's run began from its delivery, or the TODO merged.
+func todoComposedRunPlanned(item db.MythicalItem, later []todoPhase) bool {
+	if item.RequestOutcome == "completed" || todoState(item) == "merged" {
+		return true
+	}
+	for _, phase := range later {
+		if phase.run != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // TodoEvents replays the canonical shared item stream, never an author's private stream.

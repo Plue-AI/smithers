@@ -100,6 +100,50 @@ func TestTodoStepsUseOnlyBoundPhaseFacts(t *testing.T) {
 
 }
 
+// A composed TODO's one `todo` run is its Plan step, and it keeps running
+// after delivery until the TODO merges or is dropped (mvp.md B.5). How that
+// run ends is not a Plan failure: real install runs 11 and 13 showed Plan
+// "failed" beside Verify "done" on a merged TODO.
+func TestTodoStepsComposedRunEndingIsNoPlanFailure(t *testing.T) {
+	done := func(ids ...string) []map[string]any {
+		steps := []map[string]any{}
+		for _, id := range ids {
+			steps = append(steps, map[string]any{"id": id, "label": map[string]string{"request": "Plan", "verify": "Verify"}[id], "state": "done"})
+		}
+		return steps
+	}
+	verified := func(state, outcome string) db.MythicalItem {
+		return db.MythicalItem{Source: "todo", State: state, FlowDigest: pgtype.Text{String: "pin", Valid: true},
+			RequestRunID: "todo-run", RequestOutcome: outcome, VerifyRunID: "verify-run", VerifyOutcome: "passed"}
+	}
+	for _, input := range []struct {
+		name string
+		item db.MythicalItem
+		want []map[string]any
+	}{
+		{"merged: Merge cancelled the run", verified("landed", mythicalCancelled), done("request", "verify")},
+		{"merged: the run completed", verified("landed", "completed"), done("request", "verify")},
+		{"merged: an outage after delivery", verified("landed", mythicalOutage+"dependency: coding/NativeCodingError/source_publication_unavailable"), done("request", "verify")},
+		{"in review: the run waits for merge", verified("proposed", ""), done("request", "verify")},
+		{"in review: the run completed", verified("proposed", "completed"), done("request", "verify")},
+		{"merged without a separate verification", db.MythicalItem{Source: "todo", State: "landed", FlowDigest: pgtype.Text{String: "pin", Valid: true}, RequestRunID: "todo-run", RequestOutcome: mythicalCancelled}, done("request")},
+	} {
+		t.Run(input.name, func(t *testing.T) {
+			require.Equal(t, input.want, todoSteps(input.item))
+		})
+	}
+	// The run's own failure before any later step stays a failed Plan, and a
+	// run still planning stays current.
+	failed := db.MythicalItem{Source: "todo", State: "blocked", FlowDigest: pgtype.Text{String: "pin", Valid: true}, RequestRunID: "todo-run", RequestOutcome: "failed: plan"}
+	require.Equal(t, []map[string]any{{"id": "request", "label": "Plan", "state": "failed"}}, todoSteps(failed))
+	planning := db.MythicalItem{Source: "todo", State: "running", FlowDigest: pgtype.Text{String: "pin", Valid: true}, RequestRunID: "todo-run"}
+	require.Equal(t, []map[string]any{{"id": "request", "label": "Plan", "state": "current"}}, todoSteps(planning))
+	// A later step's own failure stays on that step.
+	checks := verified("blocked", "completed")
+	checks.VerifyOutcome = "failed: checks"
+	require.Equal(t, []map[string]any{{"id": "request", "label": "Plan", "state": "done"}, {"id": "verify", "label": "Verify", "state": "failed"}}, todoSteps(checks))
+}
+
 // The pull request head is a fresh commit of the candidate's tree on main,
 // so the review of that head is the candidate's evidence; it stays hidden
 // once the candidate moves.
