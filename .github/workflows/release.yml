@@ -614,9 +614,10 @@ jobs:
       # These five steps are gates and their setup, so they carry the gate
       # condition: they run after an earlier red gate, and never in the
       # candidate lane.
-      - name: Install Playwright Chromium
+      # The mode matrix's deterministic tier observes focus in Chromium and WebKit.
+      - name: Install Playwright Chromium and WebKit
         if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
-        run: pnpm --filter smithers-app exec playwright install --with-deps chromium
+        run: pnpm --filter smithers-app exec playwright install --with-deps chromium webkit
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Install PostgreSQL 18 for the owned local mode

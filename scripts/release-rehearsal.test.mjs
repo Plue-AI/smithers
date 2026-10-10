@@ -254,7 +254,7 @@ const candidateSteps = [
 /** Gates that are not build-graph invocations, and the setup two of them need. */
 const otherGates = [
   "Release changelog section",
-  "Install Playwright Chromium",
+  "Install Playwright Chromium and WebKit",
   "Install PostgreSQL 18 for the owned local mode",
   "Real PostgreSQL backup and restore",
   "Distribution release contracts",
@@ -280,7 +280,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Install PostgreSQL",
     "Start the gates lane time budget",
     "Release changelog section",
-    "Install Playwright Chromium",
+    "Install Playwright Chromium and WebKit",
     "Install PostgreSQL 18 for the owned local mode",
     "Real PostgreSQL backup and restore",
     "Distribution release contracts",
