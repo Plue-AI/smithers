@@ -106,15 +106,20 @@ const baseScript =
  * Diffs the work tree against the base through a private copy of the index,
  * so untracked files count and neither the checkout's own index nor its
  * history changes. Copying the real index first keeps git's stat cache, so a
- * large tree is not rehashed. Every option that could reshape the patch is
- * pinned on the command line rather than left to guest configuration.
+ * large tree is not rehashed. The copy keeps the index's modification time
+ * (`cp -p`) because git reads it: an entry is trusted unless it is at least as
+ * new as the index file, in whole seconds, and a copy stamped at copy time
+ * made a same-size edit from the second the index was written read as
+ * unchanged, so the patch left the file out (#3431). Every option that could
+ * reshape the patch is pinned on the command line rather than left to guest
+ * configuration.
  */
 const captureScript = `set -e
 ${repositoryGuard}git rev-parse --verify --quiet "$SMITHERS_BASE^{commit}" >/dev/null || exit ${unresolved}
 index="$(git rev-parse --absolute-git-dir)/smithers-capture.$$.index"
 trap 'rm -f "$index"' EXIT
 real="$(git rev-parse --git-path index)"
-if [ -f "$real" ]; then cp "$real" "$index"; else GIT_INDEX_FILE="$index" git read-tree "$SMITHERS_BASE"; fi
+if [ -f "$real" ]; then cp -p "$real" "$index"; else GIT_INDEX_FILE="$index" git read-tree "$SMITHERS_BASE"; fi
 GIT_INDEX_FILE="$index" git add -A .
 GIT_INDEX_FILE="$index" git -c core.quotePath=false -c diff.noprefix=false diff --cached --binary --full-index \\
   --find-renames --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ "$SMITHERS_BASE" --`

@@ -49,7 +49,7 @@ const shell = (script: string) =>
 /** The tree id of the guest checkout's work tree, untracked files included, computed without touching it. */
 const guestTree = shell(
   `index="$(git rev-parse --absolute-git-dir)/probe.index"
-cp "$(git rev-parse --git-path index)" "$index" 2>/dev/null || true
+cp -p "$(git rev-parse --git-path index)" "$index" 2>/dev/null || true
 GIT_INDEX_FILE="$index" git add -A . && GIT_INDEX_FILE="$index" git write-tree; rm -f "$index"`
 ).pipe(Effect.map((out) => out.trim()))
 
@@ -280,6 +280,41 @@ describe("Sandbox.capture and Sandbox.resolveBase", slow, () => {
       expect(outcome.base).toBe(repo.main)
       expect((outcome.missing as Sandbox.CaptureError).reason).toBe("base_unresolved")
       expect(outcome.unchanged).toEqual(new Sandbox.Unchanged({ session: "direct", base: repo.main }))
+    }))
+
+  /**
+   * Git trusts an index entry's recorded stat unless the entry is at least as
+   * new as the index file, in whole seconds. A capture that copies the index
+   * without its time makes the copy newer than an edit from the second the
+   * index was written, and `git add` then reads a same-size edit as unchanged:
+   * the patch came back without the file (#3431).
+   */
+  it.effect("captures a same-size edit made in the second the checkout's index was written", () =>
+    Effect.gen(function*() {
+      const repo = hostRepository(fresh(), { "version.txt": "1.2.3\n" })
+      const provider = seeded(yield* directory(machines), gitClone(repo.path))
+      const work = yield* Effect.scoped(Effect.gen(function*() {
+        const session = yield* provider.acquire("same-second")
+        const base = yield* Sandbox.resolveBase(session)
+        // In one second: rewrite the index entry, then the file at the same size.
+        // Then let that second pass, so a fresh copy of the index is newer than both.
+        yield* guest(
+          session,
+          `tries=0
+while :; do
+  start=$(date +%s); while [ "$(date +%s)" = "$start" ]; do :; done
+  second=$(date +%s)
+  touch version.txt && git add version.txt && printf '1.2.4\\n' > version.txt
+  [ "$(date +%s)" = "$second" ] && break
+  tries=$((tries + 1)); [ "$tries" -lt 5 ] || exit 70
+  printf '1.2.3\\n' > version.txt
+done
+while [ "$(date +%s)" = "$second" ]; do :; done`
+        )
+        return yield* Sandbox.capture(session, { base })
+      }))
+      expect(work._tag).toBe("Changed")
+      expect((work as Sandbox.Changed).patch).toContain("-1.2.3\n+1.2.4\n")
     }))
 
   it.effect("treat a guest without git as not_a_repository and any other git failure as capture_failed", () =>
