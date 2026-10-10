@@ -32,6 +32,15 @@ func (p *branchPresence) sessionResolver(link *machined.Link) presenceSessionRes
 			if run == "" {
 				return presenceSessionBinding{}, machined.ErrUnauthorized
 			}
+			// The native coding host's own session (microsandbox native_host:
+			// run = host binding, via "agent:<binding>") is not a participant.
+			// Its runs announce the coding agent through the runtime projection
+			// while they run, so a parked or finished run leaves the branch
+			// safe-idle. Refusing it left every factory machine's census
+			// unknown and its machine never released (#3776).
+			if via == "agent:"+run {
+				return presenceSessionBinding{Skip: true}, nil
+			}
 			return p.agentSessionBinding(ctx, branch, run, via)
 		}
 		row, err := p.queries.GetWorkspace(ctx, branch)

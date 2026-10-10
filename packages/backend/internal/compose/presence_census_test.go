@@ -6,6 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,6 +20,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/revocation"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/stretchr/testify/require"
 )
 
@@ -225,4 +230,171 @@ func TestAdmissionIdleObservationMissingSources(t *testing.T) {
 	require.False(t, safety.RunKnown)
 	require.False(t, safety.BurstsKnown)
 	require.True(t, safety.IdleSince.IsZero(), "missing authorities cannot start the safe-idle clock")
+}
+
+// reviewSlotRuntime is the production admission runtime. Only the sleep
+// lifecycle behind automatic release is injected: capture and confirmed stop
+// are covered by the C-MCH-02 install test.
+type reviewSlotRuntime struct {
+	*microsandbox.Runtime
+	idle microsandbox.AdmissionIdleProviders
+}
+
+func (r *reviewSlotRuntime) SetAdmissionIdleProviders(p microsandbox.AdmissionIdleProviders) error {
+	r.idle = p
+	return nil
+}
+
+// Install run 14 (#3776), capacity 1: TODO 2 went to review holding the only
+// machine. The daemon census listed its coding host's own broker session, the
+// install refused the whole snapshot, PresenceOn stayed unknown and safe-idle
+// release never fired. Its review lane and a /review job waited until a person
+// merged blind. Spec §8.4.1: a run in review is not a running step, so the
+// machine releases once safe-idle and both reviews run in turn.
+func TestInReviewTodoReleasesTheOnlyMachineToItsReviews(t *testing.T) {
+	f := presenceInstallWithTodos(t, true)
+	ctx := t.Context()
+	q := db.New(f.pool)
+	registry, _ := censusRegistry(t)
+	f.p.terminalManager = routes.NewTerminalSessionManager(nil)
+	t.Cleanup(f.p.consumeDaemons(ctx, registry))
+
+	// TODO 1 is in review on its lane: the PR is open and its review has not
+	// answered. The review lane is a second machine.
+	head := strings.Repeat("c", 40)
+	reviewLane := "6f2b9c1e-3d4a-4b5c-8d7e-9f0a1b2c3d4e"
+	item, err := q.GetMythicalItemByNumber(ctx, f.row.RepositoryID, 1)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(ctx, `UPDATE mythical_items SET state='proposed',workspace_id=$2,pr_number=7,pr_state='open',pr_head=$3,candidate_head=$3,
+ checks=jsonb_set(COALESCE(checks,'{}'::jsonb),'{review}',jsonb_build_object('head',$3::text,'candidate',$3::text,'lane',$4::text)) WHERE id=$1`, item.ID, f.row.ID, head, reviewLane)
+	require.NoError(t, err)
+	card, err := f.todos.Todo(ctx, f.row.RepositoryID, 1)
+	require.NoError(t, err)
+	require.Equal(t, "in_review", card["state"])
+
+	// The guest daemon: it answers the host's calls and re-sends its session
+	// census, which lists the coding host's own session.
+	var host string
+	require.NoError(t, f.pool.QueryRow(ctx, `SELECT id::text FROM flow_runtime_host_bindings WHERE workspace_id=$1`, f.row.ID).Scan(&host))
+	link, guest := presenceTestLink(t, registry, f.row.ID)
+	require.NoError(t, link.Reconciled())
+	var writes sync.Mutex
+	send := func(frame wire.Frame) error { writes.Lock(); defer writes.Unlock(); return wire.Write(guest, frame) }
+	go func() {
+		for {
+			frame, err := wire.Read(guest)
+			if err != nil {
+				return
+			}
+			if frame.Kind != wire.Control {
+				continue
+			}
+			request, method, _, err := frame.Request()
+			if err != nil {
+				return
+			}
+			var fields [][]byte
+			switch wire.Method(method) {
+			case wire.OpenSession:
+				fields = [][]byte{wire.Field(1, wire.U32(1))}
+			case wire.Status:
+				fields = [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(2)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(0)),
+					wire.Field(5, make([]byte, 20)), wire.Field(6, wire.U16(0)), wire.Field(7, []byte{1}), wire.Field(8, []byte{1})}
+			case wire.RegisterRun, wire.SetRoster:
+			default:
+				return
+			}
+			if send(wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(method, fields...)))}) != nil {
+				return
+			}
+		}
+	}()
+	// microsandbox native_host opens the coding host exactly so.
+	sessions := machined.NewSessions(link.Connection, f.row.ID, registry.Sessions(f.row.ID)).WithActor([]byte("actor-reference1"), host).WithPresenceVia("agent:" + host)
+	id, err := sessions.OpenSession(ctx, machined.SessionUser{Login: "agent", UID: 19999}, machined.SessionExec, []string{"smithers-coding-host"}, nil)
+	require.NoError(t, err)
+	require.NoError(t, sessions.RegisterRun(ctx, host, id))
+	census := wire.Frame{Kind: wire.Presence, Payload: wire.Union(1, wire.Field(1, append(wire.U16(1), wire.Struct(wire.Field(1, wire.U32(id)))...)))}
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for send(census) == nil {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
+
+	observe := machineIdleObserver(f.pool, f.p, registry, f.todos, false)
+	var safety microsandbox.AdmissionSafety
+	// The TS host's own 30 s restart window began with this test's fixture.
+	require.Eventually(t, func() bool {
+		safety, err = observe(ctx, f.row)
+		return err == nil && safety.PresenceKnown && !safety.IdleSince.IsZero()
+	}, 45*time.Second, 250*time.Millisecond, "the in-review machine never became safe-idle: %+v %v", safety, err)
+	require.Equal(t, "in_review", safety.TODOState)
+	require.False(t, safety.RunningStep, "a run in review is not a running step (spec §8.4.1)")
+	require.Empty(t, f.roster(t), "the coding host's own session is no participant")
+
+	// Capacity 1, the production admission runtime and release composition.
+	scratch := t.TempDir()
+	root := filepath.Join(scratch, "runtime")
+	require.NoError(t, os.MkdirAll(root, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "owner"), []byte("smithers-backend-0123456789abcdef\n"), 0o600))
+	msb := filepath.Join(scratch, "msb")
+	require.NoError(t, os.WriteFile(msb, []byte("#!/bin/sh\nprintf '[]\\n'\n"), 0o700))
+	profile := microsandbox.HostProfile{MemoryBytes: 64 << 30, PerfCores: 10, PhysicalCores: 14, DiskFreeBytes: microsandbox.MinFreeDiskBytes + microsandbox.MachineDiskBytes, MacOSVersion: "15.6", Hypervisor: true}
+	sizing := microsandbox.ComputeSizing(profile)
+	machines, err := microsandbox.New(ctx, microsandbox.Config{Root: root, Binary: msb, SkipQualification: true, HostProfile: &profile,
+		CPUs: sizing.CPUs, MemoryMiB: sizing.MemoryMiB, DiskMiB: int(microsandbox.MachineDiskBytes >> 20), MaxRunningVMs: 1})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = machines.Close() })
+	runtime := &reviewSlotRuntime{Runtime: machines}
+	runtime.SetCapacityReader(func(context.Context) (int, error) { return 1, nil })
+	disk := func(context.Context) (int64, error) { return profile.DiskFreeBytes, nil }
+	branches := services.NewWorkspaceService(q, services.WithWorkspaceRuntime(runtime), services.WithWorkspaceTransactions(f.pool))
+	branches.EnableMachineAdmission(disk)
+	require.NoError(t, branches.EnableMachineIdleRelease(disk, observe))
+	released := []string{}
+	release := runtime.idle
+	release.Prepare = func(_ context.Context, holder string) error { released = append(released, holder); return nil }
+	release.Stop = func(_ context.Context, holder string) error { runtime.ConfirmAdmissionStop(holder, false); return nil }
+	grants := microsandbox.AdmissionProviders{Ready: func(context.Context, microsandbox.AdmissionRequest) error { return nil }, FreeDisk: disk}
+
+	coding := "workspace:" + f.row.ID
+	_, err = runtime.Request("todo", coding, coding, "machine")
+	require.NoError(t, err)
+	grant, err := runtime.GrantNext(ctx, grants)
+	require.NoError(t, err)
+	require.Equal(t, coding, grant.Holder)
+	// The stack's review lane asks for its machine for the TODO's person
+	// (machineDemand: the lane belongs to the machine service), then the
+	// teammate's /review job asks as background work.
+	lane, job := "workspace:"+reviewLane, "workspace:review-job"
+	_, err = runtime.Request("person", lane, fmt.Sprintf("person:%d", f.user.ID), "machine")
+	require.NoError(t, err)
+	_, err = runtime.Request("background", job, "review-job", "review")
+	require.NoError(t, err)
+	grant, err = runtime.GrantNext(ctx, grants)
+	require.NoError(t, err)
+	require.Empty(t, grant.Holder, "capacity 1 is held by the in-review TODO")
+
+	now := time.Now()
+	require.NoError(t, runtime.ReconcileAdmissionIdle(ctx, now, now.Add(-time.Minute), release))
+	require.Equal(t, []string{coding}, released, "waiting reviews release the safe-idle in-review machine")
+	require.False(t, runtime.AdmissionHeld(coding))
+	grant, err = runtime.GrantNext(ctx, grants)
+	require.NoError(t, err)
+	require.Equal(t, lane, grant.Holder, "the TODO's own review runs first")
+	require.Equal(t, 1, runtime.InUse())
+	// The review answers and its lane retires; the /review job is next.
+	require.True(t, runtime.CancelAdmission(lane, fmt.Sprintf("person:%d", f.user.ID), time.Now()))
+	runtime.ConfirmAdmissionStop(lane, false)
+	grant, err = runtime.GrantNext(ctx, grants)
+	require.NoError(t, err)
+	require.Equal(t, job, grant.Holder, "the /review job gets the machine without a person acting")
+	require.Equal(t, 1, runtime.InUse())
+	require.False(t, runtime.AdmissionHeld(coding), "nothing woke the reviewed branch")
 }
