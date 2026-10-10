@@ -168,23 +168,13 @@ func TestUnavailableWorkspaceSnapshotPreservesTypedCauseAndFreshRemedy(t *testin
 
 func TestRuntimeSnapshotMissingUsesPublicTypedFreshRemedyAndRetainsNewFailure(t *testing.T) {
 	runtime := &snapshotLostWorkerRuntime{lost: workspaceapi.ErrWorkspaceNotFound, fail: "fork"}
-	row := sampleDBWorkspace("failed-new-runtime")
-	row.Status = "starting"
-	snapshot := sampleDBWorkspaceSnapshot("cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa", "retained-source", "saved", "missing-provider-disk")
-	q := &lostWorkerRuntimeQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(context.Context, db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			return snapshot, nil
-		},
-		createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return row, nil },
-	}}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{RepositoryID: row.RepositoryID, UserID: row.UserID, RepoOwner: "alice", RepoName: "demo", Name: "restored", SnapshotID: snapshot.ID})
+	restored, err := restoreFromRuntimeSnapshot(t, runtime, "missing-provider-disk")
 	var failure *pkgerrors.APIError
 	require.ErrorAs(t, err, &failure)
 	require.Equal(t, pkgerrors.CodeSnapshotNotFound, failure.Code)
-	require.Equal(t, WorkspaceRecoveryDetails{WorkspaceID: row.ID, CreateFresh: true}, failure.Details)
+	require.Equal(t, WorkspaceRecoveryDetails{WorkspaceID: restored.ID, CreateFresh: true}, failure.Details)
 	require.Same(t, workspaceapi.ErrWorkspaceNotFound, failure.Cause())
-	require.Equal(t, []string{string(pkgerrors.CodeSnapshotNotFound)}, q.failedCodes)
+	require.Equal(t, string(pkgerrors.CodeSnapshotNotFound), restored.FailureCode.String, "the new row keeps its typed failure")
 	require.Equal(t, 1, runtime.forked)
 	require.Equal(t, 0, runtime.deleted, "snapshot and original recovery references are retained")
 }

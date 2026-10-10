@@ -129,29 +129,37 @@ func (q *lostWorkerRuntimeQuerier) FailProvisioningWorkspaceIfCurrent(_ context.
 	return sampleDBWorkspace(arg.ID), nil
 }
 
-func TestRuntimeRestoreLostWorkerIsInfra(t *testing.T) {
-	runtime := &snapshotLostWorkerRuntime{lost: lostWorkerRuntimeCause(), fail: "fork"}
-	row := sampleDBWorkspace("ws-restore")
-	row.Status = "starting"
-	const snapshotID = "cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa"
-	snapshot := sampleDBWorkspaceSnapshot(snapshotID, "ws-source", "checkpoint", "provider-snap")
-	q := &lostWorkerRuntimeQuerier{mockWorkspaceQuerier: &mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(context.Context, db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			return snapshot, nil
-		},
-		createWorkspaceFn: func(context.Context, db.CreateWorkspaceParams) (db.Workspace, error) { return row, nil },
-	}}
-	service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime))
-	_, err := service.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101, UserID: 1, RepoOwner: "alice", RepoName: "demo", Name: "restored", SnapshotID: snapshotID,
-	})
-	requireLostWorkerRuntimeFailure(t, err)
-	require.Equal(t, 1, runtime.forked)
-	require.Equal(t, []string{string(pkgerrors.CodeHostLeaseLost)}, q.failedCodes)
+// restoreFromRuntimeSnapshot restores a retained snapshot through the
+// runtime and returns the restored branch row. Since de86a86992 (#3565)
+// creation reserves its canonical branch machine in one PostgreSQL
+// transaction behind the activation providers.
+func restoreFromRuntimeSnapshot(t *testing.T, runtime workspaceapi.WorkspaceRuntime, providerSnapshot string) (db.Workspace, error) {
+	t.Helper()
+	ctx := context.Background()
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	source, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: user, Name: "retained-source", TargetBookmark: "retained-source", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	snapshot, err := q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: repo, UserID: user, WorkspaceID: source.ID, Name: "saved", SnapshotID: providerSnapshot})
+	require.NoError(t, err)
+	service := newWorkspaceServiceForTests(q, WithWorkspaceRuntime(runtime), WithWorkspaceTransactions(pool), WithBranchMachineProviders(branchMachineTestProviders()))
+	_, restoreErr := service.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: repo, UserID: user, Name: "restored", SnapshotID: snapshot.ID, SourceBookmark: "restored"})
+	var id string
+	require.NoError(t, pool.QueryRow(ctx, `SELECT id FROM workspaces WHERE repository_id=$1 AND target_bookmark='restored'`, repo).Scan(&id))
+	restored, err := q.GetWorkspace(ctx, id)
+	require.NoError(t, err)
+	return restored, restoreErr
 }
 
-// No legacy runtime caller can reach the removed stop/snapshot/resume path,
-// even if the provider would fail during snapshot creation or disk cloning.
+func TestRuntimeRestoreLostWorkerIsInfra(t *testing.T) {
+	runtime := &snapshotLostWorkerRuntime{lost: lostWorkerRuntimeCause(), fail: "fork"}
+	restored, err := restoreFromRuntimeSnapshot(t, runtime, "provider-snap")
+	requireLostWorkerRuntimeFailure(t, err)
+	require.Equal(t, 1, runtime.forked)
+	require.Equal(t, string(pkgerrors.CodeHostLeaseLost), restored.FailureCode.String, "the restore keeps its typed failure")
+}
+
 func TestRuntimeForkRefusesBeforeSnapshotOrMutation(t *testing.T) {
 	for _, phase := range []string{"create", "fork"} {
 		t.Run(phase, func(t *testing.T) {

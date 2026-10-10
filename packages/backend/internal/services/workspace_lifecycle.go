@@ -709,7 +709,15 @@ func (s *WorkspaceService) ensureWorkspaceRunningOwned(ctx context.Context, work
 			if err != nil {
 				return workspace, err
 			}
-			return s.restoreRuntimeWorkspaceSnapshot(ctx, workspace, snapshot, requesterID)
+			restored, err := s.restoreRuntimeWorkspaceSnapshot(ctx, workspace, snapshot, requesterID)
+			if err != nil && !workspace.DiskReclaimedAt.Valid {
+				// As the asynchronous restore does, a failed restore is a typed,
+				// terminal failure the person retries fresh. It never stays
+				// starting for the reconciler to replay against a lost snapshot.
+				// A reclaimed branch keeps its recovery markers.
+				s.markWorkspaceProvisionFailed(ctx, workspace, err)
+			}
+			return restored, err
 		}
 		return s.ensureRuntimeWorkspaceRunning(ctx, workspace, requesterID)
 	}
