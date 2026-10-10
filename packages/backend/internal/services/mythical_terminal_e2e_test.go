@@ -39,7 +39,9 @@ func TestTodoInstallHTTPRealPostgres(t *testing.T) {
  INSERT INTO self_host_owners(singleton,user_id) VALUES(true,9001);
  INSERT INTO repositories(id,user_id,name,lower_name) VALUES(9001,9001,'repo','repo');
  INSERT INTO install_settings(key,value) VALUES('github.repository','{"owner_login":"owner","repository_name":"repo"}');
- INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES(9001,9001,'active');`)
+ INSERT INTO mythical_stacks(repository_id,actor_user_id,state) VALUES(9001,9001,'active');
+ INSERT INTO auth_sessions(session_key,user_id,username,expires_at) VALUES('owner-session',9001,'owner',now()+interval '1 hour');
+ INSERT INTO install_settings(key,value) VALUES('owner.access',jsonb_build_object('owner_login','owner','repository_name','repo','last_access_check_at',to_char(now(),'YYYY-MM-DD"T"HH24:MI:SS"Z"')));`)
 	require.NoError(t, err)
 	service := services.NewMythicalService(pool, nil)
 	handler := &routes.TodoHandler{Queries: db.New(pool), Service: service}
