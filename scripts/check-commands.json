@@ -1819,11 +1819,11 @@
     },
     "C-J8-04": {
       "status": "pending-owner",
-      "reason": "Automation present: packages/backend/internal/services/plan_wiki_citations_integration_test.go; authenticated owner approval of argv/host and qualification receipts pending",
+      "reason": "Automation present: packages/backend/internal/compose/plan_wiki_citations_integration_test.go; authenticated owner approval of argv/host and qualification receipts pending",
       "ticket": "T-FLW-10",
       "pendingBinding": {
         "files": [
-          "packages/backend/internal/services/plan_wiki_citations_integration_test.go"
+          "packages/backend/internal/compose/plan_wiki_citations_integration_test.go"
         ],
         "commands": [
           {
@@ -1832,27 +1832,32 @@
               "test",
               "-json",
               "-count=1",
-              "./internal/services",
+              "-timeout",
+              "60m",
+              "./internal/compose",
               "-run",
-              "^(TestPlanWikiCitationsIntegration)$"
+              "^(TestPlanWikiCitationsReferenceHost)$"
             ],
             "cwd": "packages/backend",
             "files": [
-              "packages/backend/internal/services/plan_wiki_citations_integration_test.go"
+              "packages/backend/internal/compose/plan_wiki_citations_integration_test.go"
             ],
             "reporter": "go",
             "expectedCaseIds": [
-              "TestPlanWikiCitationsIntegration"
+              "TestPlanWikiCitationsReferenceHost"
             ],
             "prerequisites": [
-              "PG18"
+              "PG18",
+              "reference-host",
+              "installed-bundle"
             ],
             "env": {
-              "SMITHERS_REQUIRE_DATABASE_TESTS": "1"
+              "SMITHERS_REQUIRE_DATABASE_TESTS": "1",
+              "SMITHERS_C_J8_04_REFERENCE_HOST": "1"
             }
           }
         ],
-        "provenance": "Source inventory verified against origin/main 2026-10-10; pending only, no mapping approval or full-check qualification inferred"
+        "provenance": "Production dispatcher and real-microVM automation verified against origin/main b7e9c44692; service fixtures are component coverage only. Pending owner argv/host approval and reference-host receipts; no mapping approval or qualification inferred"
       }
     },
     "C-J8-05": {
