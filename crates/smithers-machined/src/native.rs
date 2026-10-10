@@ -13,7 +13,8 @@ use jj_lib::{
     object_id::{HexPrefix, ObjectId, PrefixResolution},
     op_store::OperationId,
     repo::{MutableRepo, ReadonlyRepo, Repo},
-    rewrite::{rebase_commit, CommitRewriter},
+    revset::RevsetExpression,
+    rewrite::{rebase_commit, CommitRewriter, RebaseOptions},
     settings::UserSettings,
     working_copy::WorkingCopyFreshness,
     workspace::Workspace,
@@ -766,7 +767,7 @@ impl Repository {
             else {
                 return Err(invalid("owning item unavailable"));
             };
-            let mut selected = None;
+            let mut selected: Option<Commit> = None;
             for (_, id) in targets.visible_with_offsets() {
                 if repo
                     .index()
@@ -774,8 +775,27 @@ impl Repository {
                     .block_on()
                     .map_err(invalid)?
                 {
-                    if selected.is_some() {
-                        return Err(invalid("ambiguous owning item ancestry"));
+                    if let Some(previous) = selected.as_ref() {
+                        // Bring in retains the published capture in the foreign
+                        // target's ancestry. Prefer its newest logical rewrite
+                        // on this linear chain; incomparable versions still
+                        // refuse rather than selecting an arbitrary authority.
+                        if repo
+                            .index()
+                            .is_ancestor(id, previous.id())
+                            .block_on()
+                            .map_err(invalid)?
+                        {
+                            continue;
+                        }
+                        if !repo
+                            .index()
+                            .is_ancestor(previous.id(), id)
+                            .block_on()
+                            .map_err(invalid)?
+                        {
+                            return Err(invalid("ambiguous owning item ancestry"));
+                        }
                     }
                     selected = Some(repo.store().get_commit(id).map_err(invalid)?);
                 }
@@ -840,8 +860,17 @@ impl Repository {
         tx.repo_mut()
             .set_wc_commit(workspace.workspace_name().to_owned(), rebased.id().clone())
             .map_err(invalid)?;
+        // A collaborator can push on a capture still in this item's chain.
+        // That admitted target and its ancestry are immutable input, even when
+        // one ancestor is the logical change we just rewrote. Rebasing the
+        // foreign commit onto our result would change the target and advance
+        // the working copy again on the next capture.
         tx.repo_mut()
-            .rebase_descendants()
+            .rebase_descendants_with_options(
+                &RevsetExpression::commit(onto.id().clone()).ancestors(),
+                &RebaseOptions::default(),
+                |_, _| {},
+            )
             .block_on()
             .map_err(invalid)?;
         jj_lib::git::reset_head(tx.repo_mut(), &rebased)
@@ -1505,6 +1534,52 @@ pub(crate) mod tests {
             }
         }
     }
+    #[test]
+    fn bring_in_own_capture_keeps_foreign_target_and_settles_once() {
+        let (_dir, repo) = fixture();
+        fs::write(repo.root.join("base"), b"base\n").unwrap();
+        let base = repo.snapshot().unwrap().0;
+        child(&repo, base, "published capture");
+        fs::write(repo.root.join("first"), b"published bytes\n").unwrap();
+        let published = repo.snapshot().unwrap().0;
+        let identity = change(&repo, published);
+        child(&repo, published, "later TODO edit");
+        fs::write(repo.root.join("later"), b"later bytes\n").unwrap();
+        let local = repo.snapshot().unwrap().0;
+        child(&repo, published, "collaborator push");
+        fs::write(repo.root.join("foreign"), b"collaborator bytes\n").unwrap();
+        let foreign = repo.snapshot().unwrap().0;
+        repo.move_to(local).unwrap();
+        let result = repo
+            .rebase_bound(foreign, Some(&identity), Some(base))
+            .unwrap();
+        assert_eq!(repo.snapshot().unwrap().0, result);
+        let (_, loaded) = repo.load().unwrap();
+        assert_eq!(
+            Repository::commit(&loaded, result).unwrap().parent_ids(),
+            &[CommitId::new(foreign.to_vec())]
+        );
+        assert_eq!(
+            Repository::commit(&loaded, foreign).unwrap().parent_ids(),
+            &[CommitId::new(published.to_vec())]
+        );
+        for (name, bytes) in [
+            ("first", b"published bytes\n".as_slice()),
+            ("later", b"later bytes\n"),
+            ("foreign", b"collaborator bytes\n"),
+        ] {
+            assert_eq!(fs::read(repo.root.join(name)).unwrap(), bytes);
+        }
+        assert_eq!(
+            repo.rebase_bound(foreign, Some(&identity), Some(base))
+                .unwrap(),
+            result
+        );
+        let reopened = Repository::open(&repo.root, &repo.state).unwrap();
+        assert_eq!(reopened.snapshot().unwrap().0, result);
+        assert!(reopened.descends_from_item(&identity).unwrap());
+    }
+
     #[test]
     fn rebase_verified_base_retains_brought_in_item_delta() {
         for (verified, conflict) in [(false, false), (true, false), (true, true)] {

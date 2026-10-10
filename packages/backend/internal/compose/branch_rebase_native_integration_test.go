@@ -3,9 +3,13 @@ package compose
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -26,6 +30,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/githubfake"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
@@ -102,6 +107,10 @@ func TestForeignBringNativeComposedExecution(t *testing.T) {
 	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Bring: true})
 }
 
+func TestForeignBringOwnPublishedCaptureComposedExecution(t *testing.T) {
+	testBranchRebaseNative(t, true, "", rebaseNativeOptions{Bring: true, OwnChain: true})
+}
+
 func TestNativeCleanRebaseFollowsMainAgainBeforeVerification(t *testing.T) {
 	testBranchRebaseNative(t, false, "", rebaseNativeOptions{AdvanceMain: true})
 }
@@ -115,8 +124,8 @@ func TestFailedRepairDoneRevokedCredentialNativeComposedInstall(t *testing.T) {
 }
 
 type rebaseNativeOptions struct {
-	Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout, FailedRepair, RevokeDone bool
-	PairSource, PairEngine                                                                              string
+	Conflict, ManualDone, InReview, Paused, Bring, AdvanceMain, FreezeTimeout, FailedRepair, RevokeDone, OwnChain bool
+	PairSource, PairEngine                                                                                        string
 }
 
 func testBranchRebaseNative(t *testing.T, people bool, point string, options ...rebaseNativeOptions) {
@@ -172,9 +181,8 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	// Bring in rebases the machine's work onto a collaborator's push. That
 	// work already stands on the stack prefix, the fenced candidate base
 	// 4cb1ba368d passes to the daemon, so build it on the moved main. The
-	// stack published the first change as its own candidate commit, the
-	// machine holds a later change, and the collaborator pushed on top of the
-	// published candidate, outside the machine's own chain.
+	// machine holds a later change. Exercise both a separately materialized
+	// published candidate and the machine's own published capture.
 	foreign := onto
 	if bring {
 		boundHead = commit("first\n")
@@ -182,16 +190,42 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 		git("-C", source, "add", ".")
 		git("-C", source, "commit", "-m", "Another authoring change on the same TODO")
 		edited = git("-C", source, "rev-parse", "HEAD")
+		if option.OwnChain {
+			git("-C", source, "reset", "--hard", boundHead)
+		} else {
+			git("-C", source, "reset", "--hard", onto)
+			require.NoError(t, os.WriteFile(filepath.Join(source, "a.txt"), []byte("first\n"), 0600))
+			git("-C", source, "add", ".")
+			git("-C", source, "commit", "-m", "Published candidate")
+		}
+
+		if option.OwnChain {
+			// Publish the machine's own capture, then let the same GitHub fake
+			// as J10 create and record a real collaborator push on that head.
+			root := t.TempDir()
+			hosted := filepath.Join(root, "presence-owner", "app.git")
+			require.NoError(t, os.MkdirAll(filepath.Dir(hosted), 0700))
+			git("clone", "--bare", source, hosted)
+			git("--git-dir", hosted, "update-ref", "refs/heads/main", onto)
+			git("--git-dir", hosted, "update-ref", "refs/heads/smithers/test", boundHead)
+			key, err := rsa.GenerateKey(rand.Reader, 2048)
+			require.NoError(t, err)
+			fake, err := githubfake.New(githubfake.Config{AppID: 42, OwnerLogin: "presence-owner", GitRoot: root, PrivateKeyPEM: string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})), Installations: []githubfake.Installation{{ID: 42, Repositories: []githubfake.Repository{{ID: 100, FullName: "presence-owner/app"}}}}})
+			require.NoError(t, err)
+			t.Cleanup(fake.Close)
+			foreign, err = fake.PushAs("presence-owner/app", "smithers/test", 202, "alice", "A collaborator pushes", map[string]string{"outside.txt": "collaborator bytes\n"})
+			require.NoError(t, err)
+			require.Equal(t, boundHead, git("--git-dir", hosted, "rev-parse", foreign+"^"))
+			git("-C", store, "fetch", fake.URL+"/presence-owner/app.git", foreign)
+		} else {
+			require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("collaborator bytes\n"), 0600))
+			git("-C", source, "add", ".")
+			git("-C", source, "commit", "-m", "A collaborator pushes to the TODO branch")
+			foreign = git("-C", source, "rev-parse", "HEAD")
+			git("-C", source, "reset", "--hard", onto)
+			git("-C", store, "fetch", source, foreign)
+		}
 		git("-C", source, "reset", "--hard", onto)
-		require.NoError(t, os.WriteFile(filepath.Join(source, "a.txt"), []byte("first\n"), 0600))
-		git("-C", source, "add", ".")
-		git("-C", source, "commit", "-m", "Published candidate")
-		require.NoError(t, os.WriteFile(filepath.Join(source, "outside.txt"), []byte("collaborator bytes\n"), 0600))
-		git("-C", source, "add", ".")
-		git("-C", source, "commit", "-m", "A collaborator pushes to the TODO branch")
-		foreign = git("-C", source, "rev-parse", "HEAD")
-		git("-C", source, "reset", "--hard", onto)
-		git("-C", store, "fetch", source, foreign)
 	}
 	git("-C", store, "fetch", source, "main:refs/heads/main")
 	git("-C", store, "fetch", source, edited)
@@ -869,6 +903,16 @@ func testBranchRebaseNative(t *testing.T, people bool, point string, options ...
 	require.Equal(t, "new main bytes", git("--git-dir", store, "show", current.CandidateHead+":main.txt"))
 	if bring {
 		require.Len(t, launcher.signals, 2)
+		settledHead := current.CandidateHead
+		for range 3 {
+			require.NoError(t, service.PollOnce(ctx))
+			settled, err := q.GetMythicalItem(ctx, item.ID)
+			require.NoError(t, err)
+			require.Equal(t, "verifying", settled.State)
+			require.Equal(t, settledHead, settled.CandidateHead)
+			require.EqualValues(t, 1, settled.Generation)
+			require.Len(t, launcher.requests, 1, "Bring in verifies once")
+		}
 		return
 	}
 	var system, requester string
