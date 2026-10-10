@@ -279,14 +279,21 @@ it("registers the Smithers plugin on every turn; list, run and inspect only with
   expect(Runtime.coordinatorTeaching).not.toContain("flow.run")
 })
 
-it("teaches only smthrs verbs the real CLI lists", () => {
+// `--llms` lists only the install's agent discovery (mvp.md Appendix B.6). The
+// local commands the coordinator teaches stay callable, so each must open its
+// own help; an unknown verb falls back to the root listing.
+it("teaches only smthrs verbs the real CLI resolves", async () => {
   const cli = join(import.meta.dir, "..", "..", "..", "packages", "smithers", "bin", "smithers.mjs")
-  const manifest = Bun.spawnSync(["node", cli, "--llms"], { stdout: "pipe", stderr: "pipe" }).stdout.toString()
-  expect(manifest).toContain("smthrs flow start")
-  for (const fact of SmithersPlugin.knowledge.cli) {
-    const verb = fact.name.replace(/ <.*$/, "")
-    expect(manifest).toContain(`\`${verb}`)
+  const header = async (verb: string) => {
+    const child = Bun.spawn(["node", cli, ...verb.split(" ").slice(1), "--help"], { stdout: "pipe", stderr: "pipe" })
+    const [text] = await Promise.all([new Response(child.stdout).text(), child.exited])
+    return text.split("\n")[0]!
   }
+  const verbs = SmithersPlugin.knowledge.cli.map((fact) => fact.name.replace(/ <.*$/, ""))
+  expect(verbs).toContain("smthrs flow start")
+  const headers = await Promise.all([...verbs, "smthrs flow no-such-verb"].map(header))
+  for (const [index, verb] of verbs.entries()) expect(headers[index]).toStartWith(`${verb} — `)
+  expect(headers.at(-1)).toStartWith("smthrs@")
 }, 60_000)
 
 it("accepts seat names in the delegate flow", async () => {

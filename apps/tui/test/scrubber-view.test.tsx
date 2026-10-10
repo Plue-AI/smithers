@@ -385,8 +385,9 @@ describe("an answer's program", () => {
       </box>,
       { width, height: 6 }
     )
-    // Markdown lays out after its first frame.
-    for (let frame = 0; frame < 20 && !setup.captureCharFrame().includes("Fixed add"); frame++) {
+    // Markdown lays out after its first frame, and later on a loaded host.
+    const deadline = Date.now() + 5000
+    while (!setup.captureCharFrame().includes("Fixed add") && Date.now() < deadline) {
       await Bun.sleep(5)
       await setup.renderOnce()
     }

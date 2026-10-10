@@ -469,9 +469,13 @@ it("exposes no TODO land door", () => {
 it("exposes no retry door on the factory's issues", () => {
   expect("retry" in Factory).toBe(false)
   expect("retryCommand" in Factory).toBe(false)
-  const rows = Factory.rows({ ...stack, items: [item("2500", "blocked"), item("2501", "rejected")] } as unknown as MythicalStack, now)
+  const rows = Factory.rows(
+    { ...stack, items: [item("2500", "blocked"), item("2501", "rejected")] } as unknown as MythicalStack,
+    now
+  )
   expect(rows.every((row) => row.action === undefined)).toBe(true)
-  expect(rows.flatMap((row) => row.details).some((block) => block.kind === "text" && block.text.includes("/retry"))).toBe(false)
+  expect(rows.flatMap((row) => row.details).some((block) => block.kind === "text" && block.text.includes("/retry")))
+    .toBe(false)
 })
 
 it("keeps raw Cloud failures out of filing results", async () => {

@@ -2,6 +2,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices"
 import * as ScriptedJudge from "@smthrs/agent/ScriptedJudge"
 import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
+import * as SmithersPlugin from "@smthrs/agent/SmithersPlugin"
 import * as Capability from "@smthrs/capability/Capability"
 import type * as AgentEvent from "@smthrs/harness/AgentEvent"
 import * as Compaction from "@smthrs/harness/Compaction"
@@ -157,9 +158,9 @@ describe("Host.run required asks", () => {
         history: [],
         onEvent: (event) => {
           events.push(event)
-          if (
-            event._tag === "model-requested" && events.filter((item) => item._tag === "model-requested").length === 8
-          ) {
+          // After the cell's pre-tool probe, so the final frame's park, not the
+          // outside-change hold, decides what the pending steer does.
+          if (event._tag === "transition-applied" && event.transition._tag === "park") {
             queue.steer("pending follow-up")
           }
         }
@@ -392,7 +393,7 @@ describe("Host.run Smithers plugin", () => {
     )
     expect(outcome._tag).toBe("done")
     expect(JSON.parse((outcome as { answer: string }).answer)).toEqual({
-      cli: 16,
+      cli: SmithersPlugin.knowledge.cli.length,
       f: [{ name: "review", description: "Review" }],
       r: { id: "r1", status: "requested" },
       i: { id: "r1", status: "running" }

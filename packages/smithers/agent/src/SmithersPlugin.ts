@@ -47,8 +47,8 @@ export interface Fact {
 /**
  * What an agent needs to know to use and extend Smithers.
  *
- * Every `cli` entry is a verb of the `smthrs` binary; the TUI tests check each
- * one against `smthrs --llms`.
+ * Every `cli` entry is a verb of the `smthrs` binary; the TUI tests check that
+ * each opens its own `smthrs <verb> --help`.
  *
  * @category constants
  * @since 1.0.0-rc.1

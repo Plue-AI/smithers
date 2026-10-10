@@ -13,27 +13,15 @@ test("real HTTP pool discovery permits only served routes and actual TUI startup
   let cancelled = false
   const requests: string[] = []
   const server = createServer(async (request, response) => {
-    expect(request.headers.authorization).toBe("Bearer fixture-pool-key")
-    requests.push(request.url!)
-    if (request.url === "/routes") {
-      if (status === 0) {
-        response.once("close", () => {
-          cancelled = true
-        })
-        return
-      }
-      response.writeHead(status, { "Content-Type": "application/json" })
-      response.end(JSON.stringify({ routes }))
-      return
-    }
-    const parts: Buffer[] = []
-    for await (const part of request) parts.push(part)
-    const body = JSON.parse(Buffer.concat(parts).toString())
-    let text = "```cell\nctx.done(\"Pool answer.\");\n```"
-    if (body.instructions?.startsWith("Judge the supplied evidence")) {
+    // Jev, the host's judge, routes the run; the pool serves only the model.
+    if (request.url === "/jev") {
+      expect(request.headers.authorization).toBe("Bearer fixture-jev-key")
       judgeCalls++
-      const { questions } = JSON.parse(body.input.find((row: { role: string }) => row.role === "user").content[0].text)
-      text = JSON.stringify({
+      const parts: Buffer[] = []
+      for await (const part of request) parts.push(part)
+      const { questions } = JSON.parse(Buffer.concat(parts).toString())
+      response.writeHead(200, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({
         answers: Object.fromEntries(
           Object.entries(questions).map(([id, question]) => {
             // Route the one-step tool request to the pool's available Luna seat.
@@ -57,11 +45,28 @@ test("real HTTP pool discovery permits only served routes and actual TUI startup
             }]
           })
         )
-      })
-    } else {
-      expect(body.model).toBe("gpt-6-luna")
-      modelCalls++
+      }))
+      return
     }
+    expect(request.headers.authorization).toBe("Bearer fixture-pool-key")
+    requests.push(request.url!)
+    if (request.url === "/routes") {
+      if (status === 0) {
+        response.once("close", () => {
+          cancelled = true
+        })
+        return
+      }
+      response.writeHead(status, { "Content-Type": "application/json" })
+      response.end(JSON.stringify({ routes }))
+      return
+    }
+    const parts: Buffer[] = []
+    for await (const part of request) parts.push(part)
+    const body = JSON.parse(Buffer.concat(parts).toString())
+    const text = "```cell\nctx.done(\"Pool answer.\");\n```"
+    expect(body.model).toBe("gpt-6-luna")
+    modelCalls++
     response.writeHead(200, { "Content-Type": "text/event-stream" })
     response.end(
       [
@@ -90,6 +95,9 @@ test("real HTTP pool discovery permits only served routes and actual TUI startup
       {
         env: {
           ...environment,
+          // Routing an `auto` worker needs Jev; without its key the run fails typed.
+          AI_GATEWAY_API_KEY: "fixture-jev-key",
+          SMITHERS_EVALUATOR_BASE_URL: `http://127.0.0.1:${address.port}/jev`,
           PATH: process.env.PATH,
           ...(process.env.SMITHERS_WORKSPACE_JJ_EXPORT_BINARY ?
             {
