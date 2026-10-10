@@ -77,7 +77,8 @@ quota refusal. Every surface names a model as the picker does.
 Print mode (`-p`) runs the prompt as one
 worker on the worker seat, or `--model`: it can delegate and wait like any
 worker, and an ask that reaches the person fails, since nobody is at the
-terminal.
+terminal. A failure prints its headline and what to do, such as the key to set,
+which the interactive card keeps under Ctrl+O.
 
 Edits, shell commands, and network calls run without asking. `--approve ask`
 (or `SMITHERS_TUI_APPROVE=ask`) makes each wait for **y**/**n** (**Alt+Y**/**Alt+N** in agent tabs); `deny` refuses

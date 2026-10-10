@@ -1,3 +1,5 @@
+import * as Seat from "@smthrs/agent/Seat"
+import * as Evaluator from "@smthrs/model/Evaluator"
 import { expect, it } from "bun:test"
 import { Effect } from "effect"
 import { mkdtempSync } from "node:fs"
@@ -6,6 +8,7 @@ import { join } from "node:path"
 import type * as Host from "../src/host.ts"
 import * as Print from "../src/print.ts"
 import * as Runtime from "../src/runtime.ts"
+import { Workspace } from "../src/workspace.ts"
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -112,6 +115,33 @@ it("stops unfinished children once the root settles, and reports a root failure"
   const outcome = await printed
   expect(outcome).toMatchObject({ _tag: "failed", headline: expect.any(String) })
   expect(cancelled).toEqual([`${Print.rootId}/slow`])
+})
+
+it("prints a setup failure's instruction, which the interactive card keeps under Ctrl+O", async () => {
+  // The host's refusal when no judge can route an `auto` worker and no key is set.
+  const instruction = `AI_GATEWAY_API_KEY is not set. ${Evaluator.unconfiguredMessage}`
+  const error = new Seat.SeatUnrouted({ seat: Seat.auto, reason: "unconfigured", message: instruction })
+  const failed: Host.Outcome = { _tag: "failed", message: instruction, detail: instruction, error }
+  const { host, controls } = fake()
+  const printed = Print.run({ host, prompt: "Review", workerSeat: "worker:test", delegable: [] })
+  await tick()
+  controls.get(Print.rootId)!(failed)
+  expect(await printed).toEqual({ _tag: "failed", headline: "Model could not be chosen", line: instruction })
+  // The same failure on an interactive card: the headline only, the instruction in details.
+  const interactive = fake()
+  const workspace = new Workspace({
+    host: interactive.host,
+    workerSeat: "worker:test",
+    history: () => [],
+    persist: () => {}
+  })
+  workspace.request({ id: "card", title: "Card", prompt: "Review", by: "user" })
+  await tick()
+  interactive.controls.get("card")!(failed)
+  await tick()
+  expect(workspace.snapshot().tabs.find((tab) => tab.id === "card")?.failure)
+    .toMatchObject({ headline: "Model could not be chosen", line: "" })
+  workspace.dispose()
 })
 
 it("keeps a named model: no routing, and every worker nobody chose a seat for runs on it", async () => {

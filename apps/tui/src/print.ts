@@ -5,6 +5,7 @@
  * model this machine cannot reach is refused before any child starts.
  * Nobody is at the terminal, so an ask that reaches the person fails at once
  * with {@link unattended}. Once the root settles, unfinished children stop.
+ * A failure prints in full, setup instructions included: there is no card.
  */
 import * as FailureCopy from "@smthrs/model/FailureCopy"
 import * as Approvals from "./approvals.ts"
@@ -57,7 +58,8 @@ export const run = (options: {
     workerSeat: options.model ?? options.workerSeat,
     history: () => [],
     persist: () => {},
-    delegable: options.delegable
+    delegable: options.delegable,
+    cards: false
   })
   return new Promise((resolve) => {
     let finished = false

@@ -351,7 +351,8 @@ const instructs = (error: unknown): boolean => {
 /**
  * A worker failure's copy as its result card says it. Setup instructions
  * (seats, environment variables, sign-in commands) stay in details (Ctrl+O)
- * and in the help a parent is asked for, never on the card.
+ * and in the help a parent is asked for, never on the card. Print mode has no
+ * card and prints them.
  */
 export const onCard = (error: unknown, described: FailureCopy.Description): FailureCopy.Description =>
   instructs(error) ? { ...described, line: "" } : described

@@ -210,6 +210,8 @@ export class Workspace {
       chatSeat?: () => string
       /** A worker's status item or key, owned `runtime:<tab id>`; throws a one-line refusal. */
       contribute?: (owner: string, contribution: Extension.Contribution) => void
+      /** Print mode: no result card and no Ctrl+O, so a failure's copy keeps its setup instructions. */
+      cards?: false
     }
   ) {
     this.tabs = new Lifecycle.Pool<Tab, Entry>({
@@ -1040,7 +1042,7 @@ export class Workspace {
           : described
         const failure = told === undefined || outcome._tag !== "failed"
           ? undefined
-          : Failures.onCard(outcome.error ?? outcome.message, told)
+          : this.shown(outcome.error ?? outcome.message, told)
         let transcript = this.transcript(tab.id)
         const undelivered = steering.take()
         if (undelivered.length > 0) {
@@ -1231,6 +1233,10 @@ export class Workspace {
       }
     }
   }
+  /** A failure's copy as this workspace shows it: {@link Failures.onCard} on a card, in full in print mode. */
+  private shown(error: unknown, described: FailureCopy.Description): FailureCopy.Description {
+    return this.options.cards === false ? described : Failures.onCard(error, described)
+  }
   /** Settles the tab, its timeline and its worker file as failed. */
   private fail(tab: Tab, writer: Session.Writer, error: unknown) {
     if (
@@ -1242,7 +1248,7 @@ export class Workspace {
     this.cancelRequested.delete(tab.id)
     const at = Date.now()
     const message = String(error)
-    const failure = Failures.onCard(error, FailureCopy.describe(error, this.tabs.get(tab.id)?.activeSeat ?? tab.seat))
+    const failure = this.shown(error, FailureCopy.describe(error, this.tabs.get(tab.id)?.activeSeat ?? tab.seat))
     try {
       writer.append({
         type: "outcome",
