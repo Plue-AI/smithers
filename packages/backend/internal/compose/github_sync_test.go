@@ -591,10 +591,19 @@ func assertSyncHomeOverLive(t *testing.T, pool *pgxpool.Pool, sync *services.Git
 	binding, err := json.Marshal(map[string]any{"owner_login": user.Username, "repository_name": "app"})
 	require.NoError(t, err)
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "github.repository", Value: binding}))
+	// Each call starts its own bus, which holds a pool connection while it
+	// listens. Stop it on return: three calls outliving their checks used up
+	// a four-connection pool (pgxpool's default on a 4-CPU runner), and the
+	// next query waited forever.
+	busCtx, stopBus := context.WithCancel(ctx)
 	bus := revocation.NewBus(pool, q)
-	require.NoError(t, bus.Start(ctx))
+	require.NoError(t, bus.Start(busCtx))
 	routes.SetRevocationSource(bus)
-	defer routes.SetRevocationSource(nil)
+	defer func() {
+		routes.SetRevocationSource(nil)
+		stopBus()
+		<-bus.Done()
+	}()
 	sessionKey := fmt.Sprintf("poll-session-%d", time.Now().UnixNano())
 	_, err = q.CreateAuthSession(ctx, db.CreateAuthSessionParams{UserID: user.ID, Username: user.Username, SessionKey: sessionKey, ExpiresAt: time.Now().Add(time.Hour)})
 	require.NoError(t, err)
