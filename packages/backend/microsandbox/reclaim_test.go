@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -241,7 +242,14 @@ case "$1" in
 esac
 `, log, marker, ws.Machine, ws.Machine, status, confirms, marker)
 				require.NoError(t, os.WriteFile(r.cli.binary, []byte(script), 0700))
-				err := r.recover(t.Context())
+				ctx := t.Context()
+				if !confirms {
+					// Recovery observes an unconfirmed stop until its deadline.
+					var cancel context.CancelFunc
+					ctx, cancel = context.WithTimeout(ctx, 500*time.Millisecond)
+					defer cancel()
+				}
+				err := r.recover(ctx)
 				if confirms {
 					require.NoError(t, err)
 					require.Zero(t, r.InUse())
@@ -264,9 +272,15 @@ esac
 					require.Empty(t, grant.Holder, "another wake cannot consume an unconfirmed slot")
 				}
 				calls := invocations(t, log)
-				require.Len(t, calls, 3)
 				require.Equal(t, "stop -t 10 -q "+ws.Machine, calls[1])
-				require.Equal(t, "list --format json", calls[2], "CLI success is independently observed")
+				if confirms {
+					require.Len(t, calls, 3)
+				} else {
+					require.Greater(t, len(calls), 3, "an unconfirmed stop is observed again until its deadline")
+				}
+				for _, call := range calls[2:] {
+					require.Equal(t, "list --format json", call, "CLI success is independently observed")
+				}
 			})
 		}
 	}

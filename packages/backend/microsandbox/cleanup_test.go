@@ -183,8 +183,14 @@ with tempfile.TemporaryDirectory() as directory:
  g.os.open=open_fixture
  calls=[];syncs=[]
  original_freeze=g.mutation_freeze
+ def fdpath(fd):
+  # The fixture names a directory descriptor: /proc on Linux, F_GETPATH on Darwin.
+  if sys.platform=='darwin':
+   import fcntl
+   return pathlib.Path(fcntl.fcntl(fd,fcntl.F_GETPATH,bytes(1024)).split(b'\0',1)[0].decode())
+  return pathlib.Path(os.readlink('/proc/self/fd/%d'%fd))
  def freeze(fd,value):
-  child=pathlib.Path(os.readlink('/proc/self/fd/%d'%fd));name=child.name
+  child=fdpath(fd);name=child.name
   assert name not in ('writers','broker','daemon'),'control process frozen'
   calls.append((name,value))
   if value and scenario=='new_child' and name=='sessions':group('arriving')
