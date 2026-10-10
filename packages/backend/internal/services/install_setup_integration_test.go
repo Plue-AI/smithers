@@ -87,8 +87,18 @@ func TestInstallSetupAdmissionRecoveryPostgres(t *testing.T) {
 	encoded, err := json.Marshal(status)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "operation_id")
-	require.NotContains(t, string(encoded), "\"source\":")
-	require.NotContains(t, string(encoded), "\"parallel\":")
+	// The projection names no source step payload and no parallel setting;
+	// fast_model.source names the fast model's fallback and is allowed.
+	var projection map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(encoded, &projection))
+	require.NotContains(t, projection, "source")
+	require.NotContains(t, projection, "parallel")
+	var projected []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(projection["steps"], &projected))
+	for _, step := range projected {
+		require.NotContains(t, step, "source")
+		require.NotContains(t, step, "parallel")
+	}
 }
 
 func TestInstallSetupModelFlagsBeforeConfirmationPostgres(t *testing.T) {

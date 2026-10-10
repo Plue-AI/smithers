@@ -55,18 +55,19 @@ func TestInstallCapacityOwnerLowerRestoreAndPermissionPostgres(t *testing.T) {
 	status, err = svc.Read(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, 2, status.Machines.Capacity)
-	svc.Profile.DiskFreeBytes = 60 << 30
+	// One 32 GiB machine needs 44 GiB free: the machine plus the 12 GiB floor.
+	svc.Profile.DiskFreeBytes = 40 << 30
 	status, err = svc.Read(t.Context())
 	require.NoError(t, err)
 	require.Zero(t, status.Machines.Capacity)
 	require.Equal(t, "disk", status.Limits.LimitingTerm)
-	require.Equal(t, "free 12 GiB on the state volume", status.Limits.Fix)
+	require.Equal(t, "free 4 GiB on the state volume", status.Limits.Fix)
 	require.NoError(t, svc.ValidateStart(t.Context()))
 }
 
 func TestInstallCapacityFreshZeroStartPostgres(t *testing.T) {
 	pool, _ := postgresfixture.NewProductDatabase(t)
-	for _, p := range []microsandbox.HostProfile{{MemoryBytes: 13 << 30, PerfCores: 8, DiskFreeBytes: 200 << 30}, {MemoryBytes: 16 << 30, PerfCores: 1, DiskFreeBytes: 200 << 30}, {MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 60 << 30}} {
+	for _, p := range []microsandbox.HostProfile{{MemoryBytes: 13 << 30, PerfCores: 8, DiskFreeBytes: 200 << 30}, {MemoryBytes: 16 << 30, PerfCores: 1, DiskFreeBytes: 200 << 30}, {MemoryBytes: 32 << 30, PerfCores: 10, DiskFreeBytes: 40 << 30}} {
 		svc := InstallCapacityService{Queries: db.New(pool), Profile: p}
 		var typed *microsandbox.CapacityError
 		require.ErrorAs(t, svc.ValidateStart(t.Context()), &typed)
@@ -97,7 +98,7 @@ func TestInstallParallelPersistencePostgres(t *testing.T) {
 	result, err = restarted.Parallel(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, InstallParallel{8, 2}, result)
-	restarted.Profile.DiskFreeBytes = 60 << 30
+	restarted.Profile.DiskFreeBytes = 40 << 30
 	result, err = restarted.Parallel(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, InstallParallel{8, 0}, result)

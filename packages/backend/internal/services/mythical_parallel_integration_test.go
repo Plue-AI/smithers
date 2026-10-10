@@ -47,7 +47,7 @@ func TestParallelAdmissionEngine(t *testing.T) {
 	for _, id := range ids[3:] {
 		require.Equal(t, "queued", o.byID(id).State)
 	}
-	freeDisk = 60 << 30
+	freeDisk = 40 << 30
 	o.wake()
 	for _, id := range ids[:3] {
 		require.Equal(t, "running", o.byID(id).State)

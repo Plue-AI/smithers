@@ -695,7 +695,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 	}{
 		{"24 GiB", 24, 200, 8, 4, 8192, 2, 48},
 		{"32 GiB", 32, 400, 10, 4, 8192, 3, 48},
-		{"smaller host", 16, 60, 4, 2, 6144, 0, 15},
+		{"smaller host", 16, 40, 4, 2, 6144, 0, 10},
 	} {
 		t.Run(row.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -731,7 +731,7 @@ func TestMicroVMConfigUsesDetectedProfileForMachineAndPrepare(t *testing.T) {
 			if prepare == nil || prepare.PrepareCPUs != config.CPUs || prepare.PrepareMemoryMiB != config.MemoryMiB || prepare.PrepareDiskMiB != config.DiskMiB {
 				t.Fatalf("prepare limits = %#v; must match one machine", prepare)
 			}
-			if prepare.LayerBudgetBytes != row.budget<<30 || prepare.MinFreeBytes != 40<<30 {
+			if prepare.LayerBudgetBytes != row.budget<<30 || prepare.MinFreeBytes != microsandbox.MinFreeDiskBytes {
 				t.Fatalf("disk limits = budget %d, floor %d", prepare.LayerBudgetBytes, prepare.MinFreeBytes)
 			}
 		})
