@@ -17,8 +17,14 @@ const cwd = "flows"
 const sources = Smithers.glob("//flows/**/*.ts")
 const scripts = Smithers.Filegroup({ cwd: "scripts", srcs: [Smithers.glob("*.mjs")] })
 
+// The real-run model stand-in's script, which the scripted wiki reviewer suite runs.
+const todoTurns = [
+  Smithers.file("//distribution/fake-todo-turns.mjs"),
+  Smithers.file("//distribution/fake-todo-turns.d.mts")
+]
+
 const check = Smithers.Typecheck({
-  srcs: [sources],
+  srcs: [sources, ...todoTurns],
   deps: [scripts],
   tsconfig: Smithers.file("tsconfig.json"),
   buildMode: false,
@@ -408,9 +414,10 @@ const codingBundleBun = Smithers.Shell.Test({
 })
 const wiki = Smithers.NodeTest({
   runner: Smithers.testRunner([
-    Smithers.file("//flows/test/wiki.test.ts")
+    Smithers.file("//flows/test/wiki.test.ts"),
+    Smithers.file("//flows/test/wiki-scripted-reviewer.test.ts")
   ]),
-  srcs: [sources],
+  srcs: [sources, ...todoTurns],
   deps: [],
   cwd
 })

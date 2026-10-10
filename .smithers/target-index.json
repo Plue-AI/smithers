@@ -37622,6 +37622,14 @@
       },
       {
         "kind": "file",
+        "path": "distribution/fake-todo-turns.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.d.mts"
+      },
+      {
+        "kind": "file",
         "path": "flows/tsconfig.json"
       }
     ],
@@ -40978,9 +40986,21 @@
         "path": "flows/test/wiki.test.ts"
       },
       {
+        "kind": "file",
+        "path": "flows/test/wiki-scripted-reviewer.test.ts"
+      },
+      {
         "kind": "glob",
         "pattern": "flows/**/*.ts",
         "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "distribution/fake-todo-turns.d.mts"
       }
     ],
     "outputs": [],
