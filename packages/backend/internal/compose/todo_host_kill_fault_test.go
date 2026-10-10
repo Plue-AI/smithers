@@ -123,9 +123,15 @@ export default Flow.make("todo", {
 			return currentWorkspace() != workspace && readCrossings() == "completed\nkeyless\n"
 		}, 3*time.Minute, 100*time.Millisecond)
 		require.Equal(t, "completed\nkeyless\n", readWorkspaceCrossings(workspace), "the first attempt's writes must remain unchanged")
-		retried, err := r.todo(number)
-		require.NoError(t, err)
-		require.NotNil(t, retried.Run)
+		// The host writes before its launch acknowledgment attaches the run.
+		// Wait for the served card, not only the machine's filesystem, to prove
+		// that Retry has finished starting the new attempt.
+		var retried rehearsalTodo
+		require.Eventually(t, func() bool {
+			var err error
+			retried, err = r.todo(number)
+			return err == nil && retried.Run != nil && retried.Run.ID != before.Run.ID
+		}, time.Minute, 100*time.Millisecond, "Retry never attached its new run to the TODO")
 		require.Equal(t, before.Run.Attempt+1, retried.Run.Attempt)
 		require.NotEqual(t, before.Run.ID, retried.Run.ID)
 		require.Equal(t, digest, retried.FlowVersion.Digest)

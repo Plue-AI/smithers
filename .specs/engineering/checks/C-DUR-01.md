@@ -69,3 +69,9 @@ image builder; the Linux base-only adapter refuses it before dispatch rather
 than fabricating a machine-ready receipt. Linux coding-host receipts do not qualify an install backend process-group
 kill. The owned reference worker controller does not qualify launchd supervisor
 restart; that observation still requires the supervised installed package.
+
+The declared `//packages/smithers:faultsReference` target runs both tiers with
+`SMITHERS_FAULT_HOST=reference` and the owner-provisioned bundle at
+`.artifacts/fault-install-bundle`. It refuses outside macOS, outside the
+committed IOPlatformUUID allowlist, or without the bundle. The empty allowlist
+is an outstanding owner prerequisite, not passing reference evidence.

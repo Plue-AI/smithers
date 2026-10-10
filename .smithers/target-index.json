@@ -8179,10 +8179,7 @@
     "outputs": [],
     "dependencies": [
       "//crates/flows-jj:nativeSources"
-    ],
-    "source": {
-      "file": "PACKAGE.ts"
-    }
+    ]
   },
   {
     "label": "//:nodeModules",
@@ -8381,10 +8378,7 @@
       "//crates/flows-jj:nativeSources",
       "//crates/smithers-machined:buildInputs",
       "//packages/backend:machineContractInputs"
-    ],
-    "source": {
-      "file": "PACKAGE.ts"
-    }
+    ]
   },
   {
     "label": "//:repoAbout",
@@ -62530,6 +62524,8 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//:nativeFfiLib",
+      "//:rehearsalNative",
       "//crates/flows-jj:nativeSources",
       "//crates/smithers-machined:buildInputs",
       "//crates/smithers-machined:ffiInputs",
@@ -62650,6 +62646,55 @@
     ],
     "outputs": [],
     "dependencies": [
+      "//packages/smithers:faultNative",
+      "//packages/smithers:faultPostgresDatabase",
+      "//packages/smithers:faultPostgresPrograms"
+    ],
+    "source": {
+      "file": "packages/smithers/PACKAGE.ts"
+    }
+  },
+  {
+    "label": "//packages/smithers:faultsReference",
+    "package": "packages/smithers",
+    "name": "faultsReference",
+    "rule": "Shell.Test",
+    "kinds": [
+      "test"
+    ],
+    "exclusive": true,
+    "cacheable": false,
+    "inputs": [
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/src/**/*.ts",
+        "exclude": []
+      },
+      {
+        "kind": "glob",
+        "pattern": "packages/smithers/test/faults/**",
+        "exclude": []
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/vitest.faults-long.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "packages/smithers/vitest.faults.config.ts"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/fault-reference-host.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/reference-host/hosts.json"
+      }
+    ],
+    "outputs": [],
+    "dependencies": [
+      "//packages/backend:buildInputs",
       "//packages/smithers:faultNative",
       "//packages/smithers:faultPostgresDatabase",
       "//packages/smithers:faultPostgresPrograms"
@@ -73549,6 +73594,10 @@
       {
         "kind": "file",
         "path": "scripts/reference-host/job-started.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/fault-reference-host.test.mjs"
       },
       {
         "kind": "glob",

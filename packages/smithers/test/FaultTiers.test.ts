@@ -129,6 +129,24 @@ describe("fault tiers", () => {
     }
   })
 
+  it("declares a guarded reference matrix and shares the native recipes", () => {
+    const reference = target("//packages/smithers:faultsReference")
+    expect(reference.exclusive).toBe(true)
+    const declarations = readFileSync(join(pkg, "PACKAGE.ts"), "utf8")
+    const referenceDeclaration = declarations.slice(
+      declarations.indexOf("const faultsReference"),
+      declarations.indexOf("/** The corrected native editor")
+    )
+    expect(referenceDeclaration).toContain("SMITHERS_FAULT_HOST: \"reference\"")
+    expect(referenceDeclaration).toContain("SMITHERS_FAULT_INSTALL_BUNDLE: \".artifacts/fault-install-bundle\"")
+    expect(referenceDeclaration).toContain("node scripts/fault-reference-host.mjs &&")
+    expect(reference.inputs).toContainEqual({ kind: "file", path: "scripts/fault-reference-host.mjs" })
+    expect(reference.inputs).toContainEqual({ kind: "file", path: "scripts/reference-host/hosts.json" })
+    const native = target("//packages/smithers:faultNative")
+    expect(native.dependencies).toContain("//:nativeFfiLib")
+    expect(native.dependencies).toContain("//:rehearsalNative")
+  })
+
   it("builds the programs each tier's cases start", () => {
     // Both tiers kill a private PostgreSQL cluster (the route case and
     // case40's K5); only the long tier drives installs and the K7 daemon.

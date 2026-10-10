@@ -1,4 +1,5 @@
 import { BuildAndCheckTypeScriptPackage } from "@smthrs/repo-targets"
+import { nativeFfiLib, rehearsalNative } from "../../scripts/native-targets.ts"
 /** Standard package targets plus package-owned documentation generation. */
 import { Smithers } from "@smthrs/targets"
 import { Package as flowsJjPackage } from "../../crates/flows-jj/PACKAGE.ts"
@@ -232,9 +233,11 @@ const faultPostgresPrograms = Smithers.Shell.Build({
  */
 const faultNative = Smithers.Shell.Build({
   shell:
-    "out=\"$PWD/.artifacts/fault-native\"; build=\"$out/build\"; debug=\"$build/target/debug\"; mkdir -p \"$build\" || exit $?; export RUSTUP_HOME=\"$build/rustup\" CARGO_TARGET_DIR=\"$build/target\"; rustup toolchain install && cargo build --locked -p smithers-ffi --bin smithers-jj-export --features trusted-process-binding && cp \"$debug/smithers-jj-export\" \"$out/\" && cargo build --locked -p smithers-ffi --lib && { cp \"$debug/libsmithers_ffi.so\" \"$out/\" 2>/dev/null || cp \"$debug/libsmithers_ffi.dylib\" \"$out/\"; } && cargo build --locked -p smithers-machined --example rehearsal_daemon && cp \"$debug/examples/rehearsal_daemon\" \"$out/\" && cargo build --locked -p smithers-machined --example rehearsal_daemon --features killpoints && cp \"$debug/examples/rehearsal_daemon\" \"$out/machined-fault-daemon\"; status=$?; rm -rf \"$build\"; exit $status",
+    "out=\"$PWD/.artifacts/fault-native\"; build=\"$out/build\"; debug=\"$build/target/debug\"; mkdir -p \"$build\" || exit $?; cp .rehearsal-native/smithers-jj-export .rehearsal-native/rehearsal_daemon \"$out/\" && { cp .native-ffi/target/debug/libsmithers_ffi.so \"$out/\" 2>/dev/null || cp .native-ffi/target/debug/libsmithers_ffi.dylib \"$out/\"; } || exit $?; export RUSTUP_HOME=\"$build/rustup\" CARGO_TARGET_DIR=\"$build/target\"; rustup toolchain install && cargo build --locked -p smithers-machined --example rehearsal_daemon --features killpoints && cp \"$debug/examples/rehearsal_daemon\" \"$out/machined-fault-daemon\"; status=$?; rm -rf \"$build\"; exit $status",
   outDirs: ["//.artifacts/fault-native"],
   data: [
+    nativeFfiLib,
+    rehearsalNative,
     Smithers.file("//Cargo.toml"),
     Smithers.file("//Cargo.lock"),
     Smithers.file("//rust-toolchain.toml"),
@@ -255,8 +258,7 @@ const faultNative = Smithers.Shell.Build({
  * with "Real PostgreSQL is required" (#3459). The targets declare them. Program
  * paths are workspace-relative because a declaration holds a fixed string; the
  * harness makes them absolute before a case starts. `linux` is the host class
- * of every runner these targets serve; the approved reference host needs its
- * own declaration, with its bundle, when its matrix entry stops refusing.
+ * of the ordinary tiers; faultsReference names the approved Mac and bundle.
  */
 const faultEnv = {
   SMITHERS_FAULT_HOST: "linux",
@@ -319,6 +321,37 @@ const faultsLong = Smithers.FaultSuite({
   services: [faultPostgresDatabase],
   sandbox: "none",
   timeoutMs: 345 * 60_000
+})
+
+/** The owner-provisioned reference bundle; refuse before any fault off that host. */
+const faultsReference = Smithers.Shell.Test({
+  exclusive: true,
+  shell:
+    "node scripts/fault-reference-host.mjs && cd packages/smithers && pnpm exec vitest run --config vitest.faults.config.ts && pnpm exec vitest run --config vitest.faults-long.config.ts",
+  data: [
+    faultNative,
+    faultPostgresPrograms,
+    backendPackage.buildInputs,
+    Smithers.glob("src/**/*.ts"),
+    Smithers.glob("test/faults/**"),
+    Smithers.file("vitest.faults-long.config.ts"),
+    Smithers.file("vitest.faults.config.ts"),
+    Smithers.file("//scripts/fault-reference-host.mjs"),
+    Smithers.file("//scripts/reference-host/hosts.json")
+  ],
+  env: {
+    ...faultEnv,
+    SMITHERS_FAULT_HOST: "reference",
+    SMITHERS_FAULT_INSTALL_BUNDLE: ".artifacts/fault-install-bundle",
+    SMITHERS_CHECK_BUNDLE: ".artifacts/fault-install-bundle",
+    SMITHERS_FFI_LIBRARY_PATH: ".artifacts/fault-native/libsmithers_ffi.dylib",
+    SMITHERS_REHEARSAL_JJ_EXPORT_BINARY: ".artifacts/fault-native/smithers-jj-export",
+    SMITHERS_REHEARSAL_MACHINED_BINARY: ".artifacts/fault-native/rehearsal_daemon",
+    SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY: ".artifacts/fault-native/machined-fault-daemon"
+  },
+  services: [faultPostgresDatabase],
+  sandbox: "none",
+  timeout: "390m"
 })
 
 /** The corrected native editor and its reproducible source used by the TUI. */
@@ -499,6 +532,7 @@ export const Package = Smithers.Package({
     faultPostgresPrograms,
     faults,
     faultsLong,
+    faultsReference,
     fmt,
     lib,
     lint,

@@ -23,6 +23,8 @@ const backend = `${workspaceRoot}packages/backend`
  */
 export const declaredPrograms = [
   "SMITHERS_FAULT_POSTGRES_BIN",
+  "SMITHERS_FAULT_INSTALL_BUNDLE",
+  "SMITHERS_CHECK_BUNDLE",
   "SMITHERS_FFI_LIBRARY_PATH",
   "SMITHERS_REHEARSAL_JJ_EXPORT_BINARY",
   "SMITHERS_REHEARSAL_MACHINED_BINARY",

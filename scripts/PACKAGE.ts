@@ -909,7 +909,8 @@ const tierContracts = Smithers.NodeTest({
     Smithers.file("//scripts/check-soak-campaign.test.mjs"),
     Smithers.file("//scripts/benchmark-gate.test.mjs"),
     Smithers.file("//scripts/run-jj-abi-campaign.test.mjs"),
-    Smithers.file("//scripts/reference-host/job-started.test.mjs")
+    Smithers.file("//scripts/reference-host/job-started.test.mjs"),
+    Smithers.file("//scripts/fault-reference-host.test.mjs")
   ]),
   srcs: [
     ...sources,
