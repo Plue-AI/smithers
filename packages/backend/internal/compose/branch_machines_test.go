@@ -681,6 +681,10 @@ func TestMaintenanceHealthWakeProductionOwnerHTTP(t *testing.T) {
 	freeze, _ := json.Marshal(services.QuiesceFreeze{Op: "upgrade-proof", By: owner.ID, Ready: true, Since: time.Now().Add(-time.Minute), LeaseUntil: time.Now().Add(-time.Second)})
 	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "quiesce", Value: freeze}))
 	service := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: state})
+	// This transport fixture supplies the security contract explicitly; the
+	// install composition retains smithers-3f's refusal until review lands.
+	healthChecks := []string{}
+	service.Barriers = map[string]services.QuiesceBarrier{"T-SEC-01": installMaintenancePreflightFixture{calls: &healthChecks}}
 	require.NoError(t, composeInstallAdmission(ctx, service, runtime, workspaces))
 	// The isolated installing-owner health door never grants normal TCP
 	// admission, even after its failed guest has been confirmed stopped.

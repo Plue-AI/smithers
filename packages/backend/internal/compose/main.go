@@ -1992,6 +1992,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		cfg.Install.StateDir = strings.TrimSpace(os.Getenv("SMITHERS_NATIVE_STATE_DIR"))
 	}
 	installQuiesce := services.NewInstallQuiesce(&services.QuiesceGate{Store: services.InstallQuiesceStore{Pool: pool}, StateDir: cfg.Install.StateDir})
+	composeInstallQuiesceBarriers(installQuiesce, pool, options.Machined, flow)
 	if config.IsSingleOwner(cfg.Auth) && options.InstallBranchMachines {
 		if err := composeInstallAdmission(ctx, installQuiesce, options.Workspace, workspaceService); err != nil {
 			return fmt.Errorf("compose maintenance admission: %w", err)
@@ -2221,7 +2222,7 @@ func runWithOptions(ctx context.Context, args []string, stdout, stderr io.Writer
 		defer wikiLibrary.Close()
 		topics.wikiDocuments = composeWikiHost(ctx, wikiLibrary, queries, wikiService)
 		defer topics.wikiDocuments.Close()
-		installQuiesce.Barriers = map[string]services.QuiesceBarrier{"T-COL-09": topics.wikiDocuments}
+		installQuiesce.Barriers["T-COL-09"] = topics.wikiDocuments
 		liveHandler = &routes.LiveHandler{Hub: live.NewHub(ctx, live.BrokerHints{Broker: sseBroker}), Queries: queries, Origins: installAddress.Origins, Topics: topics.resolver, Presence: presence.session}
 		(transcriptImportProviders{ReceiptStore: pool, Ingest: transcripts, Presence: presence,
 			Live: liveHandler, Revocation: revocationBus, History: topics.conversation}).bind(options.Machined)

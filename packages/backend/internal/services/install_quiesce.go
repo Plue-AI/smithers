@@ -461,6 +461,9 @@ func (s *InstallQuiesce) RequireReady(ctx context.Context, op string, by int64) 
 	if err := s.Available(); err != nil {
 		return err
 	}
+	if err := s.Barriers["T-SEC-01"].Check(ctx); err != nil {
+		return err
+	}
 	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
 		if row == nil || !row.Ready || row.Op != op || row.By != by || !time.Now().Before(row.LeaseUntil) {
 			return row, errors.New("ready owner quiesce lease required")
@@ -490,6 +493,13 @@ func missingQuiesceProvider(provider any) bool {
 func (s *InstallQuiesce) MaintenanceHealthWake(ctx context.Context, by int64, op string) error {
 	if s == nil || s.Gate == nil || s.Gate.Store == nil || s.HealthWake == nil || op == "" {
 		return errors.New("maintenance health wake unavailable")
+	}
+	security := s.Barriers["T-SEC-01"]
+	if missingQuiesceProvider(security) {
+		return &QuiesceDependencyError{Ticket: "T-SEC-01"}
+	}
+	if err := security.Check(ctx); err != nil {
+		return err
 	}
 	return s.Gate.Store.Update(ctx, func(row *QuiesceFreeze) (*QuiesceFreeze, error) {
 		marker, err := s.Gate.marker()

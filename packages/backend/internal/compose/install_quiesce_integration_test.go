@@ -3,6 +3,7 @@ package compose
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -14,15 +15,21 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/db/product"
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/internal/routes"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
+	"github.com/smithersai/smithers/packages/backend/internal/webhook"
+	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/smithersai/smithers/packages/backend/microsandbox"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
@@ -95,7 +102,7 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 			return (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(cfg.Install.StateDir, "run/host.sock"))
 		}}
 		defer transport.CloseIdleConnections()
-		client := &http.Client{Transport: transport}
+		client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
 		response, err := client.Post("http://install/maintenance/quiesce", "application/json", strings.NewReader(`{"op":"backup-cli"}`))
 		require.NoError(t, err)
 		body, err := io.ReadAll(response.Body)
@@ -182,7 +189,7 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, "live-state", string(bytes))
 					if tc.status == 204 {
-						client := &http.Client{Transport: transport}
+						client := &http.Client{Transport: transport, Timeout: 20 * time.Second}
 						post := func(body string) (int, []byte) {
 							response, err := client.Post("http://install/maintenance/quiesce", "application/json", strings.NewReader(body))
 							require.NoError(t, err)
@@ -214,6 +221,233 @@ func TestInstallQuiesceRouteGate(t *testing.T) {
 							}
 						}
 						require.Equal(t, 1, captures)
+
+						t.Run("production persistence barriers", func(t *testing.T) {
+							saved := service.Barriers
+							savedHost := service.Host
+							defer func() { service.Barriers = saved; service.Host = savedHost }()
+							bindings, err := flowhost.NewStore(pool, webhook.NoopSecretCodec{})
+							require.NoError(t, err)
+							jobsStore, err := jobs.NewStore(pool)
+							require.NoError(t, err)
+							stoppedHosts := []string{}
+							composeInstallQuiesceBarriers(service, pool, new(machined.Registry), &flowComposition{pool: pool, bindings: bindings, jobs: jobsStore, stopper: quiesceHostStopFixture{stopped: &stoppedHosts}})
+							service.Barriers["T-COL-09"] = steps
+							response, err := client.Get("http://install/maintenance/check")
+							require.NoError(t, err)
+							refusal, err := io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 503, response.StatusCode)
+							require.Contains(t, string(refusal), "waiting on smithers-3f root-input validation")
+							for _, ticket := range []string{"T-STK-04", "T-GH-09", "T-TRM-07", "T-COL-08"} {
+								require.NotContains(t, string(refusal), ticket+" required")
+							}
+							require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+							require.Zero(t, freezes)
+							// A persisted ready freeze must not bypass security
+							// for authority export or the privileged health wake.
+							persisted := fmt.Sprintf(`{"op":"retained-upgrade","by":%d,"since":%q,"lease_until":%q,"ready":true}`, owner.ID, time.Now().UTC().Format(time.RFC3339Nano), time.Now().Add(time.Minute).UTC().Format(time.RFC3339Nano))
+							require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "quiesce", Value: []byte(persisted)}))
+							marker := filepath.Join(state, ".upgrade-incomplete")
+							require.NoError(t, os.WriteFile(marker, []byte("retained"), 0600))
+							wakes := 0
+							service.HealthWake = func(context.Context, int64, string) error { wakes++; return nil }
+							response, err = client.Post("http://install/maintenance/health/wake", "application/json", strings.NewReader(`{"op":"retained-upgrade"}`))
+							require.NoError(t, err)
+							refusal, err = io.ReadAll(response.Body)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 503, response.StatusCode)
+							require.Contains(t, string(refusal), "waiting on smithers-3f root-input validation")
+							require.Zero(t, wakes)
+							require.ErrorContains(t, service.RequireReady(ctx, "retained-upgrade", owner.ID), "waiting on smithers-3f root-input validation")
+							require.NoError(t, os.Remove(marker))
+							_, err = pool.Exec(ctx, `DELETE FROM install_settings WHERE key='quiesce'`)
+							require.NoError(t, err)
+							service.HealthWake = nil
+							// Replace security only in this Linux transport rehearsal.
+							// Capture, wiki and VM stop remain recording providers; this
+							// does not qualify the Mac install. Production stays closed.
+							service.Barriers["T-SEC-01"] = steps
+							var repository int64
+							require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name) VALUES($1,'quiesce-stack','quiesce-stack') RETURNING id`, owner.ID).Scan(&repository))
+							require.NoError(t, func() error {
+								_, err := pool.Exec(ctx, `INSERT INTO flow_runtime_host_bindings(id,tenant_id,principal_id,binding_kind,binding_id,repository_id,user_id,workspace_id,catalog_key,service_name,runtime_artifact_digest,source_revision,owner_generation,credential_ciphertext,credential_hash,state,service_identity)
+                                VALUES('10000000-0000-4000-8000-000000000001','install','owner','browser','fixture',$1,$2,'10000000-0000-4000-8000-000000000002','coding','smithers-coding-host',$3,$4,1,'fixture',decode(repeat('00',32),'hex'),'running','retained-host')`, repository, owner.ID, strings.Repeat("a", 64), strings.Repeat("b", 40))
+								return err
+							}())
+							var item string
+							require.NoError(t, pool.QueryRow(ctx, `INSERT INTO mythical_items(repository_id,number,pending_op) VALUES($1,17,'{"kind":"merge","target":"17","desired":"merged","state":"unknown"}') RETURNING id::text`, repository).Scan(&item))
+							status, body := post(`{"op":"merge-refusal"}`)
+							require.Equal(t, 503, status, string(body))
+							require.Contains(t, string(body), "merge in flight: TODO 1")
+							require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+							require.Zero(t, freezes)
+							_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op='{}' WHERE id=$1::uuid`, item)
+							require.NoError(t, err)
+							status, body = post(`{"op":"malformed-refusal"}`)
+							require.Equal(t, 503, status, string(body))
+							require.Contains(t, string(body), "unreadable outbound operation")
+							_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op=NULL WHERE id=$1::uuid`, item)
+							require.NoError(t, err)
+							_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op='{"kind":"body","target":"17","desired":"digest","state":"unknown"}' WHERE id=$1::uuid`, item)
+							require.NoError(t, err)
+							type outcome struct {
+								status int
+								body   []byte
+								err    error
+							}
+							completed := make(chan outcome, 1)
+							go func() {
+								response, err := client.Post("http://install/maintenance/quiesce", "application/json", strings.NewReader(`{"op":"outbound-drain"}`))
+								if err != nil {
+									completed <- outcome{err: err}
+									return
+								}
+								bytes, err := io.ReadAll(response.Body)
+								closeErr := response.Body.Close()
+								completed <- outcome{response.StatusCode, bytes, errors.Join(err, closeErr)}
+							}()
+							require.Eventually(t, func() bool {
+								var ready bool
+								err := pool.QueryRow(ctx, `SELECT (value->>'ready')::boolean FROM install_settings WHERE key='quiesce'`).Scan(&ready)
+								return err == nil && !ready
+							}, 5*time.Second, 10*time.Millisecond)
+							select {
+							case result := <-completed:
+								t.Fatalf("uncertain write did not drain: %+v", result)
+							default:
+							}
+							var retained string
+							require.NoError(t, pool.QueryRow(ctx, `SELECT pending_op->>'state' FROM mythical_items WHERE id=$1::uuid`, item).Scan(&retained))
+							require.Equal(t, "unknown", retained)
+							_, err = pool.Exec(ctx, `UPDATE mythical_items SET pending_op=NULL WHERE id=$1::uuid`, item)
+							require.NoError(t, err)
+							select {
+							case result := <-completed:
+								require.NoError(t, result.err)
+								require.Equal(t, 200, result.status, string(result.body))
+								require.Contains(t, string(result.body), `"ready":true`)
+							case <-time.After(5 * time.Second):
+								t.Fatal("settled write did not release drain")
+							}
+							require.Equal(t, []string{"10000000-0000-4000-8000-000000000001"}, stoppedHosts)
+							var hostState, hostIdentity string
+							require.NoError(t, pool.QueryRow(ctx, `SELECT state,service_identity FROM flow_runtime_host_bindings WHERE id='10000000-0000-4000-8000-000000000001'`).Scan(&hostState, &hostIdentity))
+							require.Equal(t, "pending", hostState)
+							require.Empty(t, hostIdentity)
+							require.NoError(t, service.Reopen(ctx, "outbound-drain"))
+							status, body = post(`{"op":"production-barriers"}`)
+							require.Equal(t, 200, status, string(body))
+							require.Contains(t, string(body), `"ready":true`)
+							request, err := http.NewRequest("DELETE", "http://install/maintenance/quiesce?op=production-barriers", nil)
+							require.NoError(t, err)
+							response, err = client.Do(request)
+							require.NoError(t, err)
+							require.NoError(t, response.Body.Close())
+							require.Equal(t, 204, response.StatusCode)
+
+							t.Run("awake broker sessions", func(t *testing.T) {
+								branch, err := q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: repository, UserID: owner.ID, Name: "quiesce", TargetBookmark: "scratch/quiesce", Kind: "container", Status: "running"})
+								require.NoError(t, err)
+								_, err = pool.Exec(ctx, `UPDATE workspaces SET vm_id='quiesce-vm' WHERE id=$1::uuid`, branch.ID)
+								require.NoError(t, err)
+								_, err = pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission,unix_login,unix_uid) VALUES($1,$2,'admin','quiesceowner',20001),($1,$3,'write','quiescemember',20002)`, repository, owner.ID, member.ID)
+								require.NoError(t, err)
+								_, err = pool.Exec(ctx, `UPDATE collaborators SET suspended_at=now() WHERE repository_id=$1 AND user_id=$2`, repository, member.ID)
+								require.NoError(t, err)
+								registry := service.Barriers["T-TRM-07"].(installMachineBarrier).registry
+								authority, err := registry.MintBoot(branch.ID, "quiesce-vm")
+								require.NoError(t, err)
+								link, peer := externalTranscriptLink(t, registry, branch.ID, authority)
+								require.NoError(t, link.Reconciled())
+								require.NoError(t, peer.SetDeadline(time.Now().Add(15*time.Second)))
+								var burst atomic.Bool
+								burst.Store(true)
+								killed := make(chan machined.SessionUser, 4)
+								peerErrors := make(chan error, 1)
+								go func() {
+									defer peer.Close()
+									for {
+										frame, err := wire.Read(peer)
+										if err != nil {
+											peerErrors <- err
+											return
+										}
+										request, method, args, err := frame.Request()
+										if err != nil {
+											peerErrors <- err
+											return
+										}
+										var fields [][]byte
+										switch wire.Method(method) {
+										case wire.Status:
+											idle := byte(1)
+											if burst.Load() {
+												idle = 0
+											}
+											fields = [][]byte{wire.Field(1, []byte{3}), wire.Field(2, wire.U16(16)), wire.Field(3, wire.String("smithers-machined")), wire.Field(4, wire.U32(0)), wire.Field(5, make([]byte, 20)), wire.Field(6, wire.U16(0)), wire.Field(7, []byte{idle}), wire.Field(8, []byte{1})}
+										case wire.KillSessions:
+											target, err := wire.Fields("args9", args)
+											if err != nil {
+												peerErrors <- err
+												return
+											}
+											if target[1][0] != 1 {
+												peerErrors <- errors.New("expected user kill selector")
+												return
+											}
+											selected, err := wire.Fields("target_user", target[1][1:])
+											if err != nil {
+												peerErrors <- err
+												return
+											}
+											user, err := wire.Fields("user", selected[1])
+											if err != nil {
+												peerErrors <- err
+												return
+											}
+											killed <- machined.SessionUser{Login: string(user[1][2:]), UID: binary.BigEndian.Uint32(user[2])}
+											fields = [][]byte{wire.Field(1, wire.U16(1))}
+										default:
+											peerErrors <- fmt.Errorf("unexpected broker method %d", method)
+											return
+										}
+										if err := wire.Write(peer, wire.Frame{Kind: wire.Control, Payload: wire.Union(2, wire.Field(1, wire.U32(request)), wire.Field(2, wire.Union(method, fields...)))}); err != nil {
+											peerErrors <- err
+											return
+										}
+									}
+								}()
+								// Document persistence/capture has its own machine proof.
+								// This recording peer exercises burst status and broker kills.
+								priorDocuments := service.Barriers["T-COL-08"]
+								service.Barriers["T-COL-08"] = steps
+								defer func() { service.Barriers["T-COL-08"] = priorDocuments; peer.Close() }()
+								status, body := post(`{"op":"open-burst"}`)
+								select {
+								case peerErr := <-peerErrors:
+									require.NoError(t, peerErr)
+								default:
+								}
+								require.Equal(t, 503, status, string(body))
+								require.Contains(t, string(body), "open burst: scratch/quiesce")
+								require.Empty(t, killed)
+								require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM install_settings WHERE key='quiesce'`).Scan(&freezes))
+								require.Zero(t, freezes)
+								burst.Store(false)
+								status, body = post(`{"op":"broker-sessions"}`)
+								require.Equal(t, 200, status, string(body))
+								require.Len(t, killed, 3)
+								require.Equal(t, machined.SessionUser{Login: "agent", UID: 19999}, <-killed)
+								require.Equal(t, machined.SessionUser{Login: "quiesceowner", UID: 20001}, <-killed)
+								require.Equal(t, machined.SessionUser{Login: "quiescemember", UID: 20002}, <-killed)
+								require.NoError(t, service.Reopen(ctx, "broker-sessions"))
+								_, err = pool.Exec(ctx, `UPDATE workspaces SET status='suspended' WHERE id=$1::uuid`, branch.ID)
+								require.NoError(t, err)
+							})
+						})
 						for _, missing := range []string{"machines", "admission", "host", "T-STK-04", "T-COL-08", "T-COL-09", "T-GH-09", "T-TRM-07", "T-SEC-01"} {
 							before := len(calls)
 							var absent *installMaintenancePreflightFixture
@@ -411,4 +645,11 @@ type installMaintenanceHeldDrain struct {
 func (s installMaintenanceHeldDrain) Drain(context.Context) error {
 	*s.calls = append(*s.calls, "drain")
 	return s.drain()
+}
+
+type quiesceHostStopFixture struct{ stopped *[]string }
+
+func (f quiesceHostStopFixture) StopFlowHost(_ context.Context, binding flowhost.Binding) error {
+	*f.stopped = append(*f.stopped, binding.ID)
+	return nil
 }
