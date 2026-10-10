@@ -311,9 +311,13 @@ func TestJ8Rehearsal(t *testing.T) {
 		if card.State != "merged" || card.Lessons != 1 {
 			return fmt.Errorf("learning card %s", data)
 		}
+		githubLifecycleBrowserPhase(t, r, todo, "learned", map[string]any{"slug": slug, "squash": squash, "learningRun": attribution.Run})
 		r.actual = fmt.Sprintf("one coding revision by %s; merged T%d has one lesson; served page links merge and steer reason", attribution.Run, todo)
 		return nil
 	})
+	if os.Getenv("SMITHERS_GH03_BROWSER_HARNESS") != "" {
+		return // The browser observes this real receipt; co-editing has its own check.
+	}
 	const (
 		base      = "# Webhook retries\n\nDecision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits.\n"
 		decision  = "Decision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits."

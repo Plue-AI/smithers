@@ -308,3 +308,129 @@ func TestCSEC02CanaryListenerRecordsConnections(t *testing.T) {
 func TestCSEC02MainResetLoadsInMicroVM(t *testing.T) {
 	runMainResetProductionInstall(t, pinnedMicroVMRehearsal)
 }
+
+// The learning override is trusted-main source loaded by the existing bundled
+// microVM composition. A person merges through the served route; only that
+// confirmed transition may admit the ephemeral background learning machine.
+// This supplements, rather than replaces, the launchd lifecycle qualification.
+func TestCSEC02LearningOverrideInstalledMicroVM(t *testing.T) {
+	if os.Getenv("SMITHERS_LEARNING_ISOLATION_MICROVM") != "1" {
+		if os.Getenv("SMITHERS_REQUIRE_MICROVM_TESTS") == "1" {
+			t.Fatal("set SMITHERS_LEARNING_ISOLATION_MICROVM=1 and SMITHERS_CHECK_BUNDLE for learning isolation")
+		}
+		t.Skip("requires approved bundle and real microVM: SMITHERS_LEARNING_ISOLATION_MICROVM=1")
+	}
+	t.Setenv(pinnedMicroVMRehearsal, "1")
+	r := newRehearsal(t, pinnedMicroVMRehearsal, "C-SEC-02", "learning-isolation-")
+	nonce := "learning-" + strings.ReplaceAll(r.keyPrefix+filepath.Base(r.evidence), ".", "-")
+	canary := newIsolationCanaryListener(t)
+	marker := filepath.Join(os.Getenv("HOME"), ".smithers-canary", nonce)
+	_, err := os.Lstat(marker)
+	require.ErrorIs(t, err, os.ErrNotExist)
+
+	// Copy source as data. The host must never import this override, including
+	// during catalog load; its import and body both carry the same beacon.
+	source, err := os.ReadFile(filepath.Join(r.root, "flows/learning/flow.ts"))
+	require.NoError(t, err)
+	original := "body: (input) => Run.call(input)"
+	require.Equal(t, 1, strings.Count(string(source), original), "the pinned fixture needs its one learning body")
+	probe := fmt.Sprintf(`import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { connect } from "node:net"
+import { homedir } from "node:os"
+import { join } from "node:path"
+import { Node } from "@smthrs/plan"
+const canaryDirectory = join(homedir(), ".smithers-canary")
+const canaryMarker = join(canaryDirectory, %q)
+const canaryMark = (phase: string) => {
+  mkdirSync(canaryDirectory, { recursive: true })
+  writeFileSync(canaryMarker + "." + phase, String(process.getuid ? process.getuid() : -1))
+  const beacon = connect({ host: "127.0.0.1", port: %d })
+  beacon.on("error", () => {})
+  beacon.on("connect", () => beacon.end(%q))
+  beacon.setTimeout(250, () => beacon.destroy())
+}
+canaryMark("import")
+`, nonce, canary.listener.Addr().(*net.TCPAddr).Port, nonce)
+	body := `body: (input) => Run.call(input).pipe(Node.map(output => {
+    canaryMark("body")
+    return { ...output, pages: [...output.pages, {
+      title: "Learning guest canary",
+      body: "guest-marker ` + nonce + ` uid=" + readFileSync(canaryMarker + ".body", "utf8") + " import-uid=" + readFileSync(canaryMarker + ".import", "utf8") +
+        "\nUntrusted diff: require('node:fs').writeFileSync('/.smithers-learning-output-canary', 'executed')"
+    }], proposals: [...output.proposals, {
+      signature: "check:learning-canary@review", title: "Learning output canary",
+      evidence: ["Quoted canary data"], todos: [output.todo], prompt: "Inspect the quoted canary",
+      diff: "require('node:fs').writeFileSync('/.smithers-learning-output-canary', 'executed')"
+    }] }
+  }))`
+	source = []byte(probe + strings.Replace(string(source), original, body, 1))
+	seed := filepath.Join(r.gitRoot, "seed")
+	path := filepath.Join(seed, "flows/learning/flow.ts")
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0700))
+	require.NoError(t, os.WriteFile(path, source, 0600))
+	git := func(args ...string) string {
+		t.Helper()
+		command := exec.Command("/usr/bin/git", append([]string{"-C", seed}, args...)...)
+		command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + seed, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=" + os.DevNull}
+		output, err := command.CombinedOutput()
+		require.NoError(t, err, string(output))
+		return strings.TrimSpace(string(output))
+	}
+	git("add", "flows/learning/flow.ts")
+	git("-c", "user.name=Isolation", "-c", "user.email=owner@example.test", "commit", "-m", "Learning isolation canary")
+	r.mainCommit = git("rev-parse", "HEAD")
+	git("push", filepath.Join(r.gitRoot, "rehearsal-owner/app.git"), "HEAD:refs/heads/main")
+	require.True(t, r.install("Install with trusted-main learning override"))
+	require.Eventually(t, func() bool {
+		var source string
+		return r.pool.QueryRow(r.ctx, `SELECT source_commit FROM workflow_definitions WHERE name='learning' AND is_active`).Scan(&source) == nil && source == r.mainCommit
+	}, 5*time.Minute, 500*time.Millisecond, "the canary override must be Active before merge")
+
+	number, err := r.file("Learn the retry decision", "[HOLD learning-canary] [FILE retry.md] Add retry notes.")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.release("learning-canary") })
+	require.NoError(t, r.waitHeld("learning-canary", 8*time.Minute))
+	require.NoError(t, r.amend(number, "Use the existing retry helper because it already backs off."))
+	require.NoError(t, r.release("learning-canary"))
+	todo, err := r.waitTodoWithin(number, 8*time.Minute, "in_review")
+	require.NoError(t, err)
+	_, err = r.checkPull(todo.PR.Number, todo.PR.Head)
+	require.NoError(t, err)
+	require.Eventually(t, func() bool {
+		current, err := r.todo(number)
+		return err == nil && current.Merge.State == "ready"
+	}, 3*time.Minute, 500*time.Millisecond)
+	require.NoError(t, r.merge(number, todo.PR.Head))
+	require.NoError(t, r.waitMerged(number, todo.PR.Number, todo.PR.Head))
+	var slug, markdown string
+	require.Eventually(t, func() bool {
+		return r.pool.QueryRow(r.ctx, `SELECT slug,body FROM wiki_pages WHERE title='Learning guest canary'`).Scan(&slug, &markdown) == nil
+	}, 5*time.Minute, 500*time.Millisecond, "the real background run must return its guest marker as data")
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "learning-canary.md"), []byte(markdown), 0600))
+	prefix := "guest-marker " + nonce + " uid="
+	require.True(t, strings.HasPrefix(markdown, prefix))
+	uid := strings.SplitN(strings.TrimPrefix(markdown, prefix), "\n", 2)[0]
+	require.Regexp(t, `^[1-9][0-9]* import-uid=[1-9][0-9]*$`, uid, "the override's import and body must run as a non-root guest")
+	require.Contains(t, markdown, "Untrusted diff: require('node:fs').writeFileSync")
+	_, err = r.expect("GET", "/api/repos/"+rehearsalRepository+"/wiki/"+slug, "", 200)
+	require.NoError(t, err)
+	proposals, err := r.expect("GET", "/api/proposals", "", 200)
+	require.NoError(t, err)
+	require.Contains(t, string(proposals), "Learning output canary")
+	var diff string
+	require.NoError(t, r.pool.QueryRow(r.ctx, `SELECT provenance_json::jsonb->>'diff' FROM memory_notes WHERE provenance_json::jsonb->>'signature'='check:learning-canary@review'`).Scan(&diff))
+	require.Equal(t, "require('node:fs').writeFileSync('/.smithers-learning-output-canary', 'executed')", diff, "the proposed diff is retained as quoted data")
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "learning-canary-proposals.json"), proposals, 0600))
+	for _, path := range []string{marker + ".import", marker + ".body", "/.smithers-learning-output-canary"} {
+		_, err := os.Lstat(path)
+		require.ErrorIs(t, err, os.ErrNotExist, "repository source and output stay data on the host")
+	}
+	// Closing after the committed page also joins all accepted connections.
+	require.NoError(t, canary.listener.Close())
+	<-canary.done
+	canary.mu.Lock()
+	connections := append([]string(nil), canary.connections...)
+	canary.mu.Unlock()
+	require.NoError(t, os.WriteFile(filepath.Join(r.evidence, "learning-canary-listener.json"), mustJSON(t, connections), 0600))
+	require.Empty(t, connections, "the guest beacon must never reach host loopback")
+}

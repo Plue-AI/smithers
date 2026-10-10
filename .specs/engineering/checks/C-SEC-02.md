@@ -52,3 +52,16 @@ Automation: `packages/backend/internal/compose/flow_isolation_integration_test.g
 ## Evidence
 - Also retain production binding/refusal receipts, guest capture/check location, hostile config host-canary logs, trusted review prompt/hash and framed tool data, exec/write refusal log, generation-specific oversize wait/approval evidence and host-proxy reservation/dispatch journal. Redact credentials and provider keys.
 `.artifacts/checks/C-SEC-02/<UTC timestamp>/`: `process-samples.jsonl`, `lsof-samples.jsonl`, `canary-listener.log`, host and guest `ls` output for the marker path, the `flows` projection JSON, step 6 stderr and exit codes, `smthrs host status` output, and the commit and install version.
+
+Learning follow-up (T-FLW-06): `TestCSEC02LearningOverrideInstalledMicroVM`
+in `packages/backend/internal/compose/flow_isolation_integration_test.go`
+uses the existing approved-bundle microVM composition. Run with
+`SMITHERS_LEARNING_ISOLATION_MICROVM=1`, `SMITHERS_CHECK_BUNDLE`, real
+PostgreSQL and the native FFI library. It seeds a trusted-main Active learning
+override, merges through the served person route, and observes the background
+run's import/body UID markers in committed wiki output. Both UIDs must be
+non-root; the host markers and output canary must remain absent and the host
+loopback listener must receive no connections. Source/output bytes remain
+untrusted data. Retain its `learning-canary.md`, listener JSON and composed
+HTTP/engine logs. This entry point is authored and Linux-compiled; its real
+microVM execution and the bundled launchd lifecycle receipts remain pending.
