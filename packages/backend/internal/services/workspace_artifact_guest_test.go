@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -111,8 +113,40 @@ func artifactGuestFixture(t *testing.T) *artifactGuestClient {
 	t.Setenv(workspaceJJExportBinaryEnv, filepath.Join(dir, "missing-helper"))
 	command := "#!/bin/sh\nprintf x >> " + shellQuote(root+"/started") + "\nwhile test ! -f " + shellQuote(root+"/release") + "; do sleep 0.05; done\n"
 	require.NoError(t, os.WriteFile(script, []byte(command), 0700))
+	// Cleanups run last first: release the fixture script, wait for every
+	// detached bootstrap to exit, then let TempDir remove the root.
+	t.Cleanup(func() { waitForGuestProcesses(t, dir) })
 	t.Cleanup(func() { _ = os.WriteFile(root+"/release", nil, 0600) })
 	return &artifactGuestClient{mockWorkspaceSandboxVMClient: &mockWorkspaceSandboxVMClient{}, root: root, script: script}
+}
+
+// waitForGuestProcesses waits until no process names dir. finishWorkspaceArtifacts
+// starts the bootstrap with setsid in the background, so it outlives the call
+// even when the bootstrap is already done (it still takes the lock and sweeps
+// orphans). A bootstrap still running when TempDir removes the root recreates
+// its lock file there ("directory not empty").
+func waitForGuestProcesses(t *testing.T, dir string) {
+	t.Helper()
+	require.Eventually(t, func() bool { return !guestProcessNames(dir) }, 30*time.Second, 10*time.Millisecond, "a detached guest process outlived the test")
+}
+
+// guestProcessNames reports whether a live process's command line names dir.
+// Every guest command the fixture runs carries the fixture's own paths.
+func guestProcessNames(dir string) bool {
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if _, err := strconv.Atoi(entry.Name()); err != nil {
+			continue
+		}
+		cmdline, err := os.ReadFile("/proc/" + entry.Name() + "/cmdline")
+		if err == nil && bytes.Contains(cmdline, []byte(dir)) {
+			return true
+		}
+	}
+	return false
 }
 func TestWorkspaceArtifactInterruptedReplayGuest(t *testing.T) {
 	client := artifactGuestFixture(t)
