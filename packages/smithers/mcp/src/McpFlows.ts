@@ -56,8 +56,9 @@ export const Result = Schema.Struct({
  * rejects anything that does not have exactly those three colon-separated
  * components. An unparseable declaration counts as unauthorized. The list is
  * derived from `Capability.Action.literals`, so adding a host action cannot
- * silently omit it from MCP tools, and it is frozen because every binding
- * shares this reference.
+ * silently omit it from MCP tools, and it is frozen so no caller can narrow
+ * or widen what every tool declares. Each binding records it deduplicated and
+ * sorted, as `FlowBinding.make` records every declaration.
  *
  * @category constants
  * @since 1.0.0-rc.0

@@ -56,15 +56,16 @@ describe("package manifest and README", () => {
     )
   })
 
-  it("keeps the source tree's docs out of the published tarball", () => {
+  it("ships the whole docs tree, never a partial glob of it", () => {
     const manifest = JSON.parse(
       readFileSync(new URL("../package.json", import.meta.url), "utf8")
     ) as { readonly files: ReadonlyArray<string> }
 
     // `docs/*.md` shipped the four top-level pages and none of the `guides/`
     // and `concepts/` pages they link to, so the tarball carried a docs tree
-    // whose own links were broken. mcp.smithers.sh is the whole tree.
-    expect(manifest.files.some((pattern) => pattern.startsWith("docs/"))).toBe(false)
+    // whose own links were broken. Every public package now ships its whole
+    // `docs/` tree (`scripts/package-docs.test.mjs`), so those links resolve.
+    expect(manifest.files.filter((pattern) => pattern.startsWith("docs"))).toEqual(["docs/"])
     expect(manifest.files).toContain("README.md")
   })
 })

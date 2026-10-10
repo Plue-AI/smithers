@@ -117,7 +117,8 @@ describe("McpFlows.mcp", () => {
     expect(source.name).toBe("mcp/echo")
     expect(bindings).toHaveLength(1)
     expect(bindings[0]!.descriptor.name).toBe("mcp/echo/add")
-    expect(bindings[0]!.descriptor.capabilities).toEqual(McpFlows.capabilities)
+    // FlowBinding records a declaration's capabilities deduplicated and sorted (#3692).
+    expect(bindings[0]!.descriptor.capabilities).toEqual([...McpFlows.capabilities].sort())
   })
 
   it("derives one capability declaration for every host action", () => {
