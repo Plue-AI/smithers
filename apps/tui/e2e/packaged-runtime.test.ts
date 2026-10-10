@@ -49,6 +49,8 @@ for (const runtime of ["node", "compiled"] as const) {
       cpSync(join(cli, "package.json"), join(installedCli, "package.json"))
       cpSync(join(cli, "vendor"), join(installedCli, "vendor"), { recursive: true })
       cpSync(join(cli, "dist/tui"), join(installedCli, "dist/tui"), { recursive: true })
+      // The bundle loads the pinned private Effect adapters from `dist/vendor`.
+      cpSync(join(cli, "dist/vendor"), join(installedCli, "dist/vendor"), { recursive: true })
       // The platform package has only its published helper, with no checkout
       // target directory available to repair a missing release file.
       const native = join(modules, "@smthrs/platform-node")
@@ -117,14 +119,17 @@ for (const runtime of ["node", "compiled"] as const) {
       }
       await tui.press(key.enter)
       await tui.until(
-        (screen) => /pong/i.test(screen) && screen.includes("Done") && !screen.includes("esc Interrupt"),
+        // The answer on its own row; the composer's model line also names pong.jsonl.
+        (screen) => /^\s+pong\s*$/m.test(screen) && drawn(screen) && !screen.includes("esc Interrupt"),
         30_000,
         `${runtime} chat`
       )
       await tui.type(`/flow echo text="${runtime} dynamic flow result"`)
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("✓ echo"), 30_000, "dynamic flow completed")
-      await tui.press(key.ctrlBracket + key.ctrlBracket)
+      // A flow ends in a chat card (d6300e6f9b): a click focuses it, enter opens its run.
+      await tui.click("✓ echo")
+      await tui.press(key.enter)
       const result = await tui.until(
         (screen) => screen.includes(`${runtime} dynamic flow result`),
         5_000,
@@ -139,14 +144,11 @@ for (const runtime of ["node", "compiled"] as const) {
       await tui.type("/flow composed")
       await tui.press(key.enter)
       await tui.until((screen) => /[✓✗] composed/.test(screen), 30_000, "composed flow settled")
-      await tui.click("composed")
-      const composed = await tui.until(
-        (screen) => screen.includes("composed action callback output") || screen.includes("composed · failed"),
-        5_000,
-        "composed flow outcome"
-      )
+      await tui.click("composed ·")
+      await tui.press(key.enter)
+      const composed = await tui.until((screen) => /▸ [✓✗] composed/.test(screen), 5_000, "composed flow run")
       expect(composed).toContain("composed action callback output")
-      expect(composed).toContain("composed · done")
+      expect(composed).toContain("▸ ✓ composed")
       expect(composed).not.toContain("does not drive")
       expect(composed).not.toContain("✗ composed")
     } catch (error) {

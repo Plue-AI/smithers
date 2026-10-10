@@ -77,6 +77,8 @@ const installation = (root: string, dependencies: boolean) => {
       } else symlinkSync(realpathSync(from), join(modules, entry))
     }
     cpSync(join(cli, "dist/tui"), join(directory, "tui"), { recursive: true })
+    // The bundle loads the pinned private Effect adapters from its sibling `dist/vendor`.
+    cpSync(join(cli, "dist/vendor"), join(directory, "vendor"), { recursive: true })
   }
   return { directory, installed, library: join(installed, "vendor/opentui-native", target, artifact.file) }
 }
