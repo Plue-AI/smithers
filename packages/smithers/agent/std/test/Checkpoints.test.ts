@@ -190,7 +190,9 @@ describe("Checkpoints.makeGit capture", () => {
       ...opened,
       init,
       `${workspace} rev-parse --verify --quiet HEAD^{commit}`,
-      "sh -c set -C; if [ -e \"$1\" ]; then cat -- \"$1\" > \"$2\"; fi sh /work/repo/.git/index <shadow>/index",
+      // The copy takes the index's modification time before its bytes (#3431).
+      "sh -c set -C; if [ -e \"$1\" ]; then : > \"$2.at\" && touch -r \"$1\" -- \"$2.at\" && cat -- \"$1\" > \"$2\" && "
+      + "touch -r \"$2.at\" -- \"$2\" && rm -f -- \"$2.at\"; fi sh /work/repo/.git/index <shadow>/index",
       `${shadow} ${guarded} update-ref --no-deref HEAD head999`,
       `${shadow} --work-tree=/work/repo ${guarded} stash create flows checkpoint cp-0-1`,
       "rm -rf -- <shadow>",

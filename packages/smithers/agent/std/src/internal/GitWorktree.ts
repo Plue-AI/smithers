@@ -179,9 +179,27 @@ export interface Shadow {
     args: ReadonlyArray<string>,
     workTree?: string
   ) => Effect.Effect<Exec.ExecResult, StdError.StdError, ChildProcessSpawner>
-  /** Copies the workspace index into the shadow, so the shadow never writes the agent's own. */
+  /**
+   * Copies the workspace index into the shadow, with its modification time, so
+   * the shadow never writes the agent's own.
+   *
+   * The time is part of what git reads. It trusts an entry's recorded stat
+   * unless the entry is at least as new as the index file, in whole seconds;
+   * a copy stamped at the moment of copying made every entry look older, and a
+   * same-size edit from the second the index was written was recorded as the
+   * committed bytes (#3431). The time is taken before the bytes are read, so
+   * an index rewritten meanwhile leaves the copy looking older, never newer.
+   */
   readonly adoptIndex: Effect.Effect<void, StdError.StdError, ChildProcessSpawner>
 }
+
+/** The `adoptIndex` script: `$1` is the workspace index, `$2` the shadow's. */
+const adoptIndexScript = [
+  "set -C",
+  "if [ -e \"$1\" ]",
+  "then : > \"$2.at\" && touch -r \"$1\" -- \"$2.at\" && cat -- \"$1\" > \"$2\" && touch -r \"$2.at\" -- \"$2\" && rm -f -- \"$2.at\"",
+  "fi"
+].join("; ")
 
 const shadowOf = (repository: Repository, path: string): Shadow => ({
   path,
@@ -200,7 +218,7 @@ const shadowOf = (repository: Repository, path: string): Shadow => ({
     ),
   adoptIndex: run("sh", [
     "-c",
-    "set -C; if [ -e \"$1\" ]; then cat -- \"$1\" > \"$2\"; fi",
+    adoptIndexScript,
     "sh",
     repository.index,
     `${path}/index`

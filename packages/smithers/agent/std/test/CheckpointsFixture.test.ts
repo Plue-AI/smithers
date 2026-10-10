@@ -176,6 +176,48 @@ describe("Checkpoints over a real repository", () => {
     expect(git(root, ["status", "--porcelain"])).toContain("M mod.py")
   }, 60_000)
 
+  /**
+   * #3431. Git trusts an index entry's recorded stat unless the entry is at
+   * least as new as the index file, compared in whole seconds. An edit that
+   * keeps a file's size, made in the second the index was written, is caught
+   * by that rule alone. A capture that copies the index to a new file, in a
+   * later second, makes the copy look newer than the edit, and git reads the
+   * file as unchanged: the checkpoint held the committed bytes.
+   */
+  it("records a same-size edit made in the second the workspace index was written", async () => {
+    const second = (path: string) => Math.floor(statSync(path).mtimeMs / 1000)
+    let root = ""
+    let shared = false
+    for (let attempt = 0; attempt < 5 && !shared; attempt++) {
+      if (root !== "") rmSync(root, { recursive: true, force: true })
+      // Start just inside a second, so the commit and the edit can share it.
+      await new Promise((resolve) => setTimeout(resolve, 1_005 - (Date.now() % 1_000)))
+      root = repository("flows-checkpoint-racy-")
+      // The same length as the committed line.
+      writeFileSync(join(root, "mod.py"), "value = 'replaced'\n")
+      shared = second(join(root, ".git", "index")) === second(join(root, "mod.py"))
+    }
+    try {
+      expect(shared, "the commit and the edit never shared a second on this host").toBe(true)
+      // The capture runs in a later second, when a fresh copy is newer than the edit.
+      const written = second(join(root, ".git", "index"))
+      while (Math.floor(Date.now() / 1_000) <= written) await new Promise((resolve) => setTimeout(resolve, 25))
+
+      const held = await Effect.runPromise(Effect.gen(function*() {
+        const checkpoints = yield* store(root)
+        yield* checkpoints.capture("cp-racy")
+        return yield* checkpoints.materialize(
+          "cp-racy",
+          (found) => Effect.sync(() => readFileSync(join(found.host, "mod.py"), "utf8"))
+        )
+      }))
+
+      expect(held).toBe("value = 'replaced'\n")
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 60_000)
+
   it("leaves the repository's own index exactly as it found it", async () => {
     // The agent runs git in this workspace and its `git diff` is the run's
     // evidence. A capture that staged anything would be the harness editing the
