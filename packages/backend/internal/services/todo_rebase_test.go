@@ -214,9 +214,11 @@ func TestCandidateAvailablePrefix(t *testing.T) {
 	st.items[1].CandidateVerified = true
 	require.Equal(t, "two", st.prefix(third))
 	st.items[0].State = "landed"
-	require.Equal(t, "main", st.prefix(third), "a stale earlier candidate cannot contribute after its base disappears")
-	st.items[0] = first
+	// 1e26a590f4: a landed verified candidate keeps its chain until main folds.
+	require.Equal(t, "two", st.prefix(third), "a merge observed before the main fold keeps the verified prefix")
 	st.r.mainTip = "new-main"
+	require.Equal(t, "new-main", st.prefix(third), "a stale earlier candidate cannot contribute after its base disappears")
+	st.items[0] = first
 	require.Equal(t, "new-main", st.prefix(third))
 	st.items = []db.MythicalItem{third, first}
 	require.Equal(t, "new-main", st.prefix(third), "later verified items are outside this prefix")

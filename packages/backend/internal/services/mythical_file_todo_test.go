@@ -65,7 +65,8 @@ func TestMythicalGitHubCreateIssueAndAccount(t *testing.T) {
 	issue, err := api.CreateIssue(context.Background(), stackRepo, "T", "B")
 	require.NoError(t, err)
 	assert.Equal(t, mythicalIssue{Number: 9, Title: "T", Body: "B", URL: "https://github.com/o/r/issues/9", State: "open",
-		Author: gitHubActor{Login: "app[bot]", Type: "Bot"}, ViaApp: true}, issue, "an answer never vouches for its own text")
+		// a0737153bf reads the writing App's numeric identity.
+		Author: gitHubActor{Login: "app[bot]", Type: "Bot"}, ViaApp: true, AppID: 1}, issue, "an answer never vouches for its own text")
 	account, err := api.Account(context.Background(), stackRepo, 42)
 	require.NoError(t, err)
 	assert.Equal(t, gitHubActor{ID: 42, Login: "roninjin10", Type: "User"}, account)

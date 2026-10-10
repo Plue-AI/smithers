@@ -231,7 +231,9 @@ func TestFactoryReconcileUsesConfiguredOrganizationOwner(t *testing.T) {
 	})
 	_, err = pool.Exec(ctx, `INSERT INTO org_members (organization_id, user_id, role) VALUES ($1, $2, 'owner')`, org, nextOwner)
 	require.NoError(t, err)
-	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status) VALUES ($1, $2, $3, 'running')`, nextWorkspace, repo, nextOwner)
+	// Since 0108_branch_machines.sql one active workspace exists per
+	// (repository, kind, bookmark, name); the new owner's has its own name.
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status, name) VALUES ($1, $2, $3, 'running', $4)`, nextWorkspace, repo, nextOwner, nextWorkspace)
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, `UPDATE organizations SET factory_owner_id=$2 WHERE id=$1`, org, nextOwner)
 	require.NoError(t, err)
@@ -366,7 +368,7 @@ func TestFactoryOwnerChangeWaitsForWorkspaceWithoutRunningPreviousOwnersWork(t *
 	require.Equal(t, noWorkspace, again, "retry must not disturb manual or intentionally paused registrations")
 
 	workspace := uuid.NewString()
-	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status) VALUES ($1, $2, $3, 'running')`, workspace, repo, nextOwner)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status, name) VALUES ($1, $2, $3, 'running', $4)`, workspace, repo, nextOwner, workspace)
 	require.NoError(t, err)
 	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, revision, projection), "the same revision must retry after workspace creation")
 	recovered, err := q.ListRepositoryJobRegistrations(ctx, repo)
@@ -417,7 +419,7 @@ func TestFactoryOwnerChangeWaitsForWorkspaceWithoutRunningPreviousOwnersWork(t *
 	_, err = q.PauseRepositoryJob(ctx, db.PauseRepositoryJobParams{RepositoryID: repo, Job: queued.Job})
 	require.NoError(t, err)
 	thirdWorkspace := uuid.NewString()
-	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status) VALUES ($1, $2, $3, 'running')`, thirdWorkspace, repo, thirdOwner)
+	_, err = pool.Exec(ctx, `INSERT INTO workspaces (id, repository_id, user_id, status, name) VALUES ($1, $2, $3, 'running', $4)`, thirdWorkspace, repo, thirdOwner, thirdWorkspace)
 	require.NoError(t, err)
 	require.NoError(t, service.ReconcileFactoryRules(ctx, repo, revision, projection))
 	afterPause, err := q.ListRepositoryJobRegistrations(ctx, repo)

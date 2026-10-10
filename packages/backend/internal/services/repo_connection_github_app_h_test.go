@@ -282,11 +282,13 @@ func TestRepoConnectionGitHubApp_H_CreateTokenHTTPBranches(t *testing.T) {
 		wantStatus   int
 		wantContains string
 	}{
-		{"installation gone", http.StatusNotFound, `{}`, http.StatusNotFound, "github installation is not installed"},
-		{"forbidden message", http.StatusForbidden, `{"message":"denied"}`, http.StatusForbidden, "github refused the installation token request"},
-		{"server fallback", http.StatusInternalServerError, `{}`, http.StatusInternalServerError, "github installation token request was rejected"},
-		{"missing token", http.StatusCreated, `{"expires_at":"2026-07-07T15:00:00Z"}`, http.StatusInternalServerError, "github installation token response was invalid"},
-		{"invalid expiry", http.StatusCreated, `{"token":"ghs_bad","expires_at":"not-time"}`, http.StatusInternalServerError, "github installation token response was invalid"},
+		// GitHub failures are typed dependency failures (502) with fixed text;
+		// only the token endpoint's 404 is github_not_installed (263c41d3d8).
+		{"installation gone", http.StatusNotFound, `{}`, http.StatusBadGateway, "GitHub App installation not found"},
+		{"forbidden message", http.StatusForbidden, `{"message":"denied"}`, http.StatusBadGateway, "GitHub access denied"},
+		{"server fallback", http.StatusInternalServerError, `{}`, http.StatusBadGateway, "GitHub request failed"},
+		{"missing token", http.StatusCreated, `{"expires_at":"2026-07-07T15:00:00Z"}`, http.StatusBadGateway, "GitHub installation token response was invalid"},
+		{"invalid expiry", http.StatusCreated, `{"token":"ghs_bad","expires_at":"not-time"}`, http.StatusBadGateway, "GitHub installation token response was invalid"},
 	}
 	for i, tc := range cases {
 		tc := tc

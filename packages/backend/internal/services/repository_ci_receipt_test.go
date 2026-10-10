@@ -76,8 +76,9 @@ func (f *repositoryCiReceiptFixture) put(t *testing.T, requestID string, edit fu
 }
 
 // repositoryCiExtraWorkspace adds a second active workspace to the fixture's
-// repository. uq_workspaces_active allows one per (repository, user, kind), so
-// it gets its own user.
+// repository, owned by its own user. Since 0108_branch_machines.sql
+// uq_workspaces_active allows one per (repository, kind, bookmark, name), so it
+// also gets its own name.
 func (f *repositoryCiReceiptFixture) extraWorkspace(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
@@ -88,7 +89,7 @@ func (f *repositoryCiReceiptFixture) extraWorkspace(t *testing.T) string {
 		`INSERT INTO users (username, lower_username, email, lower_email, display_name) VALUES ($1,$1,$2,$2,'CI') RETURNING id`,
 		name, name+"@test.com").Scan(&userID))
 	t.Cleanup(func() { _, _ = f.pool.Exec(context.Background(), `DELETE FROM users WHERE id=$1`, userID) })
-	_, err := f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status) SELECT $1,repository_id,$2,'running' FROM repository_job_registrations WHERE id=$3`, id, userID, f.registrationID)
+	_, err := f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,status,name) SELECT $1,repository_id,$2,'running',$4 FROM repository_job_registrations WHERE id=$3`, id, userID, f.registrationID, name)
 	require.NoError(t, err)
 	return id
 }

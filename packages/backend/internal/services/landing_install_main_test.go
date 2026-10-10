@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 )
@@ -73,12 +74,11 @@ func TestLandingService_InstallRefusesLandingOntoMain(t *testing.T) {
 		assert.Equal(t, 403, landingAPIStatus(t, err), "auto-land onto %s", target)
 	}
 
-	// Install landing onto another bookmark, and hosted landing onto main,
-	// pass admission and reach the repository host.
+	// Hosted landing onto main passes admission and reaches the repository host.
 	for _, tc := range []struct {
 		target  string
 		install bool
-	}{{"feature", true}, {"main", false}, {"trunk", false}} {
+	}{{"main", false}, {"trunk", false}} {
 		q, rh, calls := landing(tc.target)
 		svc := NewLandingService(q, rh, WithLandingInstallMainMirror(tc.install))
 		_, err := svc.LandLandingRequest(context.Background(), actor, "owner", "demo", 5, LandLandingRequestInput{CommitID: "k1"})
@@ -89,6 +89,39 @@ func TestLandingService_InstallRefusesLandingOntoMain(t *testing.T) {
 		}
 		assert.NotZero(t, *calls, "%+v did not reach the repository host", tc)
 	}
+}
+
+// Install landing onto another bookmark passes the main refusal, then the
+// catalog's merge decision (642c9b18ef), which reads the install's roster and
+// the person's stored session, and reaches the repository host.
+func TestLandingService_InstallLandsOntoAnotherBookmarkThroughTheCatalog(t *testing.T) {
+	pool := newProductTestPool(t)
+	ctx := context.Background()
+	userID, repoID := setupTestUserAndRepo(t, pool)
+	q := db.New(pool)
+	owner, err := q.GetUserByID(ctx, userID)
+	require.NoError(t, err)
+	repo, err := q.GetRepoByID(ctx, repoID)
+	require.NoError(t, err)
+	_, err = pool.Exec(ctx, `INSERT INTO self_host_owners(user_id) VALUES($1)`, userID)
+	require.NoError(t, err)
+	ctx = registerTestInstallCredential(t, pool, middleware.ContextWithAuthInfo(ctx, &middleware.AuthInfo{User: &owner, SessionHash: "landing-owner-session"}), repoID)
+	row, err := q.CreateLandingRequest(ctx, db.CreateLandingRequestParams{RepositoryID: repoID, Title: "feature", AuthorID: userID, TargetBookmark: "feature", StackSize: 1})
+	require.NoError(t, err)
+	_, err = q.AddLandingRequestChange(ctx, db.AddLandingRequestChangeParams{LandingRequestID: row.ID, ChangeID: "k-a", PositionInStack: 1})
+	require.NoError(t, err)
+	calls := 0
+	rh := &mockLandingRepoHostClient{getChangeFn: func(context.Context, string, string, string) (repohost.Change, error) {
+		calls++
+		return repohost.Change{}, nil
+	}}
+	_, err = NewLandingService(q, rh, WithLandingInstallMainMirror(true)).LandLandingRequest(ctx, &owner, owner.Username, repo.Name, row.Number, LandLandingRequestInput{CommitID: "k1"})
+	if err != nil {
+		apiErr, ok := err.(*pkgerrors.APIError)
+		require.True(t, ok, "%v", err)
+		assert.NotEqual(t, pkgerrors.CodePermission, apiErr.Code, "%v", err)
+	}
+	assert.NotZero(t, calls, "install landing onto feature did not reach the repository host")
 }
 
 // An auto-land intent recorded before the install refused it never enqueues

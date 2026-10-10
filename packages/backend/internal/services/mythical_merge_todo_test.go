@@ -2278,7 +2278,11 @@ func TestMythicalStandingPreapprovalRestartMatrix(t *testing.T) {
 			}
 			for boot := 0; boot < 2; boot++ {
 				userRepos := NewGitHubUserReposService(h.q, fakeOAuthTokenDecrypter{token: "ghu_githubfake_owner"})
+				scratch := h.service.scratchRoot
 				h.service = NewMythicalService(h.pool, h.host)
+				// A restart keeps the install's disk; never the host's shared
+				// default, where another process may hold repo-1.git's lock.
+				h.service.scratchRoot = scratch
 				h.service.SetOrchestration(NewMythicalGitHub(h.q, h.connections, userRepos, h.connections), nil, nil)
 				h.service.SetPolicyReader(mergePolicy())
 				h.service.EnableTodoPublication(h.credentials, h.connections, NewBudgetTracker())
