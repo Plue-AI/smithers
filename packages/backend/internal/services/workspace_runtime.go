@@ -346,7 +346,10 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	// Admission updates the stage/updated_at before vm_id is published; the
 	// caller's pre-admission snapshot cannot fence the failure write.
 	defer func() {
-		if resultErr == nil || isNoCapacityError(resultErr) || (row.Status != "pending" && row.Status != "starting") {
+		// A reclaimed branch's restore is a wake, not an initial start: its
+		// retained final capture stays the source of truth, so a failed
+		// restore keeps its recovery markers and stays pending for a retry.
+		if resultErr == nil || isNoCapacityError(resultErr) || (row.Status != "pending" && row.Status != "starting") || row.DiskReclaimedAt.Valid {
 			return
 		}
 		cleanup, cancel := detachedRuntimeContext(ctx, 30*time.Second)

@@ -99,6 +99,18 @@ func (r *sleepCountRuntime) StartWorkspace(ctx context.Context, id string) (work
 	r.starts.Add(1)
 	return r.WorkspaceRuntime.StartWorkspace(ctx, id)
 }
+
+// The preparation receipt is the runtime's one fixed write since 12bccbbc3a;
+// the embedded interfaces do not carry it, so forward it to the process runtime.
+func (r *sleepCountRuntime) WriteRepositoryReceipt(ctx context.Context, id string, content []byte) error {
+	writer, ok := r.WorkspaceRuntime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	})
+	if !ok {
+		return errors.New("runtime has no repository receipt writer")
+	}
+	return writer.WriteRepositoryReceipt(ctx, id, content)
+}
 func (r *sleepCountRuntime) ReadFile(ctx context.Context, id, path string) ([]byte, error) {
 	r.reads.Add(1)
 	contents, err := r.WorkspaceRuntime.ReadFile(ctx, id, path)
