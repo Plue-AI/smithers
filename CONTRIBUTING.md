@@ -405,9 +405,13 @@ node scripts/cut-release.mjs <version>
 That sets every workspace manifest, every internal `@smthrs/*` range, and the
 three sources that repeat the version as a literal
 (`scripts/set-release-version.mjs`), writes the commit section into
-`CHANGELOG.md` (`scripts/generate-changelog.mjs`), and then verifies both with
-the same `--check` invocations `release.yml` runs. It prints the two commands
-to run next and touches git not at all.
+`CHANGELOG.md` (`scripts/generate-changelog.mjs`), refreshes both lockfiles,
+and regenerates the site's CLI data, `.smithers/factory.json` and
+`.smithers/target-index.json`. It then verifies each with the same check
+`release.yml` runs, including `smthrs lint '//:factoryProjection'` and
+`smthrs lint '//:targetIndex'`, so landings that added a flow, source file or
+test since the last regeneration do not turn the drift gates red. It prints
+the three commands to run next and touches git not at all.
 
 Land the prepared version and changelog through the stack's upstream PR. The
 script's legacy `--commit` option commits and tags locally; it does not follow

@@ -154,22 +154,46 @@ test("parseArguments takes one version and refuses a tag", () => {
   assert.throws(() => parseArguments(["1.0.0", "--allow-branch"]), /--allow-branch requires --commit/)
 })
 
-test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, and then verifies all three", () => {
-  assert.deepEqual(steps("1.0.0", { bunLock: true, siteCliData: true }).map((step) => [step.command, ...step.args]), [
+/** Every optional step on, as a tree that tracks all of their inputs and outputs gets. */
+const everyStep = { bunLock: true, siteCliData: true, factoryProjection: true, targetIndex: true }
+
+test("a cut writes both halves, refreshes both tracked lockfiles, regenerates the site CLI data, the factory projection and the target index, and then verifies all five", () => {
+  assert.deepEqual(steps("1.0.0", everyStep).map((step) => [step.command, ...step.args]), [
     [process.execPath, "scripts/set-release-version.mjs", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--version", "1.0.0"],
     ["pnpm", "install", "--lockfile-only", "--ignore-scripts"],
     ["bun", "install", "--lockfile-only", "--ignore-scripts"],
     [process.execPath, "apps/site/scripts/gen-cli-data.mjs"],
+    ["pnpm", "exec", "smthrs", "target", "//:factoryProjection", "--write"],
+    ["pnpm", "exec", "smthrs", "target", "//:targetIndex", "--write"],
     [process.execPath, "scripts/set-release-version.mjs", "--check", "1.0.0"],
     [process.execPath, "scripts/generate-changelog.mjs", "--check", "--version", "1.0.0"],
-    [process.execPath, "apps/site/scripts/gen-cli-data.mjs", "--check"]
+    [process.execPath, "apps/site/scripts/gen-cli-data.mjs", "--check"],
+    ["pnpm", "exec", "smthrs", "lint", "//:factoryProjection"],
+    ["pnpm", "exec", "smthrs", "lint", "//:targetIndex"]
   ])
-  assert.equal(steps("1.0.0", { bunLock: false, siteCliData: true }).some((step) => step.command === "bun"), false)
+  assert.equal(steps("1.0.0", { ...everyStep, bunLock: false }).some((step) => step.command === "bun"), false)
   assert.equal(
-    steps("1.0.0", { bunLock: true, siteCliData: false }).some((step) => step.args[0] === "apps/site/scripts/gen-cli-data.mjs"),
+    steps("1.0.0", { ...everyStep, siteCliData: false }).some((step) => step.args[0] === "apps/site/scripts/gen-cli-data.mjs"),
     false
   )
+  for (const [option, label] of [["factoryProjection", "//:factoryProjection"], ["targetIndex", "//:targetIndex"]]) {
+    const without = steps("1.0.0", { ...everyStep, [option]: false })
+    assert.equal(without.some((step) => step.args.includes(label)), false, `${option}: false drops ${label}`)
+    assert.equal(without.some((step) => step.args.includes(option === "targetIndex" ? "//:factoryProjection" : "//:targetIndex")), true)
+  }
+})
+
+test("the cut verifies the factory projection and the target index with the exact commands the release's drift gates run", () => {
+  const release = readFileSync(join(scriptsDirectory, "../.github/workflows/release.yml"), "utf8")
+  const lints = steps("1.0.0", everyStep).filter((step) => step.args.slice(0, 3).join(" ") === "exec smthrs lint")
+  assert.deepEqual(lints.map((step) => step.args[3]), ["//:factoryProjection", "//:targetIndex"])
+  for (const step of lints) {
+    assert.ok(
+      release.includes(`run: pnpm exec smthrs lint '${step.args[3]}' `),
+      `release.yml gates ${step.args[3]} with the command the cut checks`
+    )
+  }
 })
 
 test("the printed follow-up commits with the repository's message and pushes the tag", () => {
@@ -278,6 +302,82 @@ test("--commit regenerates the site CLI data from the bumped CLI, so the release
     const committed = git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split("\n")
     assert.ok(committed.includes("apps/site/src/data/versions.json"))
     assert.deepEqual(dirtyPaths(root), [], "the regenerated data is in the release commit")
+  })
+})
+
+/**
+ * A stand-in for `smthrs` with the two generators a cut drives. Each output is
+ * the listing of the directory its real generator walks: the target index
+ * rows follow the sources, the factory projection follows `flows/`. So a
+ * landing that adds a file and does not regenerate leaves the checked-in
+ * output stale, as it does in this repository. `target <label> --write`
+ * rewrites a label in `writable`; `lint <label>` fails on drift.
+ */
+const smthrsStandIn = (writable) => `#!${process.execPath}
+const { mkdirSync, readdirSync, readFileSync, writeFileSync } = require("node:fs")
+const [verb, label, flag] = process.argv.slice(2)
+const outputs = { "//:factoryProjection": [".smithers/factory.json", "flows"], "//:targetIndex": [".smithers/target-index.json", "src"] }
+const [path, walked] = outputs[label]
+const text = JSON.stringify(readdirSync(walked).sort(), null, 2) + "\\n"
+if (verb === "target" && flag === "--write") {
+  if (${JSON.stringify(writable)}.includes(label)) { mkdirSync(".smithers", { recursive: true }); writeFileSync(path, text) }
+} else if (verb === "lint" && flag === undefined) {
+  if (readFileSync(path, "utf8") !== text) { console.error("drift: " + path); process.exit(1) }
+} else { console.error("unexpected: " + process.argv.slice(2).join(" ")); process.exit(2) }
+`
+
+const smthrsIn = (root, args) => execFileSync("pnpm", ["exec", "smthrs", ...args], { cwd: root, encoding: "utf8", stdio: "pipe" })
+
+/**
+ * Commits generated outputs in step with the tree, then a landing that adds a
+ * source file and a flow without regenerating either: the state every
+ * "drift" red on the release gates started from.
+ */
+const seedDriftedOutputs = (root, writable) => {
+  write(root, "node_modules/.bin/smthrs", smthrsStandIn(writable))
+  chmodSync(join(root, "node_modules/.bin/smthrs"), 0o755)
+  write(root, "src/a.ts", "export const a = 1\n")
+  write(root, "flows/todo/flow.ts", "export default {}\n")
+  write(root, ".smithers/target-index.json", json(["a.ts"]))
+  write(root, ".smithers/factory.json", json(["todo"]))
+  git(root, ["add", "-A"])
+  git(root, ["commit", "-q", "-m", "🔧 build(index): regenerate the target index and the factory projection"])
+  write(root, "src/b.ts", "export const b = 2\n")
+  write(root, "flows/review/flow.ts", "export default {}\n")
+  git(root, ["add", "-A"])
+  git(root, ["commit", "-q", "-m", "✨ feat(flows): add the review flow"])
+  for (const label of ["//:factoryProjection", "//:targetIndex"]) {
+    assert.throws(() => smthrsIn(root, ["lint", label]), (error) => error.status === 1, `${label} starts drifted`)
+  }
+}
+
+test("--commit regenerates the factory projection and the target index a landing left stale, so the release's drift gates pass", () => {
+  withFixture((root) => {
+    seedDriftedOutputs(root, ["//:factoryProjection", "//:targetIndex"])
+
+    const output = cut(root, ["0.2.0", "--commit"])
+
+    assert.match(output, /=== regenerate the factory projection\n[\s\S]*=== regenerate the target index\n/)
+    assert.match(output, /=== verify the factory projection\n[\s\S]*=== verify the target index\n/)
+    assert.deepEqual(JSON.parse(readFileSync(join(root, ".smithers/factory.json"), "utf8")), ["review", "todo"])
+    assert.deepEqual(JSON.parse(readFileSync(join(root, ".smithers/target-index.json"), "utf8")), ["a.ts", "b.ts"])
+    const committed = git(root, ["show", "--pretty=format:", "--name-only", "HEAD"]).split("\n")
+    assert.ok(committed.includes(".smithers/factory.json"), "the projection is in the release commit")
+    assert.ok(committed.includes(".smithers/target-index.json"), "the index is in the release commit")
+    assert.deepEqual(dirtyPaths(root), [])
+    assert.equal(git(root, ["rev-parse", "v0.2.0^{}"]), git(root, ["rev-parse", "HEAD"]))
+    for (const label of ["//:factoryProjection", "//:targetIndex"]) smthrsIn(root, ["lint", label])
+  })
+})
+
+test("a cut whose regenerated target index still drifts stops at verification and tags nothing", () => {
+  withFixture((root) => {
+    seedDriftedOutputs(root, ["//:factoryProjection"])
+    const head = git(root, ["rev-parse", "HEAD"])
+
+    assert.throws(() => cut(root, ["0.2.0", "--commit"]), (error) => /drift: \.smithers\/target-index\.json/.test(String(error.stderr)))
+    assert.equal(git(root, ["tag", "--list", "v0.2.0"]), "", "a drifted cut is never tagged")
+    assert.equal(git(root, ["rev-parse", "HEAD"]), head, "nor committed")
   })
 })
 

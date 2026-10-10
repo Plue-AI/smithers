@@ -11,7 +11,12 @@
  *
  * The site's CLI data (apps/site/src/data) captures the CLI's help banner and
  * version pins, so a bump drifts it, and the release's Site gate checks that
- * drift.
+ * drift. The factory projection (`.smithers/factory.json`, `home.json`) and
+ * the target index (`.smithers/target-index.json`) are generated from the
+ * tree's flows and declarations, so any landing since their last regeneration
+ * that added a flow, a source file or a test drifts them, and the release's
+ * "Factory projection drift" and "Target index drift" gates check that drift.
+ * The cut regenerates all three from the tree it is cutting.
  *
  * The script writes and then re-reads. Writing and verifying are separate
  * passes on purpose: the check is the same one `release.yml` runs, so a cut
@@ -72,6 +77,19 @@ export const nextCommands = (version) => [
 const siteCliDataScript = "apps/site/scripts/gen-cli-data.mjs"
 
 /**
+ * The checked-in output of each workspace generator a cut regenerates, keyed
+ * by its target. `target <label> --write` writes it and `lint <label>` is the
+ * release gate that checks it; a cut skips a label whose output this tree does
+ * not track.
+ */
+const generatedOutputs = {
+  "//:factoryProjection": ".smithers/factory.json",
+  "//:targetIndex": ".smithers/target-index.json"
+}
+
+const smthrs = (name, args) => ({ name, command: "pnpm", args: ["exec", "smthrs", ...args] })
+
+/**
  * Every child invocation a cut makes, in order.
  *
  * Declared as data so the suite can assert the order and the flags without
@@ -79,12 +97,17 @@ const siteCliDataScript = "apps/site/scripts/gen-cli-data.mjs"
  * `release.yml` runs rather than a paraphrase of them. Lockfiles sit between
  * the writes and checks because the frozen install in the release job
  * consumes the bumped manifest ranges. The site's CLI data is captured after
- * the bump because its generator reads the version the bump wrote.
+ * the bump because its generator reads the version the bump wrote. The factory
+ * projection and the target index are written last, over every file the cut
+ * changed, and checked with the same `smthrs lint` labels `release.yml` runs.
  *
  * @since 1.0.0
  * @category utilities
  */
-export const steps = (version, options = { bunLock: true, siteCliData: true }) => [
+export const steps = (
+  version,
+  options = { bunLock: true, siteCliData: true, factoryProjection: true, targetIndex: true }
+) => [
   {
     name: "set the workspace version",
     command: process.execPath,
@@ -114,6 +137,10 @@ export const steps = (version, options = { bunLock: true, siteCliData: true }) =
       args: [siteCliDataScript]
     }]
     : []),
+  ...(options.factoryProjection
+    ? [smthrs("regenerate the factory projection", ["target", "//:factoryProjection", "--write"])]
+    : []),
+  ...(options.targetIndex ? [smthrs("regenerate the target index", ["target", "//:targetIndex", "--write"])] : []),
   {
     name: "verify the workspace version",
     command: process.execPath,
@@ -130,7 +157,9 @@ export const steps = (version, options = { bunLock: true, siteCliData: true }) =
       command: process.execPath,
       args: [siteCliDataScript, "--check"]
     }]
-    : [])
+    : []),
+  ...(options.factoryProjection ? [smthrs("verify the factory projection", ["lint", "//:factoryProjection"])] : []),
+  ...(options.targetIndex ? [smthrs("verify the target index", ["lint", "//:targetIndex"])] : [])
 ]
 
 const run = (root, command, args) => execFileSync(command, args, { cwd: root, stdio: ["ignore", "inherit", "inherit"] })
@@ -232,7 +261,12 @@ export const main = (argv, root = repoRoot) => {
   process.stdout.write(
     "\nThe generated changelog must be regenerated for the exact release commit and checked before tagging.\n"
   )
-  const present = { bunLock: trackedPath(root, "bun.lock"), siteCliData: trackedPath(root, siteCliDataScript) }
+  const present = {
+    bunLock: trackedPath(root, "bun.lock"),
+    siteCliData: trackedPath(root, siteCliDataScript),
+    factoryProjection: trackedPath(root, generatedOutputs["//:factoryProjection"]),
+    targetIndex: trackedPath(root, generatedOutputs["//:targetIndex"])
+  }
   for (const step of steps(options.version, present)) {
     process.stdout.write(`\n=== ${step.name}\n`)
     if (step.command !== "bun") {
