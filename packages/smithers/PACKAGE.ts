@@ -40,27 +40,54 @@ const historyPostgresDatabase = Smithers.Docker.Service({
 const vitest = "pnpm exec vitest run --config vitest.config.ts --environment node"
 
 /**
- * One half of the suite: its results and raw coverage go to a blob, and it
+ * One lane of the suite: its results and raw coverage go to a blob, and it
  * prints no coverage report and checks no thresholds of its own.
  */
-const half = `${vitest} --reporter=blob --coverage.reporter=json` +
+const lane = `${vitest} --reporter=blob --coverage.reporter=json` +
   " --coverage.thresholds.lines=0 --coverage.thresholds.functions=0" +
   " --coverage.thresholds.branches=0 --coverage.thresholds.statements=0"
 
+/** The two longest files: 964 s and 402 s (real lease expiries). */
+const laneOne = ["test/Bin.test.ts", "test/NativeControlExternalPeerRecovery.test.ts"]
+
+/** The next longest files, 46 s to 265 s each. */
+const laneTwo = [
+  "test/ModuleSourceSnapshotCli.test.ts",
+  "test/EndToEnd.test.ts",
+  "test/NativeCancellationCli.test.ts",
+  "test/FileFlowInputCli.test.ts",
+  "test/CloudSandbox.test.ts",
+  "test/DetachedHostResume.test.ts",
+  "test/NativeControlPortable.test.ts",
+  "test/UnifiedCli.test.ts",
+  "test/HistoryVerify.test.ts",
+  "test/ObserveMode.test.ts",
+  "test/TuiRuntimes.test.ts",
+  "test/McpModeCli.test.ts",
+  "test/ModuleHumanWaitBudget.test.ts"
+]
+
+/** Every other file, so a new file joins the third lane without an edit here. */
+const laneThree = [...laneOne, ...laneTwo].map((file) => `--exclude ${file}`).join(" ")
+
 const test = Smithers.Shell.Test({
-  // `Bin.test.ts` took 973 s of a 2309 s ubuntu CI run against the 40-minute
-  // cap, one file after another. It runs beside the other files, and merging
-  // both blobs checks the thresholds over the whole suite as before. The
-  // runner shows a target's first 200 live lines: `github-actions` prints one
-  // line per failed case first, so a red names every failing file before
-  // `dot` prints details that may pass the limit.
+  // The files run one after another (`fileParallelism: false`): 3906 s of
+  // them, measured 2026-10-10 on four pinned cores, against the 40-minute cap.
+  // As two halves the second half alone took 3305 s there and timed out on
+  // the Release gates lane (job 114021383970). Three lanes of about 1300 s
+  // each finished in 1574 s, and merging their blobs checks the thresholds
+  // over the whole suite as before. The runner shows a target's first 200
+  // live lines: `github-actions` prints one line per failed case first, so a
+  // red names every failing file before `dot` prints details that may pass
+  // the limit.
   shell: [
     "cd packages/smithers && blobs=$(mktemp -d) && {",
-    `${half} --outputFile=$blobs/bin.json test/Bin.test.ts & bin=$!;`,
-    `${half} --outputFile=$blobs/rest.json --exclude test/Bin.test.ts; wait $bin;`,
-    "if test -f $blobs/bin.json && test -f $blobs/rest.json;",
+    `${lane} --outputFile=$blobs/one.json ${laneOne.join(" ")} & one=$!;`,
+    `${lane} --outputFile=$blobs/two.json ${laneTwo.join(" ")} & two=$!;`,
+    `${lane} --outputFile=$blobs/three.json ${laneThree}; wait $one $two;`,
+    "if test -f $blobs/one.json && test -f $blobs/two.json && test -f $blobs/three.json;",
     `then ${vitest} --merge-reports=$blobs --reporter=github-actions --reporter=dot;`,
-    "else echo \"a half of the suite ended without its report\" >&2; false; fi; };",
+    "else echo \"a lane of the suite ended without its report\" >&2; false; fi; };",
     "status=$?; rm -rf \"$blobs\"; exit $status"
   ].join(" "),
   data: [
