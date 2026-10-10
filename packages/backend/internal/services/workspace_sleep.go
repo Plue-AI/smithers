@@ -252,6 +252,7 @@ func (s *WorkspaceService) captureAndSleepExcluded(ctx context.Context, row db.W
 		return fail(fmt.Errorf("capture object unavailable"))
 	}
 	// No not-found/already-stopped fallback: successful stop is the receipt.
+	stopStartedAt := time.Now()
 	if err = s.runtime.StopWorkspace(operationCtx, row.ID); err != nil {
 		return fail(err)
 	}
@@ -263,6 +264,9 @@ func (s *WorkspaceService) captureAndSleepExcluded(ctx context.Context, row db.W
 	}
 	if observed.ID != row.ID || observed.State != workspaceapi.WorkspaceStopped {
 		return fail(fmt.Errorf("branch stop is unconfirmed"))
+	}
+	if s.sandboxMetrics != nil {
+		s.sandboxMetrics.ObserveSandboxVMSuspend(time.Since(stopStartedAt).Seconds())
 	}
 	if excluded, _ := ctx.Value(branchWriterExclusionKey{}).(bool); excluded {
 		finish = context.WithValue(finish, branchFinalCaptureKey{}, branchFinalCapture{capture.Head, capture.Tree, row.VmID})
