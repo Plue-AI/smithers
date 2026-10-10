@@ -26,12 +26,16 @@ type rehearsalTerminal struct {
 }
 
 func (r *rehearsal) openTerminal(sessionID string) (*rehearsalTerminal, error) {
+	return r.openTerminalAs(r.jar, sessionID)
+}
+
+func (r *rehearsal) openTerminalAs(jar http.CookieJar, sessionID string) (*rehearsalTerminal, error) {
 	ctx, cancel := context.WithCancel(r.ctx)
 	header := http.Header{"Origin": []string{r.origin}}
 	url := "ws" + strings.TrimPrefix(r.origin, "http") + "/api/repos/rehearsal-owner/app/workspace/sessions/" + sessionID + "/terminal"
 	dial, dialCancel := context.WithTimeout(ctx, 30*time.Second)
 	defer dialCancel()
-	conn, resp, err := websocket.Dial(dial, url, &websocket.DialOptions{HTTPClient: &http.Client{Jar: r.jar}, HTTPHeader: header, Subprotocols: []string{"terminal"}})
+	conn, resp, err := websocket.Dial(dial, url, &websocket.DialOptions{HTTPClient: &http.Client{Jar: jar}, HTTPHeader: header, Subprotocols: []string{"terminal"}})
 	if err != nil {
 		cancel()
 		if resp != nil {
@@ -123,7 +127,7 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		}
 	}()
 	tokenPath, token := "", ""
-	if !r.step("5 Terminal opens with a delegated token", "GET .../workspace/sessions/{id}/terminal (WebSocket); SMITHERS_TOKEN_FILE", "no SMITHERS_TOKEN; /run/smithers/<uid>/token/sessions/<id>/token, mode 600 and the owner's, in 700 directories; access_tokens holds it delegated via terminal with branch and terminal_s1", "T-TRM-02, T-ACC-04", func() error {
+	if !r.step("5 Terminal opens with a delegated token", "GET .../workspace/sessions/{id}/terminal (WebSocket); SMITHERS_TOKEN_FILE", "no SMITHERS_TOKEN; /run/smithers/<uid>/token/sessions/<id>/token, mode 600 and the owner's, in 700 directories; access_tokens holds it delegated via terminal with branch and S2 catalog delegation", "T-TRM-02, T-ACC-04", func() error {
 		if sessionID == "" {
 			return fmt.Errorf("blocked by row 2c: no branch terminal")
 		}
@@ -167,10 +171,13 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 		if err = r.pool.QueryRow(r.ctx, `SELECT scopes, system_issued, expires_at FROM access_tokens WHERE name = $1`, "terminal-session-"+sessionID).Scan(&scopes, &systemIssued, &expires); err != nil {
 			return fmt.Errorf("access_tokens row for the session: %w", err)
 		}
-		for _, entry := range []string{"via:terminal", "branch:" + branch, "profile:terminal_s1", "terminal-session:" + sessionID} {
+		for _, entry := range []string{"repo", "user", "workspace", "agent", "via:terminal", "branch:" + branch, "terminal-session:" + sessionID} {
 			if !strings.Contains(","+scopes+",", ","+entry+",") {
 				return fmt.Errorf("access_tokens scopes %q lack %s", scopes, entry)
 			}
+		}
+		if strings.Contains(scopes, "profile:") {
+			return fmt.Errorf("S2 credential retains a restricted profile: %s", scopes)
 		}
 		if !systemIssued || time.Until(expires) > time.Hour || time.Until(expires) < 50*time.Minute {
 			return fmt.Errorf("token system_issued=%v expires in %s, want system-issued within 1 h", systemIssued, time.Until(expires).Round(time.Second))
@@ -180,6 +187,17 @@ func (r *rehearsal) terminalRows(branch, sessionID string) {
 	}) {
 		return
 	}
+	r.step("10 Skill discoverable", "guest smthrs --version; both skill discovery directories", "packaged CLI runs and Claude Code/Codex discover the installed skill", "T-TRM-02", func() error {
+		code, data, err := term.capture(`test "$(command -v smthrs)" = /opt/smithers/bundle/bin/linux-arm64/smthrs && smthrs --version && test "$(readlink "$HOME/.claude/skills/smithers")" = /opt/smithers/bundle/share/skills/smithers && test "$(readlink "$HOME/.agents/skills/smithers")" = /opt/smithers/bundle/share/skills/smithers && test -s "$HOME/.agents/skills/smithers/SKILL.md"`, "J6SKILL", 2*time.Minute)
+		if err != nil {
+			return err
+		}
+		if code != "0" || len(data) == 0 {
+			return fmt.Errorf("CLI/skill discovery exit %s: %s", code, data)
+		}
+		r.actual = string(data)
+		return nil
+	})
 	r.step("6 auth status", "smthrs auth status in the terminal", "delegated, via terminal, as the member", "T-TRM-02, T-ACC-04", func() error {
 		if term == nil {
 			return fmt.Errorf("blocked by Terminal opens")

@@ -48,34 +48,13 @@ func (d *delegatedTerminal) call(method, path, body string, headers map[string]s
 }
 
 // refusal is one delegated request the terminal's credential must not make.
-type refusal struct{ method, path, body, message string }
-
-// refuse sends each request and fails unless every one is 403 permission
-// with message (code permission, or confirm_in_app for "Confirm in the app").
-func (d *delegatedTerminal) refuse(headers map[string]string, refusals []refusal) ([]string, error) {
-	var seen []string
-	for _, want := range refusals {
-		status, envelope, err := d.call(want.method, want.path, want.body, headers)
-		if err != nil {
-			return seen, err
-		}
-		code := "permission"
-		if want.message == "Confirm in the app" {
-			code = "confirm_in_app"
-		}
-		if status != http.StatusForbidden || envelope["class"] != "permission" || envelope["code"] != code || envelope["message"] != want.message {
-			return seen, fmt.Errorf("%s %s answered %d %v, want 403 %s %q", want.method, want.path, status, envelope, code, want.message)
-		}
-		seen = append(seen, fmt.Sprintf("%s %s 403 %s", want.method, strings.TrimPrefix(want.path, "/api"), code))
-	}
-	return seen, nil
-}
+type refusal struct{ method, path, body string }
 
 // stackFacts is what a refused request must leave as it was: the number of
 // TODOs, approvals, and T1's state and answers.
 func (r *rehearsal) stackFacts(t1 int64) (string, error) {
-	var items, approvals int
-	if err := r.pool.QueryRow(r.ctx, `SELECT (SELECT count(*) FROM mythical_items), (SELECT count(*) FROM approvals)`).Scan(&items, &approvals); err != nil {
+	var items, approvals, tokens int
+	if err := r.pool.QueryRow(r.ctx, `SELECT (SELECT count(*) FROM mythical_items), (SELECT count(*) FROM approvals), (SELECT count(*) FROM access_tokens WHERE name IN ('forbidden','forged'))`).Scan(&items, &approvals, &tokens); err != nil {
 		return "", err
 	}
 	data, err := r.expect("GET", fmt.Sprintf("/api/todos/%d", t1), "", 200)
@@ -90,18 +69,11 @@ func (r *rehearsal) stackFacts(t1 int64) (string, error) {
 	if err = json.Unmarshal(data, &v); err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("%d TODOs, %d approvals, T%d %s answer=%s steers=%s", items, approvals, t1, v.State, v.FirstAnswer, v.Steers), nil
+	return fmt.Sprintf("%d TODOs, %d approvals, %d tokens, T%d %s answer=%s steers=%s", items, approvals, tokens, t1, v.State, v.FirstAnswer, v.Steers), nil
 }
 
-// delegatedRows are J6 rows 11-14 (T-ACC-04, spec §5.3.2a and §8.11.1) on a
-// microVM: T2 asks a question; the owner opens a terminal on T2's branch at
-// POST /api/terminals, and Claude Code in it answers through the guest's
-// `smthrs todo answer` with the terminal's delegated credential, so the
-// answer is by "Claude Code for" the terminal's member;
-// that credential is refused everything else its profile does not name,
-// forged headers change none of it, and its TODO draft is refused with
-// confirm_in_app while the app serves no Confirm card for it. The member is
-// the owner until Ben can open a branch session (row 17).
+// delegatedRows exercise the S2 catalog credential: answer attribution, never
+// actions, forged headers and private confirmation rather than S1 allowlisting.
 func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 	var d *delegatedTerminal
 	defer func() {
@@ -110,7 +82,7 @@ func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 		}
 	}()
 	const answer = "Say hello in Portuguese"
-	branch1, branch2 := "", ""
+	branch2 := ""
 	if !r.step("11 Answer Needs you as Claude Code for the member", "POST /api/terminals {branch: T2's}; CLAUDECODE=1 smthrs todo answer T2 in that terminal → POST /api/todos/{T2}/answer (delegated)",
 		"202; first_answer.by is Claude Code for the terminal's member, with its session; todo.answered by {person, via claude-code, session}; T2 leaves Needs you", "T-ACC-04, T-APP-09", func() error {
 			if filed != nil {
@@ -124,9 +96,6 @@ func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 				return fmt.Errorf("T%d needs you without a branch or one question: %s", t2, r.actual)
 			}
 			branch2 = v.Branch.ID
-			if one, err := r.todo(t1); err == nil && one.Branch != nil {
-				branch1 = one.Branch.ID
-			}
 			sessionID, err := r.openBranchTerminal(r.keyed, branch2)
 			if err != nil {
 				return fmt.Errorf("no terminal on T%d's branch: %w", t2, err)
@@ -190,110 +159,97 @@ func (r *rehearsal) delegatedRows(t1, t2 int64, filed error) {
 		}) {
 		return
 	}
-	other := "A terminal acts only on its own branch's TODO"
-	cannot := "A terminal's credential cannot do this"
-	r.step("12 Scope refusals", "T2's terminal credential: answer and steer T1; drop, stop, retry and merge T2; members; install; tokens; a second terminal at either door",
-		"403 permission each, with no effects; its own TODO's steer passes authorization", "T-ACC-04", func() error {
-			if d == nil || d.token == "" {
-				return fmt.Errorf("blocked by row 11: no terminal credential")
-			}
-			before, err := r.stackFacts(t1)
+	r.step("12 Catalog never actions refuse without effects", "T2 credential: personal token create; confirmation approve", "403 permission; no TODO or approval effects", "T-ACC-04", func() error {
+		before, err := r.stackFacts(t1)
+		if err != nil {
+			return err
+		}
+		for _, request := range []refusal{{"POST", "/api/user/tokens", `{"name":"forbidden","scopes":["repo"]}`}, {"POST", "/api/confirmations/00000000-0000-0000-0000-000000000001/approve", `{}`}} {
+			status, envelope, err := d.call(request.method, request.path, request.body, nil)
 			if err != nil {
 				return err
 			}
-			terminal, _ := json.Marshal(map[string]any{"workspace_id": branch2, "kind": "terminal"})
-			door, _ := json.Marshal(map[string]string{"branch": branch2})
-			seen, err := d.refuse(nil, []refusal{
-				{"POST", fmt.Sprintf("/api/todos/%d/answer", t1), `{"wait":"q-0123456789abcdef","answer":"x"}`, other},
-				{"POST", fmt.Sprintf("/api/todos/%d", t1), `{"op":"steer","text":"Use backoff"}`, other},
-				{"POST", fmt.Sprintf("/api/todos/%d", t2), `{"op":"drop"}`, cannot},
-				{"POST", fmt.Sprintf("/api/todos/%d", t2), `{"op":"stop"}`, cannot},
-				{"POST", fmt.Sprintf("/api/todos/%d", t2), `{"op":"retry","steer":"again"}`, cannot},
-				{"POST", fmt.Sprintf("/api/todos/%d/merge", t2), `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, cannot},
-				{"POST", "/api/members", `{"login":"carol"}`, cannot},
-				{"GET", "/api/install", "", cannot},
-				{"GET", "/api/user/tokens", "", cannot},
-				{"POST", "/api/repos/rehearsal-owner/app/workspace/sessions", string(terminal), cannot},
-				{"POST", "/api/terminals", string(door), cannot},
-			})
-			if err != nil {
-				return err
+			if status != 403 || envelope["class"] != "permission" {
+				return fmt.Errorf("catalog never answered %d %v", status, envelope)
 			}
-			// Its own branch's steer is admitted: the steer service answers.
-			status, envelope, err := d.call("POST", fmt.Sprintf("/api/todos/%d", t2), `{"op":"steer","text":"Keep it short"}`, nil)
-			if err != nil {
-				return err
-			}
-			after, err := r.stackFacts(t1)
-			if err != nil {
-				return err
-			}
-			r.actual = fmt.Sprintf("%s; own steer %d %v; %s", strings.Join(seen, ", "), status, envelope["code"], after)
-			if status == http.StatusForbidden || status == http.StatusUnauthorized {
-				return fmt.Errorf("T%d's own steer was refused: %d %v", t2, status, envelope)
-			}
-			if before != after {
-				return fmt.Errorf("refused requests changed the stack: %s → %s", before, after)
-			}
-			return nil
-		})
-	forged := map[string]string{"Smithers-Via": "browser", "Smithers-Actor": "rehearsal-owner", "Smithers-Profile": "full", "Smithers-Branch": branch1,
-		"Smithers-Session": "forged", "X-Forwarded-User": "rehearsal-owner"}
+		}
+		after, err := r.stackFacts(t1)
+		if err != nil {
+			return err
+		}
+		if before != after {
+			return fmt.Errorf("refusals changed stack: %s -> %s", before, after)
+		}
+		return nil
+	})
+	forged := map[string]string{"Smithers-Via": "browser", "Smithers-Actor": "ben", "Smithers-Profile": "full", "Smithers-Branch": "forged",
+		"Smithers-Session": "forged", "X-Forwarded-User": "ben"}
 	r.step("13 Forged headers", "T2's terminal credential with forged Smithers-Via, actor, profile, branch and session headers",
 		"the same refusals; the request stays delegated via terminal with its own session", "T-ACC-04", func() error {
 			if d == nil || d.token == "" {
 				return fmt.Errorf("blocked by row 11: no terminal credential")
 			}
-			seen, err := d.refuse(forged, []refusal{
-				{"POST", fmt.Sprintf("/api/todos/%d/merge", t2), `{"reviewed_head_sha":"` + strings.Repeat("a", 40) + `"}`, cannot},
-				{"POST", fmt.Sprintf("/api/todos/%d/answer", t1), `{"wait":"q-0123456789abcdef","answer":"x"}`, other},
-				{"POST", "/api/todos", `{"title":"Forged","prompt":"Add a farewell","place":{"mode":"append"}}`, "Confirm in the app"},
-				{"GET", "/api/install", "", cannot},
-			})
-			if err != nil {
-				return err
-			}
-			status, _, err := d.call("GET", "/api/todos", "", forged)
-			if err != nil || status != http.StatusOK {
-				return fmt.Errorf("a forged read answered %d (%v)", status, err)
-			}
-			var metadata []byte
-			if err = r.pool.QueryRow(r.ctx, `SELECT metadata FROM audit_log WHERE event_type = 'delegated.request' AND action = 'GET' AND target_name = '/api/todos' ORDER BY id DESC LIMIT 1`).Scan(&metadata); err != nil {
-				return fmt.Errorf("no delegated audit row for the forged read: %w", err)
-			}
-			var v struct {
-				Kind, Via, Session, Profile string
-			}
-			if err = json.Unmarshal(metadata, &v); err != nil {
-				return err
-			}
-			r.actual = fmt.Sprintf("%s; GET /todos 200 audited %s", strings.Join(seen, ", "), metadata)
-			if v.Kind != "delegated" || v.Via != "terminal" || v.Session != d.session || v.Profile != "terminal_s1" {
-				return fmt.Errorf("the forged read was recorded as %s via %s (session %s, profile %s)", v.Kind, v.Via, v.Session, v.Profile)
-			}
-			return nil
-		})
-	r.step("14 Missing card path", "POST /api/todos with T2's terminal credential (Claude Code's TODO draft, Append)",
-		"403 permission/confirm_in_app, 'Confirm in the app'; no TODO, approval or other change", "T-ACC-04", func() error {
-			if d == nil || d.token == "" {
-				return fmt.Errorf("blocked by row 11: no terminal credential")
-			}
 			before, err := r.stackFacts(t1)
 			if err != nil {
 				return err
 			}
-			seen, err := d.refuse(nil, []refusal{{"POST", "/api/todos", `{"title":"Follow-up from Claude Code","prompt":"Add a farewell to t2.md","place":{"mode":"append"}}`, "Confirm in the app"}})
+			status, refusal, err := d.call("POST", "/api/user/tokens", `{"name":"forged","scopes":["repo"]}`, forged)
 			if err != nil {
 				return err
+			}
+			if status != 403 || refusal["class"] != "permission" {
+				return fmt.Errorf("forged authority answered %d %v", status, refusal)
 			}
 			after, err := r.stackFacts(t1)
 			if err != nil {
 				return err
 			}
-			r.actual = fmt.Sprintf("%s; %s", strings.Join(seen, ", "), after)
 			if before != after {
-				return fmt.Errorf("the refused draft changed the stack: %s → %s", before, after)
+				return fmt.Errorf("forged refusal changed stack: %s -> %s", before, after)
+			}
+			status, _, err = d.call("GET", "/api/todos", "", forged)
+			if err != nil || status != http.StatusOK {
+				return fmt.Errorf("a forged read answered %d (%v)", status, err)
+			}
+			var metadata []byte
+			var actor string
+			if err = r.pool.QueryRow(r.ctx, `SELECT metadata, actor_name FROM audit_log WHERE event_type = 'delegated.request' AND action = 'GET' AND target_name = '/api/todos' ORDER BY id DESC LIMIT 1`).Scan(&metadata, &actor); err != nil {
+				return fmt.Errorf("no delegated audit row for the forged read: %w", err)
+			}
+			var v struct {
+				Kind, Via, Session, Profile, Branch string
+				StoredVia                           string `json:"stored_via"`
+			}
+			if err = json.Unmarshal(metadata, &v); err != nil {
+				return err
+			}
+			r.actual = fmt.Sprintf("forged token create 403; GET /todos 200 audited %s", metadata)
+			if v.Kind != "delegated" || v.Via != "terminal" || v.Session != d.session || v.Profile != "" || v.Branch != branch2 || v.StoredVia != "terminal" || actor != "rehearsal-owner" {
+				return fmt.Errorf("the forged read was recorded as %s via %s (session %s, profile %s)", v.Kind, v.Via, v.Session, v.Profile)
 			}
 			return nil
 		})
+	r.step("14 S2 draft requests confirmation", "POST /api/todos with T2 delegated credential", "202 private Confirm; no TODO before approval", "T-ACC-04, T-APP-04", func() error {
+		before, err := r.todoList()
+		if err != nil {
+			return err
+		}
+		status, envelope, err := d.call("POST", "/api/todos", `{"title":"Owner follow-up","prompt":"Add a farewell to t2.md","place":{"mode":"append"}}`, nil)
+		if err != nil {
+			return err
+		}
+		id, _ := envelope["confirmation"].(string)
+		if status != 202 || id == "" || envelope["state"] != "pending" {
+			return fmt.Errorf("S2 draft answered %d %v", status, envelope)
+		}
+		after, err := r.todoList()
+		if err != nil {
+			return err
+		}
+		if len(after) != len(before) {
+			return fmt.Errorf("draft created TODO before confirmation")
+		}
+		_, err = r.expect("POST", "/api/confirmations/"+id+"/deny", `{}`, 200)
+		return err
+	})
 }

@@ -12,7 +12,7 @@ import (
 // The trusted-process runtime runs the installed daemon with an empty broker.
 // Owner-uid PTYs and delegated guest credentials still require real session
 // admission, distinct user identities and delegated cgroups on the guest.
-const j6Machined = "needs real guest broker session admission: runs on the Mac mini"
+const j6Machined = "needs real microVM broker session admission; TestJ6MicroVMRehearsal on the owner MacBook; reference qualification on the Mac mini"
 
 // TestJ6Rehearsal walks journey J6 (mvp.md §5, bring your own agent;
 // C-J6-01) on the install J1 sets up, as the owner on the trusted-process
@@ -123,7 +123,7 @@ func runJ6Rehearsal(t *testing.T, enable string, microVM bool) {
 		for _, row := range [][4]string{
 			{"2c Branch terminal", "POST /api/terminals {branch: T1's branch}", "202 receipt on T1's branch; the same request again answers it; running", "T-TRM-01, T-APP-12"},
 			{"3 App terminal door", "TodoCard → Open terminal → TerminalCard", "the app opens T1's terminal and echo ok prints ok (e2e terminal-signin.spec.ts)", "T-APP-12"},
-			{"4 claude and codex signed in", "real microVM guest", "vendor and npm hosts reachable, others refused; claude and codex run", "T-MCH-12"},
+			{"4 claude and codex signed in", "real microVM guest", "pending: owner must supply a real model key; vendor/npm egress and claude/codex require a real guest", "T-MCH-12"},
 			{"5 Terminal opens with a delegated token", "GET .../workspace/sessions/{id}/terminal (WebSocket); SMITHERS_TOKEN_FILE", "no SMITHERS_TOKEN; /run/smithers/<uid>/token/sessions/<id>/token mode 600 in 700; access_tokens holds it delegated via terminal", "T-TRM-02, T-ACC-04"},
 			{"6 auth status", "smthrs auth status in the terminal", "delegated, via terminal, as the member", "T-TRM-02, T-ACC-04"},
 			{"7 Edit lands on the branch", "echo > j6-terminal.md in the terminal; jj log -r @", "the branch head (@) advances to a commit holding the edit", "T-TRM-02"},
@@ -131,14 +131,14 @@ func runJ6Rehearsal(t *testing.T, enable string, microVM bool) {
 			{"9 Close revokes", "close the terminal WebSocket; GET /api/user with its token", "401 within 5 s; the token file is gone", "T-TRM-02, T-ACC-04"},
 			{"10 Skill discoverable", "guest smthrs --version; SKILL.md files", "the CLI runs and the skill is installed", "T-TRM-02"},
 			{"11 Answer Needs you as Claude Code for the member", "CLAUDECODE=1 smthrs todo answer T2 in T2's terminal", "202; first_answer.by is Claude Code for the terminal's member, with its session", "T-ACC-04, T-APP-09"},
-			{"12 Scope refusals", "T2's terminal credential", "403 permission each, with no effects; its own TODO's steer passes authorization", "T-ACC-04"},
+			{"12 Catalog never actions refuse without effects", "T2's S2 terminal credential", "personal token creation and confirmation approval return 403 permission with no effects", "T-ACC-04"},
 			{"13 Forged headers", "T2's terminal credential with forged headers", "the same refusals; the request stays delegated via terminal with its own session", "T-ACC-04"},
-			{"14 Missing card path", "POST /api/todos with T2's terminal credential", "403 permission/confirm_in_app, 'Confirm in the app'; no change", "T-ACC-04"},
+			{"14 S2 draft requests confirmation", "POST /api/todos with T2's terminal credential", "202 private Confirm; no TODO before approval", "T-ACC-04"},
 			{"15 Delegated follow-up", "delegated TODO draft", "202; one private Confirm row; no TODO yet; 403 for anyone else", "T-APP-04"},
 			{"16 Ben confirms", "Confirm press", "one TODO at the end of the stack by Claude Code for Ben; a second press creates nothing", "T-APP-04"},
-			{"17 Ben's branch terminal", "POST /api/terminals {branch} as maintainer Ben", "202 and running for Ben; 403 for a non-member", "T-ACC-02, T-TRM-01"},
+			{"17 Ben's branch terminal", "POST /api/terminals {branch} as maintainer Ben", "202 and running as Ben uid; 401 for an unauthenticated non-member without effects", "T-ACC-02, T-TRM-01"},
 		} {
-			r.pending(row[0], row[1], row[2]+" ("+j6Machined+")", row[3], "machined")
+			r.pending(row[0]+" — real microVM only", row[1], row[2]+" ("+j6Machined+")", row[3], "machined")
 		}
 		return
 	}
@@ -151,14 +151,13 @@ func runJ6Rehearsal(t *testing.T, enable string, microVM bool) {
 		sessionID, err = r.openBranchTerminal(r.keyed, branch)
 		return err
 	})
-	r.pending("3 App terminal door", "TodoCard → Open terminal → TerminalCard", "the app opens T1's terminal and echo ok prints ok (e2e terminal-signin.spec.ts)", "T-APP-12", "terminal-door")
-	r.pending("4 claude and codex signed in", "real microVM guest", "vendor and npm hosts reachable, others refused; claude and codex run", "T-MCH-12", "vendor-egress")
+
+	r.pending("4 claude and codex signed in", "real microVM guest", "pending: owner must supply a real model key for claude/codex vendor-egress proof", "T-MCH-12", "model-key-required")
 	r.terminalRows(branch, sessionID)
-	r.pending("10 Skill discoverable", "guest smthrs --version; SKILL.md files", "the CLI runs and the skill is installed", "T-TRM-02", "guest-cli-skill")
+	r.appTerminalRow(t1)
+
 	r.delegatedRows(t1, t2, filed)
-	r.pending("15 Delegated follow-up", "delegated TODO draft", "202; one private Confirm row; no TODO yet; 403 for anyone else", "T-APP-04", "delegated-confirm")
-	r.pending("16 Ben confirms", "Confirm press", "one TODO at the end of the stack by Claude Code for Ben; a second press creates nothing", "T-APP-04", "delegated-confirm")
-	r.pending("17 Ben's branch terminal", "POST /api/terminals {branch} as maintainer Ben", "202 and running for Ben; 403 for a non-member", "T-ACC-02, T-TRM-01", "members")
+	r.benTerminalRows(branch)
 }
 
 // openBranchTerminal requests the member's own terminal on branch through
