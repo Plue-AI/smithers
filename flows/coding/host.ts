@@ -84,7 +84,7 @@ import { TodoBoundary, todoBringBoundary, todoPauseLayer } from "./todo-pause.ts
 import { todoDeliveryLayer, todoLayers, todoReviewLayer } from "./todo.ts"
 import { verifyRegistration } from "./verify.ts"
 import { cleanupModels } from "./vibe-cleanup.ts"
-import { vibeRegistration } from "./vibe.ts"
+import { installVibeRegistration, vibeRegistration } from "./vibe.ts"
 import { wikiCheckDelegate, wikiCheckLayers, wikiCheckPolicy } from "./wiki-check.ts"
 import { separateWikiOutput } from "./wiki-output.ts"
 import { runningWikiPolicy } from "./wiki-policy.ts"
@@ -805,7 +805,11 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
           pocModels,
           pocSource({ ...options, fs }),
           evidenceOnly(Layer.mergeAll(ReviewRequest.layer, DraftPlan.layer, SelectRepair.layer, ReviewPage.layer)),
-          ...(landing === undefined ? [] : [vibeRegistration.pipe(Layer.provide(landing)), cleanupModels])
+          ...(landing === undefined ? [] : [
+            (options.retainedRepositoryJobs === false ? installVibeRegistration : vibeRegistration)
+              .pipe(Layer.provide(landing)),
+            cleanupModels
+          ])
         )
         // Jev, the decision-only model behind every enumerable answer this host
         // makes: the intake screen over each inbound event, the duplicates step,

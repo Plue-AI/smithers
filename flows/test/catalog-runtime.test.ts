@@ -21,9 +21,25 @@ test("built native and coding hosts expose their actual private registrations", 
           [],
           `${inventory.host} install registrations`
         )
+        for (
+          const id of [
+            "coding/prepare-vibe-candidate",
+            "coding/fast-forward-vibe",
+            "coding/open-vibe-local-pull",
+            "coding/merge-vibe-local-pull",
+            "coding/AwaitVibePullChecks"
+          ]
+        ) {
+          assert.equal(inventory.tags.some((tag) => tag.id === id), false, `${inventory.host}: ${id}`)
+        }
       }
       const coding = inventories[1]!.tags
       assert.ok(coding.some((tag) => tag.id === "coding/ImplementAtom"))
+      for (const inventory of inventories.filter((row) => row.host !== "native")) {
+        for (const id of ["coding/LandVibe", "coding/read-vibe-stack", "coding/submit-vibe-lane"]) {
+          assert.ok(inventory.tags.some((tag) => tag.id === id), `${inventory.host}: ${id}`)
+        }
+      }
       assert.ok(inventories[2]!.tags.some((tag) => tag.id === "coding/RefreshWiki"))
       assert.ok(coding.some((tag) => tag.id === "coding/prepare-atom" && tag.source === "flows/coding/atoms.ts"))
       // These are the actual private layers, not the already-clean public
@@ -166,7 +182,12 @@ test(
           "repository/ScoreExecution",
           "repository/CheckStep",
           "repository/RegisterCandidate",
-          "repository/DeliverChange"
+          "repository/DeliverChange",
+          "coding/prepare-vibe-candidate",
+          "coding/fast-forward-vibe",
+          "coding/open-vibe-local-pull",
+          "coding/merge-vibe-local-pull",
+          "coding/AwaitVibePullChecks"
         ]
       ) {
         assert.ok(host.tags.some((tag) => tag.id === id), `${host.host}: ${id}`)

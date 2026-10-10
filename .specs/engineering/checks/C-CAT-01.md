@@ -43,3 +43,17 @@ The production-registry suite passes 4/0/0; fresh/reused builtin and pinned-sour
 checks pass in the route suite. The default allowlist still fails. Remaining
 placements and the literal Appendix C omissions are recorded in the lane report;
 this is partial C-CAT-01 evidence, not acceptance on its named reference layer.
+
+2026-10-10 — done-l12-r2 separates backend delivery registration from local
+landing registration. The installed coding composition keeps LandVibe, stack
+reads and lane submission, but no longer registers local candidate preparation,
+fast-forward, local pull creation, local pull merge or AwaitVibePullChecks.
+Hosted callers keep the original layers and retained-history declarations.
+The existing LandVibe factory builds a backend-only graph on the install:
+merely omitting local handlers is insufficient because planning validates
+both branches of the historical graph. The first J1 attempt exposed that
+missing-implementation failure; after specialization J1 passes 21/0/0 and
+J2 passes 14/0/0. These are rehearsals, not reference-host qualifications.
+The production-registry suite passes 4/0/0. The unchanged default policy audit
+still fails with 63 unique violations: 44 placement and 19 unlisted, zero Cut
+and zero Replaced. This is partial C-CAT-01 evidence, not named-layer acceptance.

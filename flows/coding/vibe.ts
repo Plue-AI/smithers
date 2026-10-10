@@ -5,15 +5,19 @@ import { vibeAdmissionLayers } from "./vibe-admission.ts"
 import { cleanupLayers } from "./vibe-cleanup.ts"
 import Vibe from "./vibe-flow.ts"
 import { landerLayer } from "./vibe-lander.ts"
-import { landingLayers } from "./vibe-landing.ts"
+import { backendLandingLayers, landingLayers } from "./vibe-landing.ts"
 
 export { Vibe }
 export { VibeError } from "./vibe-flow.ts"
 
 /** Landing is supplied by the deployment; models by the host's evidence-only policy. */
-export const vibeRegistration = Layer.mergeAll(
+const sharedRegistration = Layer.mergeAll(
   vibeAdmissionLayers,
   cleanupLayers,
-  landerLayer,
-  landingLayers
+  landerLayer
 )
+
+export const vibeRegistration = Layer.merge(sharedRegistration, landingLayers)
+
+/** Installed TODOs deliver through the backend stack, with no local main writer. */
+export const installVibeRegistration = Layer.merge(sharedRegistration, backendLandingLayers)

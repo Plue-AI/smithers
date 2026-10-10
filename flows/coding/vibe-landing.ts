@@ -315,30 +315,32 @@ const backend = (cleanup: VibeCleanup) =>
       )
     )
   )
-export const LandVibe = Flow.make("coding/LandVibe", {
-  payload: VibeCleanup,
-  success: VibeDelivered,
-  error: LandVibeError,
-  body: (cleanup) =>
-    ReadLander.call({ phase: "landing" }).pipe(
-      Node.bindPlanned((lander) =>
-        Node.succeed(lander).pipe(
-          Node.branch({
-            if: (lander) => lander === "backend",
-            then: () => backend(cleanup),
-            else: () =>
-              Node.succeed(lander).pipe(
-                Node.branch({
-                  if: (lander) => lander === "fast-forward",
-                  then: () => fastForward(cleanup),
-                  else: () => pullRequest(cleanup)
-                })
-              )
-          })
+const makeLandVibe = (local: boolean) =>
+  Flow.make("coding/LandVibe", {
+    payload: VibeCleanup,
+    success: VibeDelivered,
+    error: LandVibeError,
+    body: (cleanup) =>
+      !local ? backend(cleanup) : ReadLander.call({ phase: "landing" }).pipe(
+        Node.bindPlanned((lander) =>
+          Node.succeed(lander).pipe(
+            Node.branch({
+              if: (lander) => lander === "backend",
+              then: () => backend(cleanup),
+              else: () =>
+                Node.succeed(lander).pipe(
+                  Node.branch({
+                    if: (lander) => lander === "fast-forward",
+                    then: () => fastForward(cleanup),
+                    else: () => pullRequest(cleanup)
+                  })
+                )
+            })
+          )
         )
       )
-    )
-})
+  })
+export const LandVibe = makeLandVibe(true)
 
 /** The bound landing, refused when it is not a local lander. */
 const requireLocal = Effect.flatMap(
@@ -349,10 +351,8 @@ const requireLocal = Effect.flatMap(
     )
 )
 const atomsOf = (cleanup: VibeCleanup) => cleanup.result.changes.flatMap((change) => change.implementation.atoms)
-export const landingLayers = Layer.mergeAll(
-  Interpreter.layer(LandVibe),
+const backendOperations = Layer.mergeAll(
   Interpreter.layer(AwaitAppend),
-  Interpreter.layer(AwaitPullChecks),
   ReadStack.toLayer(({ cleanup }) =>
     Effect.flatMap(
       requireBackend,
@@ -479,7 +479,13 @@ export const landingLayers = Layer.mergeAll(
         landedCount: observed.result.landed_count
       }
     })
-  ),
+  )
+)
+
+/** Local landers remain available to hosted callers and retained histories;
+ * an installed coding host never grants these main-writing operations. */
+const localLandingLayers = Layer.mergeAll(
+  Interpreter.layer(AwaitPullChecks),
   PrepareCandidate.toLayer(({ cleanup }) =>
     Effect.gen(function*() {
       const landing = yield* requireLocal, instance = yield* FlowRuntime.FlowInstance
@@ -544,3 +550,6 @@ export const landingLayers = Layer.mergeAll(
     })
   )
 )
+
+export const backendLandingLayers = Layer.merge(Interpreter.layer(makeLandVibe(false)), backendOperations)
+export const landingLayers = Layer.mergeAll(Interpreter.layer(LandVibe), backendOperations, localLandingLayers)
