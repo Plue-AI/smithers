@@ -148,6 +148,10 @@ func TestWorkspaceProvisioning_Cov_SnapshotListAndDeleteBranches(t *testing.T) {
 	assert.True(t, deleteCalled)
 }
 
+// de86a86992 (#3565) reduced the find-or-create helpers to one branch machine
+// reservation, so the identity lookup and the retarget of a per-requester row
+// they covered are gone: the branch's existing machine is returned as is. The
+// quota check remains for forks and pushed refs.
 func TestWorkspaceProvisioning_Cov_FindCreateQuotaAndStaleBranches(t *testing.T) {
 	ctx := context.Background()
 
@@ -167,43 +171,25 @@ func TestWorkspaceProvisioning_Cov_FindCreateQuotaAndStaleBranches(t *testing.T)
 	err = svc.enforceWorkspaceQuota(ctx, 1)
 	requireAPIErrorStatus(t, err, http.StatusTooManyRequests)
 
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			ws := sampleDBWorkspace("ws-active")
-			ws.TargetBookmark = "feature/new"
-			return ws, nil
-		},
-		updateWorkspaceTargetBookmarkFn: func(ctx context.Context, arg db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
-			assert.Equal(t, "feature/new", arg.TargetBookmark)
-			ws := sampleDBWorkspace(arg.ID)
-			ws.TargetBookmark = arg.TargetBookmark
-			return ws, nil
-		},
-	})
-	ws, err := svc.findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "feature/new", workspaceCreateMetadata{})
+	f := newBranchMachineFixture(t)
+	machines := f.service(nil)
+	existing := f.machine(t, db.CreateWorkspaceParams{Name: "primary", TargetBookmark: "feature/new", Status: "running"})
+	ws, err := machines.findOrCreatePrimaryWorkspace(ctx, f.repo, f.user, "primary", "feature/new", workspaceCreateMetadata{})
 	require.NoError(t, err)
+	assert.Equal(t, existing.ID, ws.ID)
 	assert.Equal(t, "feature/new", ws.TargetBookmark)
 
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("load active failed")
-		},
-	})
-	_, err = svc.findOrCreatePrimaryWorkspace(ctx, 101, 1, "primary", "main", workspaceCreateMetadata{})
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		countActiveWorkspacesByUserFn: func(ctx context.Context, userID int64) (int64, error) {
-			return 0, nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("create failed")
-		},
-	})
-	_, err = svc.createPrimaryWorkspace(ctx, 101, 1, "primary", "main", workspaceCreateMetadata{})
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-	_, err = svc.createDerivedWorkspaceForBookmark(ctx, 101, 1, "branch", "feature", workspaceCreateMetadata{})
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
+	// A refused machine insert fails primary and derived creation alike and
+	// leaves no row.
+	f.exec(t, `CREATE FUNCTION cov_refuse_workspace_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.target_bookmark LIKE 'cov/%' THEN RAISE EXCEPTION 'create failed'; END IF; RETURN NEW; END $$;
+CREATE TRIGGER cov_refuse_workspace_insert BEFORE INSERT ON workspaces FOR EACH ROW EXECUTE FUNCTION cov_refuse_workspace_insert()`)
+	_, err = machines.createPrimaryWorkspace(ctx, f.repo, f.user, "primary", "cov/primary", workspaceCreateMetadata{})
+	require.ErrorContains(t, err, "create failed")
+	_, err = machines.createDerivedWorkspaceForBookmark(ctx, f.repo, f.user, "branch", "cov/derived", workspaceCreateMetadata{})
+	require.ErrorContains(t, err, "create failed")
+	assert.Empty(t, f.branch(t, "cov/primary"))
+	assert.Empty(t, f.branch(t, "cov/derived"))
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
 		updateWorkspaceTargetBookmarkFn: func(ctx context.Context, arg db.UpdateWorkspaceTargetBookmarkParams) (db.Workspace, error) {
@@ -264,42 +250,51 @@ func TestWorkspaceProvisioning_Cov_FindCreateQuotaAndStaleBranches(t *testing.T)
 func TestWorkspaceProvisioning_Cov_CreateWorkspaceAndAsyncBranches(t *testing.T) {
 	ctx := context.Background()
 
+	// Without the activation providers (de86a86992, #3565) both doors refuse
+	// before reading any store.
 	_, err := NewWorkspaceService(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).CreateWorkspace(ctx, CreateWorkspaceInput{})
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).CreateWorkspace(ctx, CreateWorkspaceInput{})
-	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
+	requireBranchMachineUnavailable(t, err)
 	_, err = NewWorkspaceService(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).CreateWorkspaceAsync(ctx, CreateWorkspaceInput{})
+	requireBranchMachineUnavailable(t, err)
+
+	f := newBranchMachineFixture(t)
+	gated := []WorkspaceServiceOption{WithWorkspaceTransactions(f.pool), WithBranchMachineProviders(branchMachineTestProviders())}
+	// With them, a missing store or a missing runtime is an internal error.
+	_, err = NewWorkspaceService(nil, append(gated, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))...).CreateWorkspace(ctx, CreateWorkspaceInput{})
 	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
-	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}).CreateWorkspaceAsync(ctx, CreateWorkspaceInput{})
+	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, gated...).CreateWorkspace(ctx, CreateWorkspaceInput{})
+	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
+	_, err = NewWorkspaceService(nil, append(gated, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))...).CreateWorkspaceAsync(ctx, CreateWorkspaceInput{})
+	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
+	_, err = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, gated...).CreateWorkspaceAsync(ctx, CreateWorkspaceInput{})
 	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
 
-	svc := newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(ctx context.Context, arg db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			return sampleDBWorkspaceSnapshot(arg.ID, "ws-source", "snap", "fs-snap"), nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("insert failed")
-		},
-	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-	_, err = svc.CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, SnapshotID: "snap-id"})
+	// A snapshot restore whose machine row cannot be inserted is a 500.
+	source, err := f.q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repo, UserID: f.user, Name: "source", TargetBookmark: "source", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	snapshot, err := f.q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: f.repo, UserID: f.user, WorkspaceID: source.ID, Name: "snap", SnapshotID: "fs-snap"})
+	require.NoError(t, err)
+	f.exec(t, `CREATE FUNCTION cov_refuse_restore_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN IF NEW.target_bookmark = 'cov/restore' THEN RAISE EXCEPTION 'insert failed'; END IF; RETURN NEW; END $$;
+CREATE TRIGGER cov_refuse_restore_insert BEFORE INSERT ON workspaces FOR EACH ROW EXECUTE FUNCTION cov_refuse_restore_insert()`)
+	_, err = f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{})).CreateWorkspace(ctx, CreateWorkspaceInput{RepositoryID: f.repo, UserID: f.user, SnapshotID: snapshot.ID, SourceBookmark: "cov/restore"})
 	requireAPIErrorStatus(t, err, http.StatusInternalServerError)
+	assert.Empty(t, f.branch(t, "cov/restore"))
 
+	// An async open of a running machine answers at once and boots nothing.
 	createVMCalled := false
-	running := sampleDBWorkspace("ws-running")
-	running.Status = "running"
-	running.VmID = "vm-running"
-	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			return running, nil
-		},
-	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	running := f.machine(t, db.CreateWorkspaceParams{Name: "running", TargetBookmark: "main", Status: "running"})
+	f.exec(t, `UPDATE workspaces SET vm_id='vm-running' WHERE id=$1`, running.ID)
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			createVMCalled = true
 			return sandbox.CreateResult{}, nil
 		},
 	}))
-	resp, err := svc.CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: 101, UserID: 1, Name: "running"})
+	resp, err := svc.CreateWorkspaceAsync(ctx, CreateWorkspaceInput{RepositoryID: f.repo, UserID: f.user, Name: "running"})
 	require.NoError(t, err)
+	require.NoError(t, svc.WaitForProvisioning(ctx))
+	assert.Equal(t, running.ID, resp.ID)
 	assert.Equal(t, "running", resp.Status)
 	assert.False(t, createVMCalled)
 

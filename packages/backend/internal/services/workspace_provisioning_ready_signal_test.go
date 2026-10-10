@@ -2,14 +2,12 @@ package services
 
 import (
 	"context"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 )
 
@@ -42,11 +40,11 @@ func TestBuildWorkspaceVMRequest_DeclaresReadySignalEmitter(t *testing.T) {
 // background; clients observe progress through the session ticket.
 func TestWorkspaceService_CreateSession_ReturnsPromptlyWhileProvisioningContinues(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
 
 	const simulatedBootDelay = 3 * time.Second
 
-	q := provisioningTestQuerier(nil)
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			// A slow-but-successful boot, like a real Microsandbox VM waiting on
 			// its ready signal.
@@ -59,15 +57,18 @@ func TestWorkspaceService_CreateSession_ReturnsPromptlyWhileProvisioningContinue
 	}), withProductionProvisionGrace)
 
 	start := time.Now()
-	_, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
+	session, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
+		RepositoryID: f.repo,
+		UserID:       f.user,
 	})
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
 	assert.Less(t, elapsed, 1500*time.Millisecond,
 		"CreateSession must return promptly and provision in the background; it blocked %s waiting for the VM boot, which is what drives the prod ~2m05s hang and 504", elapsed)
+	assert.NotEqual(t, "running", session.Status, "the prompt answer is the pending ticket")
+	require.NoError(t, svc.WaitForProvisioning(context.Background()))
+	assert.Equal(t, []string{"running"}, f.sessionStatuses(t, "main"), "background provisioning settles the ticket")
 }
 
 // TestWorkspaceService_CreateSession_PersistsVMIDWhenCloneFails pins failure
@@ -77,26 +78,11 @@ func TestWorkspaceService_CreateSession_ReturnsPromptlyWhileProvisioningContinue
 // exact unattributable rows observed in prod since 2026-06-29.
 func TestWorkspaceService_CreateSession_PersistsVMIDWhenCloneFails(t *testing.T) {
 	t.Parallel()
-
-	var (
-		mu             sync.Mutex
-		persistedVMIDs []string
-	)
-
-	q := provisioningTestQuerier(nil)
-	q.updateWorkspaceExecutionInfoFn = func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-		mu.Lock()
-		persistedVMIDs = append(persistedVMIDs, arg.VmID)
-		mu.Unlock()
-		ws := sampleDBWorkspace(arg.ID)
-		ws.VmID = arg.VmID
-		ws.Status = arg.Status
-		return ws, nil
-	}
+	f := newBranchMachineFixture(t)
 
 	cloneFailed := int32(1)
 	metrics := &workspaceProvisioningCovMetrics{}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-clone-fail"}, nil
 		},
@@ -107,16 +93,16 @@ func TestWorkspaceService_CreateSession_PersistsVMIDWhenCloneFails(t *testing.T)
 	}), WithWorkspaceSandboxMetrics(metrics))
 
 	_, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 		RepoOwner:    "alice",
 		RepoName:     "demo",
 	})
 	require.Error(t, err, "clone failure must still fail the session")
 
-	mu.Lock()
-	defer mu.Unlock()
-	assert.Contains(t, persistedVMIDs, "vm-clone-fail",
+	rows := f.branch(t, "main")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "vm-clone-fail", rows[0].VmID,
 		"the Microsandbox VM id must be persisted on the workspace row as soon as it is known; losing it on clone failure leaves the unattributable vm_id=\"\" rows seen in prod")
 	assert.Contains(t, metrics.sessionProvisionStatuses, "failed",
 		"workspace session provisioning failures must emit the alertable failed metric")

@@ -1,7 +1,8 @@
 package services
 
-// A replacement primary is a new workspace identity, and therefore a new
-// sandbox create operation and idempotency key.
+// A primary whose VM disappeared keeps its row for recovery and never replays
+// its create. Each provisioning generation is its own create operation and
+// idempotency key.
 //
 // Production, 2026-09-15 13:30Z (API image 8f08c257): a sandbox worker rollout
 // during a deploy killed the VM behind a kind=vm workspace. The create-or-reuse
@@ -16,6 +17,8 @@ package services
 // because the replacement create re-derived the original create's
 // Idempotency-Key while sending a different body. The workspace died 'failed'
 // and every later open answered "workspace VM has not been provisioned".
+// de86a86992 (#3565) removed that replacement: a missing VM now answers the
+// recovery row (workspace_vm_missing) and no second create is sent.
 
 import (
 	"context"
@@ -121,104 +124,6 @@ func (q *reprovisionQuerier) ResetWorkspaceForReprovision(_ context.Context, id 
 	return q.row, nil
 }
 
-// A replacement primary uses a fresh row and idempotency key. The old row and
-// VM reference remain available for recovery.
-func TestWorkspaceService_ReprovisionAfterNotFound_UsesFreshIdempotencyKey(t *testing.T) {
-	t.Parallel()
-
-	row := sampleDBWorkspace("ws-primary")
-	row.VmID = ""
-	row.Status = "pending"
-	q := newReprovisionQuerier(row)
-
-	var (
-		mu           sync.Mutex
-		createKeys   []string
-		createdVMs   []string
-		deletedVMs   []string
-		vmSequence   int
-		vmIsReclaimd bool
-	)
-
-	svc := newWorkspaceServiceForTests(
-		q,
-		WithWorkspaceGitBaseURL("https://api.smithers.sh"),
-		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-			createVMFn: func(ctx context.Context, _ sandbox.CreateRequest) (sandbox.CreateResult, error) {
-				key, err := sandbox.RequestIdempotencyKey(ctx)
-				require.NoError(t, err)
-				mu.Lock()
-				defer mu.Unlock()
-				vmSequence++
-				createKeys = append(createKeys, key)
-				id := "vm-" + string(rune('0'+vmSequence))
-				createdVMs = append(createdVMs, id)
-				return sandbox.CreateResult{ID: id}, nil
-			},
-			getVMFn: func(_ context.Context, vmID string) (sandbox.Sandbox, error) {
-				mu.Lock()
-				reclaimed := vmIsReclaimd
-				mu.Unlock()
-				if reclaimed {
-					// The worker rollout took the VM with it.
-					return sandbox.Sandbox{}, &sandbox.StatusError{
-						StatusCode: 404,
-						ErrorCode:  "not_found",
-						Message:    "Microsandbox worker operation failed",
-					}
-				}
-				return sandbox.Sandbox{ID: vmID, State: sandbox.StateRunning}, nil
-			},
-			deleteVMFn: func(_ context.Context, vmID string) error {
-				mu.Lock()
-				defer mu.Unlock()
-				deletedVMs = append(deletedVMs, vmID)
-				return nil
-			},
-		}),
-	)
-
-	input := CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "roninjin10",
-		RepoName:     "smithers",
-		Name:         "primary",
-	}
-
-	first, err := svc.CreateWorkspace(context.Background(), input)
-	require.NoError(t, err)
-	require.Equal(t, "vm-1", first.VMID)
-	require.Equal(t, "running", first.Status)
-
-	mu.Lock()
-	vmIsReclaimd = true
-	mu.Unlock()
-
-	// Reopening the same named identity must retire its missing VM.
-	second, err := svc.CreateWorkspace(context.Background(), input)
-	require.NoError(t, err)
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, createKeys, 2, "the fresh workspace must issue its own create")
-	assert.NotEqual(t, createKeys[0], createKeys[1],
-		"the replacement workspace must not replay the old create key")
-	assert.Zero(t, q.resets, "a primary's generation and VM reference must be preserved")
-	assert.Equal(t, 1, q.creates)
-	assert.Equal(t, first.ID, q.old.ID)
-	assert.Equal(t, "failed", q.old.Status)
-	assert.Equal(t, "vm-1", q.old.VmID)
-	assert.Equal(t, int32(0), q.old.ProvisioningGeneration)
-
-	assert.NotEqual(t, first.ID, second.ID)
-	assert.Equal(t, "primary", second.Name)
-	assert.Equal(t, "vm-2", second.VMID, "the replacement VM must land on the fresh row")
-	assert.Equal(t, "running", second.Status, "the workspace must not be left 'failed'")
-	assert.NotContains(t, deletedVMs, "vm-1", "the old VM reference remains for recovery")
-	assert.NotContains(t, deletedVMs, "vm-2", "the orphan sweep must never reclaim the replacement VM")
-}
-
 // Retrying the SAME attempt must converge on one sandbox: the key is derived
 // from the persisted generation, so it only moves when a reprovision advances
 // that generation. Without this, every retry would allocate a second VM.
@@ -291,7 +196,11 @@ func TestPrimaryOpenAfterMissingVMKeepsRecoveryRow(t *testing.T) {
 				},
 				deleteVMFn: func(context.Context, string) error { deletes++; return nil },
 			}
-			svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(client))
+			// c240bd3cf7 (#3568): a stopped VM's wake passes machine admission
+			// and the activation providers before it reaches the start.
+			svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(client),
+				WithWorkspaceTransactions(unopenedBranchTransactions{t}), WithBranchMachineProviders(branchMachineTestProviders()))
+			svc.EnableMachineAdmission(nil)
 			got, err := svc.ensureWorkspaceRunningOwned(context.Background(), row, CreateWorkspaceSessionInput{
 				RepositoryID: row.RepositoryID, UserID: row.UserID, RepoOwner: "owner", RepoName: "repo",
 			})
@@ -307,4 +216,85 @@ func TestPrimaryOpenAfterMissingVMKeepsRecoveryRow(t *testing.T) {
 			assert.Equal(t, len(tc.startErrors), starts)
 		})
 	}
+}
+
+// Reopening a branch machine whose VM a worker rollout took answers the
+// recovery row and never replays the first create. de86a86992 (#3565) deleted
+// the replacement-primary path this file once pinned, so no second create,
+// key or row exists to collide with the first.
+func TestWorkspaceService_ReopenAfterNotFound_NeverReplaysTheCreate(t *testing.T) {
+	t.Parallel()
+	f := newBranchMachineFixture(t)
+
+	var (
+		mu         sync.Mutex
+		createKeys []string
+		deletedVMs []string
+		reclaimed  bool
+	)
+
+	svc := f.service(nil,
+		WithWorkspaceGitBaseURL("https://api.smithers.sh"),
+		WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+			createVMFn: func(ctx context.Context, _ sandbox.CreateRequest) (sandbox.CreateResult, error) {
+				key, err := sandbox.RequestIdempotencyKey(ctx)
+				require.NoError(t, err)
+				mu.Lock()
+				defer mu.Unlock()
+				createKeys = append(createKeys, key)
+				return sandbox.CreateResult{ID: "vm-1"}, nil
+			},
+			getVMFn: func(_ context.Context, vmID string) (sandbox.Sandbox, error) {
+				mu.Lock()
+				gone := reclaimed
+				mu.Unlock()
+				if gone {
+					// The worker rollout took the VM with it.
+					return sandbox.Sandbox{}, &sandbox.StatusError{
+						StatusCode: 404,
+						ErrorCode:  "not_found",
+						Message:    "Microsandbox worker operation failed",
+					}
+				}
+				return sandbox.Sandbox{ID: vmID, State: sandbox.StateRunning}, nil
+			},
+			deleteVMFn: func(_ context.Context, vmID string) error {
+				mu.Lock()
+				defer mu.Unlock()
+				deletedVMs = append(deletedVMs, vmID)
+				return nil
+			},
+		}),
+	)
+
+	input := CreateWorkspaceInput{
+		RepositoryID: f.repo,
+		UserID:       f.user,
+		RepoOwner:    "roninjin10",
+		RepoName:     "smithers",
+		Name:         "primary",
+	}
+
+	first, err := svc.CreateWorkspace(context.Background(), input)
+	require.NoError(t, err)
+	require.Equal(t, "vm-1", first.VMID)
+	require.Equal(t, "running", first.Status)
+
+	mu.Lock()
+	reclaimed = true
+	mu.Unlock()
+
+	_, err = svc.CreateWorkspace(context.Background(), input)
+	require.Error(t, err)
+	assert.Equal(t, pkgerrors.CodeWorkspaceVMMissing, apiErrorOf(t, err).Code)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Len(t, createKeys, 1, "the reopen never replays the first create")
+	assert.Empty(t, deletedVMs, "the old VM reference remains for recovery")
+	rows := f.branch(t, "main")
+	require.Len(t, rows, 1, "no replacement row")
+	assert.Equal(t, first.ID, rows[0].ID)
+	assert.Equal(t, "vm-1", rows[0].VmID)
+	assert.Equal(t, int32(0), rows[0].ProvisioningGeneration)
 }

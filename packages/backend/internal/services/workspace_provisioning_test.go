@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -122,41 +122,14 @@ func TestWorkspaceService_BuildWorkspaceVMRequestIncludesCodingHostWhenAvailable
 
 func TestWorkspaceService_CreateWorkspace_FromSnapshotUsesSnapshot(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
+	ctx := context.Background()
+	source, err := f.q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: f.repo, UserID: f.user, Name: "source", TargetBookmark: "source", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	snapshot, err := f.q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: f.repo, UserID: f.user, WorkspaceID: source.ID, Name: "snapshot", SnapshotID: "fs-snap-123"})
+	require.NoError(t, err)
 
-	// Workspace snapshot IDs must be valid UUIDs because SourceSnapshotID is
-	// stored as pgtype.UUID; stringToUUID silently returns an invalid UUID for
-	// non-UUID strings, causing UUIDString to return "".
-	const snapID = "cccccccc-dddd-eeee-ffff-aaaaaaaaaaaa"
-
-	q := &mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(ctx context.Context, arg db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			return sampleDBWorkspaceSnapshot(arg.ID, "ws-source", "snapshot", "fs-snap-123"), nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			assert.True(t, arg.IsFork)
-			assert.Equal(t, stringToUUID(snapID), arg.SourceSnapshotID)
-			assert.Equal(t, "restored", arg.Name)
-			assert.Equal(t, "starting", arg.Status)
-			workspace := sampleDBWorkspace("ws-restored")
-			workspace.Name = arg.Name
-			workspace.IsFork = true
-			workspace.SourceSnapshotID = arg.SourceSnapshotID
-			workspace.VmID = ""
-			workspace.Status = "pending"
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.Name = "restored"
-			workspace.IsFork = true
-			workspace.SourceSnapshotID = stringToUUID(snapID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			assert.Equal(t, "fs-snap-123", req.SnapshotID)
 			require.NotNil(t, req.WaitForReady)
@@ -167,18 +140,24 @@ func TestWorkspaceService_CreateWorkspace_FromSnapshotUsesSnapshot(t *testing.T)
 		},
 	}))
 
-	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "alice",
-		RepoName:     "demo",
-		Name:         "restored",
-		SnapshotID:   snapID,
+	workspace, err := svc.CreateWorkspace(ctx, CreateWorkspaceInput{
+		RepositoryID:   f.repo,
+		UserID:         f.user,
+		RepoOwner:      "alice",
+		RepoName:       "demo",
+		Name:           "restored",
+		SnapshotID:     snapshot.ID,
+		SourceBookmark: "restored",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "vm-restored", workspace.VMID)
-	assert.Equal(t, snapID, workspace.SnapshotID)
+	assert.Equal(t, snapshot.ID, workspace.SnapshotID)
 	assert.True(t, workspace.IsFork)
+	row, err := f.q.GetWorkspace(ctx, workspace.ID)
+	require.NoError(t, err)
+	assert.Equal(t, stringToUUID(snapshot.ID), row.SourceSnapshotID)
+	assert.Equal(t, "restored", row.Name)
+	assert.Equal(t, "running", row.Status)
 }
 
 func TestWorkspaceService_CreateFreshVM_FallsBackToBareImageWhenGoldenSnapshotRejected(t *testing.T) {
@@ -233,29 +212,31 @@ func TestWorkspaceService_CreateFreshVM_DoesNotInvalidateOnMicrosandboxOutage(t 
 
 func TestWorkspaceService_CreateWorkspace_FromSnapshotRejectsForeignSnapshot(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
+	ctx := context.Background()
+	otherUser, otherRepo := setupTestUserAndRepo(t, f.pool)
+	source, err := f.q.CreateWorkspace(ctx, db.CreateWorkspaceParams{RepositoryID: otherRepo, UserID: otherUser, Name: "source", TargetBookmark: "source", Kind: "container", Status: "running"})
+	require.NoError(t, err)
+	foreign, err := f.q.CreateWorkspaceSnapshot(ctx, db.CreateWorkspaceSnapshotParams{RepositoryID: otherRepo, UserID: otherUser, WorkspaceID: source.ID, Name: "foreign", SnapshotID: "fs-foreign"})
+	require.NoError(t, err)
 
 	created := false
-	q := &mockWorkspaceQuerier{
-		getWorkspaceSnapshotByRepoFn: func(ctx context.Context, arg db.GetWorkspaceSnapshotByRepoParams) (db.WorkspaceSnapshot, error) {
-			assert.Equal(t, "snap-foreign", arg.ID)
-			assert.Equal(t, int64(101), arg.RepositoryID)
-			return db.WorkspaceSnapshot{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			created = true
-			return db.Workspace{}, nil
+			return sandbox.CreateResult{ID: "vm-foreign"}, nil
 		},
-	}
+	}))
 
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
-
-	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       7,
-		SnapshotID:   "snap-foreign",
+	_, err = svc.CreateWorkspace(ctx, CreateWorkspaceInput{
+		RepositoryID:   f.repo,
+		UserID:         f.user,
+		SnapshotID:     foreign.ID,
+		SourceBookmark: "restored",
 	})
 	require.Error(t, err)
 	assert.False(t, created)
+	assert.Empty(t, f.branch(t, "restored"), "a foreign snapshot reserves no machine")
 
 	apiErr, ok := err.(*pkgerrors.APIError)
 	require.True(t, ok)
@@ -264,28 +245,10 @@ func TestWorkspaceService_CreateWorkspace_FromSnapshotRejectsForeignSnapshot(t *
 
 func TestWorkspaceService_CreateWorkspace_WaitsForReadySignal(t *testing.T) {
 	t.Parallel()
-
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			assert.Equal(t, "starting", arg.Status)
-			workspace := sampleDBWorkspace("ws-primary")
-			workspace.VmID = ""
-			workspace.Status = "pending"
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
+	f := newBranchMachineFixture(t)
 
 	m := newObserveV2Metrics()
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxMetrics(m), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxMetrics(m), WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			require.NotNil(t, req.WaitForReady)
 			assert.True(t, *req.WaitForReady)
@@ -296,8 +259,8 @@ func TestWorkspaceService_CreateWorkspace_WaitsForReadySignal(t *testing.T) {
 	}))
 
 	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 		Name:         "primary",
 	})
 	require.NoError(t, err)
@@ -309,69 +272,32 @@ func TestWorkspaceService_CreateWorkspace_WaitsForReadySignal(t *testing.T) {
 
 func TestWorkspaceService_CreateWorkspace_MarksFailedWhenProvisioningFails(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
 
-	var updatedStatuses []string
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			assert.Equal(t, "starting", arg.Status)
-			workspace := sampleDBWorkspace("ws-primary")
-			workspace.VmID = ""
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			updatedStatuses = append(updatedStatuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = ""
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{}, assert.AnError
 		},
 	}))
 
 	_, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 		Name:         "primary",
 	})
 	require.Error(t, err)
-	assert.Equal(t, []string{"failed"}, updatedStatuses)
+	rows := f.branch(t, "main")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "failed", rows[0].Status)
 }
 
 func TestWorkspaceService_CreateWorkspaceAsync_ProvisioningSurvivesCallerCancellation(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
 
 	releaseCreate := make(chan struct{})
 	createDone := make(chan error, 1)
-	q := &mockWorkspaceQuerier{
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			require.Equal(t, "landing/demo-123", arg.TargetBookmark)
-			workspace := sampleDBWorkspace("ws-async")
-			workspace.VmID = ""
-			workspace.Status = arg.Status
-			workspace.TargetBookmark = arg.TargetBookmark
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			workspace.TargetBookmark = "landing/demo-123"
-			return workspace, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			<-releaseCreate
 			createDone <- ctx.Err()
@@ -381,8 +307,8 @@ func TestWorkspaceService_CreateWorkspaceAsync_ProvisioningSurvivesCallerCancell
 
 	ctx, cancel := context.WithCancel(context.Background())
 	workspace, err := svc.CreateWorkspaceAsync(ctx, CreateWorkspaceInput{
-		RepositoryID:   101,
-		UserID:         1,
+		RepositoryID:   f.repo,
+		UserID:         f.user,
 		RepoOwner:      "alice",
 		RepoName:       "demo",
 		Name:           "dev-ws",
@@ -398,166 +324,83 @@ func TestWorkspaceService_CreateWorkspaceAsync_ProvisioningSurvivesCallerCancell
 	select {
 	case err := <-createDone:
 		require.NoError(t, err)
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for async VM creation")
 	}
+	require.NoError(t, svc.WaitForProvisioning(context.Background()))
+	row, err := f.q.GetWorkspace(context.Background(), workspace.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "vm-async", row.VmID, "the canceled caller's VM is still registered")
 }
 
 func TestWorkspaceService_CreateWorkspace_BranchBookmarkCreatesDerivedWorkspace(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
+	// No forkable primary (it has no VM) sends the branch down the cold
+	// create+clone path; fork-from-primary coverage lives in
+	// workspace_fork_open_test.go. The branch still gets its OWN machine.
+	primary := f.machine(t, db.CreateWorkspaceParams{Name: "main", TargetBookmark: "main", Status: "pending"})
 
-	primary := sampleDBWorkspace("ws-main")
-	primary.Name = "main"
-	primary.IsFork = false
-	primary.Status = "running"
-	primary.VmID = "vm-main"
-	primary.TargetBookmark = "main"
-
-	var created db.CreateWorkspaceParams
-	q := &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			return 1, nil
-		},
-		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return []db.Workspace{primary}, nil
-		},
-		getActiveWorkspaceForUserRepoFn: func(ctx context.Context, arg db.GetActiveWorkspaceForUserRepoParams) (db.Workspace, error) {
-			// No forkable primary → the branch takes the cold create+clone
-			// derived path (fork-from-primary coverage lives in
-			// workspace_fork_open_test.go). The branch must still create its
-			// OWN derived row, never reuse the primary workspace.
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			created = arg
-			workspace := sampleDBWorkspace("ws-branch")
-			workspace.Name = arg.Name
-			workspace.IsFork = arg.IsFork
-			workspace.VmID = ""
-			workspace.Status = arg.Status
-			workspace.TargetBookmark = arg.TargetBookmark
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.IsFork = true
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			workspace.TargetBookmark = "landing/demo-123"
-			return workspace, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	var cloneCommand string
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-branch"}, nil
 		},
 		execAwaitFn: func(ctx context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 			assert.Equal(t, "vm-branch", vmID)
-			assert.Contains(t, req.Command, "landing/demo-123@origin")
+			if strings.Contains(req.Command, "git clone") {
+				cloneCommand = req.Command
+			}
 			status := int32(0)
 			return sandbox.ExecResult{StatusCode: &status}, nil
 		},
 	}))
 
 	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID:   101,
-		UserID:         1,
+		RepositoryID:   f.repo,
+		UserID:         f.user,
 		RepoOwner:      "alice",
 		RepoName:       "demo",
 		Name:           "demo landing",
 		SourceBookmark: "landing/demo-123",
 	})
 	require.NoError(t, err)
-	assert.Equal(t, "ws-branch", workspace.ID)
+	assert.NotEqual(t, primary.ID, workspace.ID)
+	assert.Equal(t, "vm-branch", workspace.VMID)
+	assert.Equal(t, "landing/demo-123", workspace.TargetBookmark)
+	created, err := f.q.GetWorkspace(context.Background(), workspace.ID)
+	require.NoError(t, err)
 	assert.True(t, created.IsFork)
 	assert.Equal(t, "landing/demo-123", created.TargetBookmark)
-	assert.Equal(t, "landing/demo-123", workspace.TargetBookmark)
-}
-
-func TestWorkspaceService_FindOrCreateWorkspace_VMThenDesktopOnSameBookmarkCreatesTwoWorkspaces(t *testing.T) {
-	t.Parallel()
-
-	var workspaces []db.Workspace
-	q := &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(context.Context, db.CountWorkspacesByRepoParams) (int64, error) {
-			return int64(len(workspaces)), nil
-		},
-		listWorkspacesByRepoFn: func(context.Context, db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return append([]db.Workspace(nil), workspaces...), nil
-		},
-		getActiveWorkspaceForUserRepoKindFn: func(_ context.Context, arg db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
-			for _, workspace := range workspaces {
-				if workspace.RepositoryID == arg.RepositoryID && workspace.UserID == arg.UserID && workspace.Kind == arg.Kind {
-					return workspace, nil
-				}
-			}
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(fmt.Sprintf("ws-%d", len(workspaces)+1))
-			workspace.Name = arg.Name
-			workspace.TargetBookmark = arg.TargetBookmark
-			workspace.Kind = arg.Kind
-			workspaces = append(workspaces, workspace)
-			return workspace, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q)
-
-	vm, err := svc.findOrCreateWorkspaceForBookmark(context.Background(), 101, 1, "proof-vm", "main", workspaceCreateMetadata{kind: "vm"})
-	require.NoError(t, err)
-	desktop, err := svc.findOrCreateWorkspaceForBookmark(context.Background(), 101, 1, "proof-container", "main", workspaceCreateMetadata{kind: "container"})
-	require.NoError(t, err)
-
-	assert.Equal(t, "vm", vm.Kind)
-	assert.Equal(t, "container", desktop.Kind)
-	assert.NotEqual(t, vm.ID, desktop.ID)
-	assert.Len(t, workspaces, 2)
+	assert.Contains(t, cloneCommand, "landing/demo-123@origin")
 }
 
 func TestWorkspaceService_CreateWorkspaceAsync_ReusesDerivedWorkspaceForSameBookmark(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
+	existing := f.machine(t, db.CreateWorkspaceParams{Name: "demo landing", TargetBookmark: "landing/demo-123", IsFork: true, Status: "running"})
+	f.exec(t, `UPDATE workspaces SET vm_id='vm-branch' WHERE id=$1`, existing.ID)
 
-	existing := sampleDBWorkspace("ws-branch")
-	existing.IsFork = true
-	existing.Status = "running"
-	existing.VmID = "vm-branch"
-	existing.TargetBookmark = "landing/demo-123"
-	existing.Name = "demo landing"
-
-	q := &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			return 1, nil
-		},
-		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			return []db.Workspace{existing}, nil
-		},
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return existing, nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			t.Fatal("existing branch workspace should be reused")
-			return db.Workspace{}, nil
-		},
-	}
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			t.Fatal("running branch workspace should not reprovision")
+			t.Error("running branch workspace should not reprovision")
 			return sandbox.CreateResult{}, nil
 		},
 	}))
 
 	workspace, err := svc.CreateWorkspaceAsync(context.Background(), CreateWorkspaceInput{
-		RepositoryID:   101,
-		UserID:         1,
+		RepositoryID:   f.repo,
+		UserID:         f.user,
 		RepoOwner:      "alice",
 		RepoName:       "demo",
 		Name:           "demo landing",
 		SourceBookmark: "landing/demo-123",
 	})
 	require.NoError(t, err)
+	require.NoError(t, svc.WaitForProvisioning(context.Background()))
 	assert.Equal(t, existing.ID, workspace.ID)
 	assert.Equal(t, "landing/demo-123", workspace.TargetBookmark)
+	assert.Len(t, f.branch(t, "landing/demo-123"), 1)
 }
 
 func TestBuildWorkspaceCloneCommand_BindsBookmarkWithJj(t *testing.T) {
@@ -582,52 +425,33 @@ func TestBuildWorkspaceCloneCommand_BindsBookmarkWithJj(t *testing.T) {
 
 func TestWorkspaceService_CreateWorkspace_ResolvesDefaultBookmarkForClone(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
+	f.exec(t, `UPDATE repositories SET default_bookmark='trunk' WHERE id=$1`, f.repo)
 
-	var created db.CreateWorkspaceParams
-	q := &mockWorkspaceQuerier{
-		getRepoByIDFn: func(_ context.Context, id int64) (db.Repository, error) {
-			return db.Repository{ID: id, DefaultBookmark: "trunk"}, nil
-		},
-		getActiveWorkspaceForUserRepoKindFn: func(context.Context, db.GetActiveWorkspaceForUserRepoKindParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(_ context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			created = arg
-			workspace := sampleDBWorkspace("ws-trunk")
-			workspace.VmID = ""
-			workspace.Status = "starting"
-			workspace.TargetBookmark = arg.TargetBookmark
-			workspace.IsFork = arg.IsFork
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(_ context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			workspace.TargetBookmark = "trunk"
-			return workspace, nil
-		},
-	}
 	var cloneCommand string
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(context.Context, sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-trunk"}, nil
 		},
 		execAwaitFn: func(_ context.Context, vmID string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
 			assert.Equal(t, "vm-trunk", vmID)
-			cloneCommand = req.Command
+			if strings.Contains(req.Command, "git clone") {
+				cloneCommand = req.Command
+			}
 			status := int32(0)
 			return sandbox.ExecResult{StatusCode: &status}, nil
 		},
 	}))
 
 	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 		RepoOwner:    "alice",
 		RepoName:     "demo",
 		Name:         "primary",
 	})
+	require.NoError(t, err)
+	created, err := f.q.GetWorkspace(context.Background(), workspace.ID)
 	require.NoError(t, err)
 	assert.False(t, created.IsFork, "repository default must use the primary workspace")
 	assert.Equal(t, "trunk", created.TargetBookmark)
@@ -674,119 +498,18 @@ func TestBuildWorkspaceClaudeBootstrapScript_InstallRendersAsSingleRunnableLine(
 	assert.Contains(t, script, workspaceCLIPackageDir+"/node_modules/@smthrs/cli/bin/smithers.mjs")
 }
 
-func TestWorkspaceService_CreateWorkspace_ReplacesStalePendingWorkspaceWithoutVM(t *testing.T) {
-	t.Parallel()
-
-	var (
-		countCalls      int
-		listCalls       int
-		updatedStatuses []string
-		createCalls     int
-	)
-
-	q := &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			countCalls++
-			return 1, nil
-		},
-		listWorkspacesByRepoFn: func(ctx context.Context, arg db.ListWorkspacesByRepoParams) ([]db.Workspace, error) {
-			listCalls++
-			workspace := sampleDBWorkspace("ws-stale")
-			workspace.Status = "pending"
-			workspace.VmID = ""
-			workspace.UpdatedAt = time.Now().Add(-workspaceStaleAfter - time.Minute)
-			return []db.Workspace{workspace}, nil
-		},
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return db.Workspace{}, pgx.ErrNoRows
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			createCalls++
-			workspace := sampleDBWorkspace("ws-fresh")
-			workspace.VmID = ""
-			workspace.Status = "starting"
-			workspace.Name = arg.Name
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			updatedStatuses = append(updatedStatuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = ""
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
-			return sandbox.CreateResult{ID: "vm-fresh"}, nil
-		},
-	}))
-
-	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		RepoOwner:    "alice",
-		RepoName:     "demo",
-		Name:         "primary",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, 1, countCalls)
-	assert.Equal(t, 1, listCalls)
-	assert.Equal(t, 1, createCalls)
-	assert.Equal(t, []string{"failed"}, updatedStatuses)
-	assert.Equal(t, "vm-fresh", workspace.VMID)
-}
-
 func TestWorkspaceService_CreateWorkspace_ReusesWinnerWhenActivationConflicts(t *testing.T) {
 	t.Parallel()
-
-	var (
-		createVMDeleted []string
-		statuses        []string
-		getActiveCalls  int
-	)
+	f := newBranchMachineFixture(t)
 
 	winning := sampleDBWorkspace("ws-winning")
+	winning.RepositoryID = f.repo
 	winning.VmID = "vm-winning"
 	winning.Status = "running"
+	store := &activationConflictQuerier{Queries: f.q, winner: winning}
 
-	q := &mockWorkspaceQuerier{
-		countWorkspacesByRepoFn: func(ctx context.Context, arg db.CountWorkspacesByRepoParams) (int64, error) {
-			return 0, nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace("ws-race")
-			workspace.VmID = ""
-			workspace.Status = "starting"
-			return workspace, nil
-		},
-		getActiveWorkspaceForIdentityFn: func(ctx context.Context, arg db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			getActiveCalls++
-			if getActiveCalls == 1 {
-				return db.Workspace{}, pgx.ErrNoRows
-			}
-			return winning, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			return db.Workspace{}, &pgconn.PgError{Code: "23505", ConstraintName: "uq_workspaces_active"}
-		},
-		updateWorkspaceStatusFn: func(ctx context.Context, arg db.UpdateWorkspaceStatusParams) (db.Workspace, error) {
-			statuses = append(statuses, arg.Status)
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.Status = arg.Status
-			workspace.VmID = ""
-			return workspace, nil
-		},
-	}
-
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	var createVMDeleted []string
+	svc := f.service(store, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			return sandbox.CreateResult{ID: "vm-race"}, nil
 		},
@@ -797,8 +520,8 @@ func TestWorkspaceService_CreateWorkspace_ReusesWinnerWhenActivationConflicts(t 
 	}))
 
 	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 		RepoOwner:    "alice",
 		RepoName:     "demo",
 		Name:         "primary",
@@ -806,8 +529,10 @@ func TestWorkspaceService_CreateWorkspace_ReusesWinnerWhenActivationConflicts(t 
 	require.NoError(t, err)
 	assert.Equal(t, winning.ID, workspace.ID)
 	assert.Equal(t, []string{"vm-race"}, createVMDeleted)
-	assert.Equal(t, []string{"failed"}, statuses)
-	assert.Equal(t, 2, getActiveCalls)
+	assert.Equal(t, 1, store.lookups)
+	rows := f.branch(t, "main")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "failed", rows[0].Status, "the losing machine is failed, not left active")
 }
 
 func TestWorkspaceService_CreateWorkspace_PreservesStoppedVMOnResumeTimeout(t *testing.T) {
@@ -891,65 +616,6 @@ func TestWorkspaceService_CreateWorkspace_PreservesStoppedVMOnResumeTimeout(t *t
 	assert.Empty(t, executionUpdates)
 	assert.Empty(t, deletedVMs)
 
-}
-
-func TestWorkspaceService_ForkWorkspace_UsesFork(t *testing.T) {
-	t.Parallel()
-
-	// Workspace IDs must be valid UUIDs because ParentWorkspaceID is stored as
-	// pgtype.UUID; stringToUUID silently returns an invalid UUID for non-UUID strings.
-	const sourceID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-	const forkID = "11111111-2222-3333-4444-555555555555"
-
-	q := &mockWorkspaceQuerier{
-		getWorkspaceByRepoFn: func(ctx context.Context, arg db.GetWorkspaceByRepoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.VmID = "vm-source"
-			return workspace, nil
-		},
-		createWorkspaceFn: func(ctx context.Context, arg db.CreateWorkspaceParams) (db.Workspace, error) {
-			assert.True(t, arg.IsFork)
-			assert.Equal(t, stringToUUID(sourceID), arg.ParentWorkspaceID)
-			assert.Equal(t, "starting", arg.Status)
-			workspace := sampleDBWorkspace(forkID)
-			workspace.Name = arg.Name
-			workspace.IsFork = true
-			workspace.ParentWorkspaceID = arg.ParentWorkspaceID
-			workspace.VmID = ""
-			workspace.Status = "pending"
-			return workspace, nil
-		},
-		updateWorkspaceExecutionInfoFn: func(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
-			workspace := sampleDBWorkspace(arg.ID)
-			workspace.IsFork = true
-			workspace.ParentWorkspaceID = stringToUUID(sourceID)
-			workspace.VmID = arg.VmID
-			workspace.Status = arg.Status
-			return workspace, nil
-		},
-	}
-
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
-		getVMFn: func(ctx context.Context, vmID string) (sandbox.Sandbox, error) {
-			return sandbox.Sandbox{ID: vmID, State: sandbox.StateRunning}, nil
-		},
-		forkVMFn: func(ctx context.Context, sourceVMID string, req sandbox.ForkRequest) (sandbox.CreateResult, error) {
-			assert.Equal(t, "vm-source", sourceVMID)
-			require.NotNil(t, req.IdleTimeoutSeconds)
-			return sandbox.CreateResult{ID: "vm-forked"}, nil
-		},
-	}))
-
-	workspace, err := svc.ForkWorkspace(context.Background(), ForkWorkspaceInput{
-		RepositoryID: 101,
-		UserID:       1,
-		WorkspaceID:  sourceID,
-		Name:         "parallel",
-	})
-	require.NoError(t, err)
-	assert.Equal(t, "vm-forked", workspace.VMID)
-	assert.True(t, workspace.IsFork)
-	assert.Equal(t, sourceID, workspace.ParentWorkspaceID)
 }
 
 func TestWorkspaceService_CreateWorkspaceSnapshot_PersistsSnapshotID(t *testing.T) {
@@ -1113,4 +779,195 @@ func TestWorkspaceArtifactGuestPathFindsContainerTools(t *testing.T) {
 	out, err := exec.Command("/bin/sh", "-c", guestPath+`jj --version | grep -Eq '^jj 0\.39\.0([-+].*)?$' && echo found`).CombinedOutput()
 	require.NoError(t, err, string(out))
 	assert.Equal(t, "found\n", string(out))
+}
+
+// One branch has one machine (de86a86992, #3565): a later caller asking for
+// another kind on the same bookmark joins the existing machine instead of
+// creating a second computer, as the old per-requester identity did.
+func TestWorkspaceService_FindOrCreateWorkspace_KindsOnOneBookmarkShareTheBranchMachine(t *testing.T) {
+	t.Parallel()
+	f := newBranchMachineFixture(t)
+	ctx := context.Background()
+	svc := f.service(nil)
+
+	vm, err := svc.findOrCreateWorkspaceForBookmark(ctx, f.repo, f.user, "proof-vm", "main", workspaceCreateMetadata{kind: "vm"})
+	require.NoError(t, err)
+	container, err := svc.findOrCreateWorkspaceForBookmark(ctx, f.repo, f.user, "proof-container", "main", workspaceCreateMetadata{kind: "container"})
+	require.NoError(t, err)
+
+	assert.Equal(t, "vm", vm.Kind)
+	assert.Equal(t, vm.ID, container.ID)
+	assert.Equal(t, "vm", container.Kind, "the machine keeps the kind it was created with")
+	assert.Len(t, f.branch(t, "main"), 1)
+
+	_, err = svc.findOrCreateWorkspaceForBookmark(ctx, f.repo, f.user, "proof-desktop", "main", workspaceCreateMetadata{kind: "desktop"})
+	assert.Equal(t, 400, apiStatus(t, err))
+}
+
+// A branch machine left pending with no VM (a provisioner that died before
+// creating one) is provisioned in place by the next open. de86a86992 (#3565)
+// replaced the per-requester stale-row replacement with the one canonical
+// machine per branch, so the open neither fails the row nor adds a second.
+func TestWorkspaceService_CreateWorkspace_ProvisionsStalePendingBranchMachineInPlace(t *testing.T) {
+	t.Parallel()
+	f := newBranchMachineFixture(t)
+	stale := f.machine(t, db.CreateWorkspaceParams{Name: "primary", TargetBookmark: "main", Status: "pending"})
+	f.exec(t, `UPDATE workspaces SET updated_at=$2 WHERE id=$1`, stale.ID, time.Now().Add(-workspaceStaleAfter-time.Minute))
+
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+			return sandbox.CreateResult{ID: "vm-fresh"}, nil
+		},
+	}))
+
+	workspace, err := svc.CreateWorkspace(context.Background(), CreateWorkspaceInput{
+		RepositoryID: f.repo,
+		UserID:       f.user,
+		RepoOwner:    "alice",
+		RepoName:     "demo",
+		Name:         "primary",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, stale.ID, workspace.ID)
+	assert.Equal(t, "vm-fresh", workspace.VMID)
+	rows := f.branch(t, "main")
+	require.Len(t, rows, 1)
+	assert.Equal(t, "running", rows[0].Status)
+}
+
+func (q *activationConflictQuerier) UpdateWorkspaceExecutionInfo(ctx context.Context, arg db.UpdateWorkspaceExecutionInfoParams) (db.Workspace, error) {
+	if arg.Status == "running" {
+		return db.Workspace{}, &pgconn.PgError{Code: "23505", ConstraintName: "uq_workspaces_active"}
+	}
+	return q.Queries.UpdateWorkspaceExecutionInfo(ctx, arg)
+}
+
+func (q *activationConflictQuerier) GetActiveWorkspaceForIdentity(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
+	q.lookups++
+	return q.winner, nil
+}
+
+// ForkWorkspace hands the source machine to the stack's revision writer.
+// f6e8615156 (#3525) removed the hosted path that forked the source VM, so a
+// fork never copies the source sandbox.
+func TestWorkspaceService_ForkWorkspace_UsesRevisionWriter(t *testing.T) {
+	t.Parallel()
+	f := newBranchMachineFixture(t)
+	source := f.machine(t, db.CreateWorkspaceParams{Name: "source", TargetBookmark: "source", Status: "running"})
+	f.exec(t, `UPDATE workspaces SET vm_id='vm-source' WHERE id=$1`, source.ID)
+
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+		forkVMFn: func(context.Context, string, sandbox.ForkRequest) (sandbox.CreateResult, error) {
+			t.Error("a fork never copies the source VM")
+			return sandbox.CreateResult{}, nil
+		},
+	}))
+	var handed db.Workspace
+	var request ForkWorkspaceInput
+	svc.revisionFork = func(_ context.Context, src db.Workspace, input ForkWorkspaceInput) (WorkspaceResponse, error) {
+		handed, request = src, input
+		return WorkspaceResponse{ID: "fork", IsFork: true, ParentWorkspaceID: src.ID}, nil
+	}
+
+	workspace, err := svc.ForkWorkspace(context.Background(), ForkWorkspaceInput{
+		RepositoryID: f.repo,
+		UserID:       f.user,
+		WorkspaceID:  source.ID,
+		Name:         "parallel",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, source.ID, handed.ID)
+	assert.Equal(t, "parallel", request.Name)
+	assert.True(t, workspace.IsFork)
+	assert.Equal(t, source.ID, workspace.ParentWorkspaceID)
+}
+
+func newBranchMachineFixture(t *testing.T) branchMachineFixture {
+	t.Helper()
+	pool := newProductTestPool(t)
+	user, repo := setupTestUserAndRepo(t, pool)
+	return branchMachineFixture{pool: pool, q: db.New(pool), user: user, repo: repo}
+}
+
+// service builds the workspace service over store, the fixture's database
+// when nil; a test wraps the database to inject one store outcome.
+func (f branchMachineFixture) service(store WorkspaceQuerier, opts ...WorkspaceServiceOption) *WorkspaceService {
+	if store == nil {
+		store = f.q
+	}
+	return newWorkspaceServiceForTests(store, append([]WorkspaceServiceOption{
+		WithWorkspaceTransactions(f.pool), WithBranchMachineProviders(branchMachineTestProviders()),
+	}, opts...)...)
+}
+
+// machine inserts a branch machine owned by the machine service and shared
+// with the fixture's user, as a reservation leaves it.
+func (f branchMachineFixture) machine(t *testing.T, arg db.CreateWorkspaceParams) db.Workspace {
+	t.Helper()
+	ctx := context.Background()
+	owner, err := f.q.GetBranchMachineOwner(ctx)
+	require.NoError(t, err)
+	arg.RepositoryID, arg.UserID = f.repo, owner
+	if arg.Kind == "" {
+		arg.Kind = "container"
+	}
+	row, err := f.q.CreateWorkspace(ctx, arg)
+	require.NoError(t, err)
+	_, err = f.q.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{WorkspaceID: row.ID, OwnerUserID: owner, GranteeUserID: f.user, Level: string(WorkspaceAccessWrite)})
+	require.NoError(t, err)
+	return row
+}
+
+// branch returns the live machines on one bookmark of the fixture repository.
+func (f branchMachineFixture) branch(t *testing.T, bookmark string) []db.Workspace {
+	t.Helper()
+	ctx := context.Background()
+	rows, err := f.pool.Query(ctx, `SELECT id::text FROM workspaces WHERE repository_id=$1 AND target_bookmark=$2 AND deleted_at IS NULL ORDER BY created_at`, f.repo, bookmark)
+	require.NoError(t, err)
+	ids, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	out := make([]db.Workspace, 0, len(ids))
+	for _, id := range ids {
+		row, err := f.q.GetWorkspace(ctx, id)
+		require.NoError(t, err)
+		out = append(out, row)
+	}
+	return out
+}
+
+func (f branchMachineFixture) exec(t *testing.T, sql string, args ...any) {
+	t.Helper()
+	_, err := f.pool.Exec(context.Background(), sql, args...)
+	require.NoError(t, err)
+}
+
+// activationConflictQuerier makes the final running write lose the active
+// workspace index to a concurrent activation; one canonical machine per
+// branch cannot produce that race in PostgreSQL, so the store injects it.
+type activationConflictQuerier struct {
+	*db.Queries
+	winner  db.Workspace
+	lookups int
+}
+
+// branchMachineFixture composes what every workspace creation door needs since
+// de86a86992 (#3565): a PostgreSQL product database, its transactions and the
+// branch machine activation providers. Mock sandbox clients stand in for the
+// VMs; TestBranchMachineUnavailableProviders covers the refusal without them.
+type branchMachineFixture struct {
+	pool       *pgxpool.Pool
+	q          *db.Queries
+	user, repo int64
+}
+
+// sessionStatuses returns the statuses of the sessions on one bookmark's
+// machines, oldest first.
+func (f branchMachineFixture) sessionStatuses(t *testing.T, bookmark string) []string {
+	t.Helper()
+	rows, err := f.pool.Query(context.Background(), `SELECT s.status FROM workspace_sessions s JOIN workspaces w ON w.id=s.workspace_id
+		WHERE w.repository_id=$1 AND w.target_bookmark=$2 ORDER BY s.created_at`, f.repo, bookmark)
+	require.NoError(t, err)
+	statuses, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	require.NoError(t, err)
+	return statuses
 }

@@ -64,20 +64,22 @@ func provisioningTestQuerier(sessionStatuses *[]string) *mockWorkspaceQuerier {
 // booted VM is orphaned.
 //
 // The fix routes provisioning through a detached/async context so VM creation
-// survives request cancellation. This test asserts CreateSandbox never observes the
-// canceled request context.
+// survives request cancellation. The client disconnects once the session and
+// its branch machine exist and the boot has begun; CreateSandbox must not
+// observe the canceled request context.
 func TestWorkspaceService_CreateSession_DecouplesProvisioningFromRequestCancellation(t *testing.T) {
 	t.Parallel()
+	f := newBranchMachineFixture(t)
 
-	// Client has already disconnected: the request context is canceled before
-	// provisioning begins, exactly like the ~125s proxy-cancel in prod.
 	reqCtx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
 
 	createVMCtxErr := make(chan error, 1)
-	q := provisioningTestQuerier(nil)
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
+			// The client disconnects mid-boot, like the ~125s proxy cancel in prod.
+			cancel()
+			<-reqCtx.Done()
 			select {
 			case createVMCtxErr <- ctx.Err():
 			default:
@@ -87,17 +89,18 @@ func TestWorkspaceService_CreateSession_DecouplesProvisioningFromRequestCancella
 	}))
 
 	_, _ = svc.CreateSession(reqCtx, CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 	})
 
 	select {
 	case err := <-createVMCtxErr:
 		require.NoError(t, err,
 			"VM provisioning must be decoupled from the request context; got a canceled context, which is how prod leaks VMs when the client disconnects")
-	case <-time.After(3 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("CreateSandbox was never invoked")
 	}
+	require.NoError(t, svc.WaitForProvisioning(context.Background()))
 }
 
 // TestWorkspaceService_CreateSession_DeletesVMWhenCreateReturnsIDWithError
@@ -111,12 +114,10 @@ func TestWorkspaceService_CreateSession_DecouplesProvisioningFromRequestCancella
 // The fix must delete any created-but-unregistered VM on the failure path.
 func TestWorkspaceService_CreateSession_DeletesVMWhenCreateReturnsIDWithError(t *testing.T) {
 	t.Parallel()
-
-	var sessionStatuses []string
-	q := provisioningTestQuerier(&sessionStatuses)
+	f := newBranchMachineFixture(t)
 
 	var deletedVMs []string
-	svc := newWorkspaceServiceForTests(q, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
+	svc := f.service(nil, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		createVMFn: func(ctx context.Context, req sandbox.CreateRequest) (sandbox.CreateResult, error) {
 			// VM booted on Microsandbox, but the provisioning call still failed.
 			return sandbox.CreateResult{ID: "vm-orphan"}, assert.AnError
@@ -128,10 +129,11 @@ func TestWorkspaceService_CreateSession_DeletesVMWhenCreateReturnsIDWithError(t 
 	}))
 
 	_, err := svc.CreateSession(context.Background(), CreateWorkspaceSessionInput{
-		RepositoryID: 101,
-		UserID:       1,
+		RepositoryID: f.repo,
+		UserID:       f.user,
 	})
 	require.Error(t, err)
 	assert.Equal(t, []string{"vm-orphan"}, deletedVMs,
 		"a VM whose id is known but which could not be registered must be deleted, not leaked")
+	assert.Equal(t, []string{"failed"}, f.sessionStatuses(t, "main"))
 }

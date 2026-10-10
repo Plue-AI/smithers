@@ -48,13 +48,16 @@ func TestWorkspaceExec_Z_CreateSessionUnavailableAndProvisioningErrors(t *testin
 	_, err = svc.CreateSession(ctx, CreateWorkspaceSessionInput{WorkspaceID: "ws-1", RepositoryID: 101, UserID: 1})
 	assert.Equal(t, http.StatusNotFound, apiStatus(t, err), "a tombstone winning the session-create race is not an internal error")
 
+	// A session with no workspace reserves the branch's machine; without the
+	// activation providers (de86a86992, #3565) it refuses before any session.
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{
-		getActiveWorkspaceForIdentityFn: func(context.Context, db.GetActiveWorkspaceForIdentityParams) (db.Workspace, error) {
-			return db.Workspace{}, errors.New("primary failed")
+		createWorkspaceSessionFn: func(context.Context, db.CreateWorkspaceSessionParams) (db.WorkspaceSession, error) {
+			t.Error("a refused reservation writes no session")
+			return db.WorkspaceSession{}, nil
 		},
 	}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{}))
 	_, err = svc.CreateSession(ctx, CreateWorkspaceSessionInput{RepositoryID: 101, UserID: 1})
-	assert.Equal(t, http.StatusInternalServerError, apiStatus(t, err))
+	requireBranchMachineUnavailable(t, err)
 
 	svc = newWorkspaceServiceForTests(&mockWorkspaceQuerier{}, WithWorkspaceSandboxClient(&mockWorkspaceSandboxVMClient{
 		getVMFn: func(context.Context, string) (sandbox.Sandbox, error) {
