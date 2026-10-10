@@ -52,10 +52,6 @@ const sessionFolder = (root: string): string => {
   return join(root, folders[0]!.name)
 }
 
-/** The scrubber's playhead column. */
-const knob = (screen: string): number =>
-  screen.split("\n").map((line) => [...line].indexOf("●")).find((column) => column >= 0) ?? -1
-
 let tui: Tui | undefined
 afterEach(async () => {
   await tui?.stop()
@@ -341,9 +337,10 @@ describe("composer mode", () => {
 
   it("keeps short-terminal input, queue controls, and status visible", async () => {
     const { tui } = await start({ cols: 40, rows: 12, holdMs: 60_000 })
-    await tui.press(key.ctrlO)
+    // `?` is the one key that opens the keys (e3e8cbc377), and closes them again.
+    await tui.press("?")
     await tui.until((screen) => /Keys\s+esc/.test(screen), 5_000, "home help")
-    await tui.press(key.ctrlO)
+    await tui.press("?")
     await tui.until((screen) => !/Keys\s+esc/.test(screen), 5_000, "home help closed")
     await tui.press("\x1b[200~one\ntwo\nthree\nfour\nfive\nsix\x1b[201~")
     await tui.until((screen) => screen.includes("six") && drawn(screen), 5_000, "bounded multiline input")
@@ -567,11 +564,8 @@ describe("esc", () => {
     const { tui } = await start({ holdMs: 60_000 })
     await tui.type("node check.mjs fails. Fix it and show it passes.")
     await tui.press(key.enter)
-    await tui.until(
-      (screen) => screen.includes("esc Interrupt") && /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d/.test(screen),
-      10_000,
-      "running turn"
-    )
+    // The status line's working keys mark a running turn; its spinner and clock left in 559f9d8b27 (#3688).
+    await tui.until((screen) => screen.includes("esc Interrupt"), 10_000, "running turn")
     await tui.press(key.escape)
     const screen = await tui.until((screen) => screen.includes("■ stopped") && idle(screen), 5_000, "stopped turn")
     expect(screen).toContain("Ask Smithers to change this repository")
@@ -871,31 +865,35 @@ describe("turns", () => {
       const { tui, cwd } = started
       await tui.type("node check.mjs fails. Fix it and show it passes.")
       await tui.press(key.enter)
-      await tui.until((screen) => /[▾▸⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] +\d+  /.test(screen), 20_000, "first cell")
+      // A finished cell shows as its calls; its code waits for ctrl+o (7ae2587fce, #3038).
+      await tui.until((screen) => screen.includes("listed ."), 20_000, "first cell")
       await successfulAnswer(started)
       expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
-      const following = await tui.until(
-        (screen) => screen.includes("⏸") && knob(screen) > 0,
+      // The timeline is one row over the view, opened at the live end by Ctrl+T (f236b603b7, #3041).
+      await tui.press("\x14")
+      const recorded = await tui.until(
+        (screen) => /◂Done\s+(\d+)\/\1 ▸esc Back/.test(screen),
         5_000,
         "recorded timeline"
       )
-      await tui.press("\x14")
-      await tui.until((screen) => screen.includes("▶"), 5_000, "timeline paused")
+      const total = /◂Done\s+\d+\/(\d+) ▸/.exec(recorded)![1]!
       await tui.press("\x1b[H")
-      await tui.until((screen) => knob(screen) < knob(following), 5_000, "first journal position")
+      await tui.until((screen) => new RegExp(`\\s0/${total} ▸`).test(screen), 5_000, "first journal position")
       await tui.press("\x1b[F")
+      await tui.until((screen) => new RegExp(`◂Done\\s+${total}/${total} ▸`).test(screen), 5_000, "last position")
       await tui.press("\x13")
       // 40 columns clip the footer hints; Escape clearing these rows proves the panel had focus.
       await tui.until((screen) => /›\s+\d+ /.test(screen), 5_000, "summary keyboard focus")
+      // Opening Summary interrupts the inspection: the first Esc ends it and keeps the opened tab (61ebde9f17, #3037).
       await tui.press(key.escape)
+      expect(tui.screen()).toMatch(/›\s+\d+ /)
+      await tui.press(key.escape)
+      // Typing right behind Escape reads as alt+key, so wait for the chat to follow live again.
       await tui.until(
-        (screen) => !/›\s+\d+ /.test(screen) && screen.includes("▶"),
+        (screen) => !/›\s+\d+ /.test(screen) && !screen.includes("esc Back") && idle(screen),
         5_000,
-        "summary handles Escape and restores the chat timeline"
+        "summary handles Escape and the chat follows live"
       )
-      await tui.press(key.escape)
-      // Typing right behind Escape reads as alt+key, so wait for the timeline to follow live again.
-      await tui.until((screen) => screen.includes("⏸"), 5_000, "timeline follows live")
       await tui.type("keep the composer usable")
       const inspected = await tui.until(
         (screen) => /┃\s+keep the composer usable/.test(screen),
@@ -922,8 +920,12 @@ describe("turns", () => {
     await tui.type("Print the example lines.")
     await tui.press(key.enter)
     await successfulAnswer(started, "Printed")
-    const folded = tui.screen()
-    expect(folded).toMatch(/Printed the requested lines\.\s*\n\s+ctrl\+o program · \d+m?s/)
+    // Markdown lays the answer out after its first frame; a program under a second shows no time (b3043817c8).
+    const folded = await tui.until(
+      (screen) => /Printed the requested lines\.\s*\n\s+ctrl\+o program(?: · \d+m?s)?\s*\n/.test(screen),
+      5_000,
+      "folded answer"
+    )
     expect(folded).not.toContain("const lines")
     expect(folded).not.toMatch(/printed \d+ lines?/)
     expect(folded).not.toContain("output to a specific file")
@@ -948,7 +950,12 @@ describe("turns", () => {
     expect(readFileSync(join(sessions, "tui.log"), "utf8")).toContain("EACCES")
     // This case deliberately refuses every later journal write, so require the
     // real completed UI state and changed file instead of a persisted outcome.
-    await tui.until((screen) => idle(screen) && /●\s+Done/.test(screen), 90_000, "completed unsaved turn")
+    // A finished turn shows its answer; the `● Done` row left with the compact chrome (f236b603b7, #3041).
+    await tui.until(
+      (screen) => idle(screen) && screen.includes("Fixed math.js; node check.mjs prints ok."),
+      90_000,
+      "completed unsaved turn"
+    )
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     expect(spawnSync("node", ["check.mjs"], { cwd }).status).toBe(0)
     await tui.type("second prompt after the failed write")
@@ -1069,21 +1076,37 @@ describe("completion", () => {
     await tui.until((screen) => /exchanges · ↑0/.test(screen), 5_000, "session note")
   }, 60_000)
 
-  it("completes an argument: /thinking hi, down, enter picks xhigh", async () => {
-    const { tui } = await start()
-    await tui.type("/thinking hi")
-    await tui.until((screen) => screen.includes("xhigh"), 5_000, "levels")
+  /**
+   * Two agents whose names share a prefix, so `/flow rev` offers both. `/thinking`
+   * and its levels left in 39e43c0fe4 (#3385); `/flow` and `/model` complete arguments.
+   */
+  const withAgents = () => {
+    const cwd = repository()
+    cpSync(join(app, "examples", "custom-agent", "flows"), join(cwd, "flows"), { recursive: true })
+    mkdirSync(join(cwd, "flows", "reviewer"))
+    writeFileSync(
+      join(cwd, "flows", "reviewer", "flow.mdx"),
+      "---\ndescription: Names a reviewer for the change.\n---\n\nName a reviewer for the change.\n"
+    )
+    return cwd
+  }
+  const offered = (screen: string) => /\/flow review\s/.test(screen) && /\/flow reviewer\s/.test(screen)
+
+  it("completes an argument: /flow rev, down, enter picks reviewer", async () => {
+    const { tui } = await start({ cwd: withAgents() })
+    await tui.type("/flow rev")
+    await tui.until(offered, 20_000, "flows")
     await tui.press(key.down)
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Thinking level: xhigh"), 5_000, "level set")
+    await tui.until((screen) => /reviewer: Names a reviewer for the change\./.test(screen), 20_000, "reviewer started")
   }, 60_000)
 
   it("down and enter in one burst pick the row down moved to", async () => {
-    const { tui } = await start()
-    await tui.type("/thinking hi")
-    await tui.until((screen) => screen.includes("xhigh") && /┃\s+\/thinking hi/.test(screen), 5_000, "levels")
+    const { tui } = await start({ cwd: withAgents() })
+    await tui.type("/flow rev")
+    await tui.until((screen) => offered(screen) && /┃\s+\/flow rev/.test(screen), 20_000, "flows")
     await tui.press(key.down + key.enter)
-    await tui.until((screen) => screen.includes("Thinking level: xhigh"), 5_000, "level set")
+    await tui.until((screen) => /reviewer: Names a reviewer for the change\./.test(screen), 20_000, "reviewer started")
   }, 60_000)
 
   it("inserts an @file mention with tab and leaves the draft unsent", async () => {
@@ -1298,41 +1321,47 @@ describe("timeline scrubber", () => {
     return start({ cwd, sessions, args: "-c", cols })
   }
 
-  it("a click on a milestone jumps the chat to its numbered step; keys step and esc follows live", async () => {
-    const { tui } = await restored(120)
-    // The scrubber paints before the composer below it; the composer then
-    // pushes it up several rows. Read coordinates only from the settled
-    // layout, or the click lands in the chat and nothing pauses.
-    const screen = await tui.until(
-      (screen) =>
-        screen.includes("approvals.ts") && screen.includes("⏸ Pause") &&
-        screen.includes("Ask Smithers to change this repository"),
+  // Since f236b603b7 (#3041) the timeline is one row over the view: Ctrl+T opens it at the live end.
+  const opened = async (tui: Tui) => {
+    await tui.until(
+      (screen) => screen.includes("Implemented and verified") && drawn(screen),
       15_000,
-      "settled scrubber"
+      "restored session"
     )
-    const rows = screen.split("\n")
-    const row = rows.findIndex((line) => line.includes("approvals.ts") && !line.includes("┃"))
-    const column = rows[row]!.indexOf("approvals.ts")
-    await tui.press(`\x1b[<0;${column + 2};${row + 1}M\x1b[<0;${column + 2};${row + 1}m`)
-    // Step 10 can already be on screen at the live end; the playhead pausing is the jump.
-    const jumped = await tui.until(
-      (screen) => screen.includes("▶ Live") && /▾ 10\s+patched approvals\.ts/.test(screen),
+    await tui.press("\x14")
+    return tui.until((screen) => /◂Done\s+20\/20 ▸esc Back/.test(screen), 5_000, "timeline at the live end")
+  }
+
+  it("a milestone jumps the chat to its numbered step; a click and keys step, and esc follows live", async () => {
+    const { tui } = await restored(120)
+    await opened(tui)
+    await tui.click("◂")
+    await tui.until((screen) => /◂.*\s19\/20 ▸esc Back/.test(screen), 5_000, "a click steps back")
+    await tui.press("\x1b[H")
+    await tui.until((screen) => /◂Working\s+0\/20 ▸/.test(screen), 5_000, "first position")
+    await tui.press("]")
+    await tui.until(
+      (screen) => /◂patched approvals\.ts.*\s10\/20 ▸/.test(screen) && /▾ 10\s+patched approvals\.ts/.test(screen),
       5_000,
       "jumped to step 10"
     )
-    expect(jumped).toContain("Implementing")
-    expect(jumped).toContain("▶ Live")
     await tui.press("\x1b[D")
-    await tui.until((screen) => /▾ \s?9\s/.test(screen) || /▾ \s?8\s/.test(screen), 5_000, "previous step")
+    await tui.until((screen) => /\s9\/20 ▸/.test(screen), 5_000, "previous step")
     await tui.press("]")
-    await tui.until((screen) => screen.includes("patched approvals.ts"), 5_000, "next milestone")
+    await tui.until((screen) => /◂patched approvals\.ts.*\s10\/20 ▸/.test(screen), 5_000, "next milestone")
     await tui.press(key.escape)
-    await tui.until((screen) => screen.includes("⏸ Pause") && screen.includes("Done"), 5_000, "following live")
+    await tui.until((screen) => !screen.includes("esc Back") && idle(screen), 5_000, "following live")
   }, 60_000)
 
   it("stays inside a narrow terminal", async () => {
     const { tui } = await restored(40)
-    const screen = await tui.until((screen) => screen.includes("⏸") && screen.includes("●"), 15_000, "narrow scrubber")
+    await opened(tui)
+    await tui.press("\x1b[H]")
+    const screen = await tui.until(
+      (screen) => /◂patched approvals\.ts.*10\/20 ▸esc Back/.test(screen),
+      5_000,
+      "narrow timeline"
+    )
     for (const line of screen.split("\n")) expect([...line.trimEnd()].length).toBeLessThanOrEqual(40)
   }, 60_000)
 })
@@ -1360,22 +1389,25 @@ describe("new session", () => {
 
 describe("model dialog", () => {
   it("chooses the latest picker row and filter when keys arrive in one burst", async () => {
-    const { tui } = await start({ home: mkdtempSync(join(tmpdir(), "tui-theme-home-")) })
-    await tui.type("/theme")
+    // `/theme` left with the theme collection (2753d2e3d2, #3404); the chat filter is a picker that stays open.
+    const { tui } = await start()
+    await tui.type("/filter")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Select theme"), 5_000, "theme picker")
+    await tui.until((screen) => screen.includes("Filter chat") && /●\s+Messages/.test(screen), 5_000, "filter picker")
     await tui.press(key.down + key.enter)
-    await tui.until((screen) => !screen.includes("Select theme"), 5_000, "selected theme")
-    await tui.type("/theme")
-    await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Select theme"), 5_000, "reopened picker")
-    expect(tui.screen()).toMatch(/●\s+blue/)
-    await tui.press("green" + key.enter)
-    await tui.until((screen) => !screen.includes("Select theme"), 5_000, "filtered theme")
-    await tui.type("/theme")
-    await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Select theme"), 5_000, "final picker")
-    expect(tui.screen()).toMatch(/●\s+green/)
+    await tui.until(
+      (screen) => screen.includes("filtered") && /^\s+Messages\s*$/m.test(screen),
+      5_000,
+      "picked the row down moved to"
+    )
+    expect(tui.screen()).toMatch(/●\s+Shell/)
+    await tui.press("shell" + key.down + key.enter)
+    await tui.until(
+      (screen) => /^\s+shell\s*$/m.test(screen) && /^\s+Shell\s*$/m.test(screen),
+      5_000,
+      "picked the filtered row"
+    )
+    expect(tui.screen()).not.toMatch(/●\s+Shell/)
   }, 60_000)
 
   it("filters as you type and picks with enter", async () => {
@@ -2617,8 +2649,11 @@ describe("transcript scrolling", () => {
   it("scrolls up while a selection is dragged above the transcript", async () => {
     const { tui } = await start()
     await fill(tui)
-    await tui.press(mouse(0, 5, 14))
-    await tui.press(mouse(32, 5, 8))
+    // Press on a row of text, not the gap between blocks: the compact chrome (f236b603b7) moved every row.
+    const from = tui.screen().split("\n").findIndex((line) => /\bb2-38\b/.test(line)) + 1
+    expect(from).toBeGreaterThan(8)
+    await tui.press(mouse(0, 5, from))
+    await tui.press(mouse(32, 5, from - 6))
     await tui.press(mouse(32, 5, 1))
     await tui.until((screen) => screen.includes("$ seq -f 'b1-%g' 1 40"), 5_000, "autoscrolled transcript")
     await tui.press(mouse(0, 5, 1, true))
