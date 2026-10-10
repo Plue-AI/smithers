@@ -742,6 +742,7 @@ const issueClaim = Smithers.NodeTest({
     Smithers.file("//scripts/issue-claim.mjs"),
     Smithers.file("//scripts/check-evidence.mjs"),
     Smithers.file("//scripts/check-run.mjs"),
+    Smithers.file("//scripts/reference-host/hosts.json"),
     Smithers.file("//scripts/check-commands.json"),
     Smithers.file("//scripts/fixtures/check-receipts.mjs"),
     Smithers.file("//scripts/github-proxy.mjs"),

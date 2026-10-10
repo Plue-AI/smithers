@@ -72,20 +72,52 @@ export const unpackResults = (bytes, { maxTotal = 16 << 20, maxFile = 4 << 20 } 
   } finally { rmSync(dir, { recursive: true, force: true }) }
 }
 
+/** Accepted workflow identities; unknown hosts and job legs fail closed. */
+export const HOSTS = {
+  CI: { workflow: '.github/workflows/ci.yml', events: ['push'], jobs: {
+    'test-0': 'workspace graph (coverage gates enforced)',
+    'repository-0': 'repository flows, apps and evals',
+    'scripts-0': 'script gates', 'docs-0': 'published package documentation',
+    'apps-e2e-0': 'apps e2e (Playwright T1)', 'rust-0': 'rust fmt + clippy + test',
+    'rust-ffi-0': 'native FFI compiler and tests', 'wasm-repro-0': 'wasm reproducibility',
+    'browser-0': 'web bundle compatibility',
+    'packages-0': 'package suites (ubuntu-latest)', 'packages-1': 'package suites (macos-latest)',
+    'packages-2': 'package suites (windows-latest)', 'go-backend-0': 'shared Go backend (PostgreSQL)',
+    'go-backend-access-0': 'backend access-control tests (PostgreSQL)'
+  } },
+  'reference-host': { workflow: '.github/workflows/reference-host.yml', events: ['push', 'workflow_dispatch'],
+    jobs: { 'macos-release-trust-0': 'macOS release-trust suite' },
+    runnerName: 'reference-host-mac-mini', labels: ['self-hosted', 'reference-host', 'macOS', 'ARM64'] }
+}
+
+export const mappingsActive = inventory => inventory?.version === 1 && inventory.activation?.mappingsApprovedBy === 'smithers-22'
+
+/** The allowlist is read from the receipt commit, never the working tree. */
+export const referenceHosts = (root, landed) => {
+  try { return JSON.parse(gitRead(root, ['show', `${landed}:scripts/reference-host/hosts.json`])) } catch { return null }
+}
+const qualifiedHost = (job, summary, hosts) => hosts?.version === 1 && Array.isArray(hosts.hosts) &&
+  hosts.hosts.some(host => /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(host?.ioPlatformUUID ?? '') &&
+    host.runnerName === job.runner_name && host.runnerId === job.runner_id &&
+    host.ioPlatformUUID === summary.referenceHost?.ioPlatformUUID &&
+    summary.referenceHost?.runnerName === job.runner_name)
+
 const PASSING = new Set(['ran', 'hit'])
 const RESULTS = /^smthrs-results-([A-Za-z_][A-Za-z0-9_-]*)-(\d+)-(\d+)$/
 
 /**
- * Decides a CI-mapped check from CI's own record at `landed` (#3663, option B).
- * Trusts only a completed push run of .github/workflows/ci.yml on main at
+ * Decides a mapped check from its host's authenticated workflow record.
+ * Trusts only a completed run of the host table's workflow on main at
  * exactly `landed`, its latest attempt, check runs from the github-actions app,
  * and each job leg's newest smthrs-results artifact up to that attempt, digests matching. The
- * label's own statuses decide; a job that was cancelled or timed out refuses.
+ * label's statuses and its own successful job decide; stopped jobs refuse.
  * `github.json(path)` and `github.bytes(path)` read the REST API; `unpack(bytes)`
  * returns { files: [{ name, text }] } or { reason } (see unpackResults). Returns { pass, reason, evidence }.
  */
-export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
+export const verifyCiRun = ({ github, unpack, repo, landed, label, host = 'CI', hosts = null }) => {
   const refuse = (reason, evidence = {}) => ({ pass: false, reason, evidence })
+  const policy = Object.hasOwn(HOSTS, host) ? HOSTS[host] : null
+  if (!policy) return refuse('host')
   if (!fullSha(landed) || !targetLabel(label) || !/^[\w.-]+\/[\w.-]+$/.test(repo ?? '')) return refuse('input')
   // One page of 100 is all we read; a longer list refuses rather than guesses.
   const page = (path, key) => { const body = github.json(path); const rows = body[key] ?? []; return Number.isSafeInteger(body.total_count) && body.total_count > rows.length ? null : rows }
@@ -95,7 +127,7 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   if (!checks.length && listed.some(run => run.app?.slug === 'github-actions' && run.head_sha !== landed)) return refuse('commit')
   const runIds = [...new Set(checks.map(run => /\/actions\/runs\/(\d+)\//.exec(run.details_url ?? '')?.[1]).filter(Boolean))]
   const runs = runIds.map(id => github.json(`repos/${repo}/actions/runs/${id}`))
-    .filter(run => run.head_sha === landed && run.event === 'push' && run.head_branch === 'main' && run.path === '.github/workflows/ci.yml' && run.repository?.full_name === repo)
+    .filter(run => run.head_sha === landed && policy.events.includes(run.event) && run.head_branch === 'main' && run.path === policy.workflow && run.repository?.full_name === repo)
   if (runs.length !== 1) return refuse(runs.length ? 'ambiguous_run' : 'no_run', { runIds })
   const [run] = runs
   const evidence = { run: run.id, attempt: run.run_attempt, url: run.html_url, artifacts: [], rows: [] }
@@ -124,6 +156,8 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   const ranNow = jobs.filter(job => job.run_attempt === run.run_attempt).length
   const uploadedNow = [...newest.values()].filter(artifact => Number(RESULTS.exec(artifact.name)[3]) === run.run_attempt).length
   if (uploadedNow < ranNow) return refuse('artifact_missing', { ...evidence, ranNow, uploadedNow })
+  const labelJobs = new Map()
+  const attempts = new Map([[run.run_attempt, jobs]])
   for (const artifact of [...newest.values()].sort((a, b) => a.name.localeCompare(b.name))) {
     if (artifact.workflow_run?.id !== run.id || artifact.expired) return refuse('artifact_foreign', { ...evidence, artifact: artifact.name })
     const bytes = github.bytes(`repos/${repo}/actions/artifacts/${artifact.id}/zip`)
@@ -135,7 +169,23 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
       let summary
       try { summary = JSON.parse(file.text) } catch { return refuse('results_unreadable', { ...evidence, file: file.name }) }
       if (summary?.version !== 1 || !Array.isArray(summary.results)) return refuse('results_unreadable', { ...evidence, file: file.name })
-      for (const row of summary.results) if (row?.label === label) evidence.rows.push({ artifact: artifact.name, file: file.name, status: row.status, key: row.key })
+      for (const row of summary.results) if (row?.label === label) {
+        const parts = RESULTS.exec(artifact.name)
+        const jobName = policy.jobs[`${parts[1]}-${parts[2]}`]
+        const attempt = Number(parts[3])
+        if (!attempts.has(attempt)) {
+          // GitHub's attempt endpoint may omit unchanged jobs from an earlier leg.
+          const previous = jobs.some(job => job.run_attempt === attempt) ? jobs : page(`repos/${repo}/actions/runs/${run.id}/attempts/${attempt}/jobs?per_page=100`, 'jobs')
+          if (previous === null) return refuse('truncated', evidence)
+          attempts.set(attempt, previous)
+        }
+        const matches = attempts.get(attempt).filter(job => job.name === jobName && job.run_attempt === attempt)
+        if (!jobName || matches.length !== 1) return refuse('label_job', evidence)
+        const [job] = matches
+        if (host === 'reference-host' && (job.runner_name !== policy.runnerName || !Number.isSafeInteger(job.runner_id) || job.runner_id <= 0 || !policy.labels.every(label => job.labels?.includes(label)) || !qualifiedHost(job, summary, hosts))) return refuse('reference_host', evidence)
+        labelJobs.set(job.id, job)
+        evidence.rows.push({ artifact: artifact.name, file: file.name, status: row.status, key: row.key })
+      }
     }
   }
   if (!evidence.rows.length) return refuse('label_absent', evidence)
@@ -143,8 +193,9 @@ export const verifyCiRun = ({ github, unpack, repo, landed, label }) => {
   if (failing.length) return refuse('label_failed', evidence)
   // Artifact claims alone cannot authenticate success. Require GitHub's own
   // completed successful check for this main workflow at the landed SHA.
-  const successful = checks.some(check => check.status === 'completed' && check.conclusion === 'success' &&
-    check.details_url?.startsWith(`https://github.com/${repo}/actions/runs/${run.id}/`))
+  const successful = [...labelJobs.values()].every(job => job.status === 'completed' && job.conclusion === 'success' &&
+    Number.isSafeInteger(job.id) && checks.some(check => check.status === 'completed' && check.conclusion === 'success' &&
+      check.details_url === `https://github.com/${repo}/actions/runs/${run.id}/job/${job.id}`))
   return successful ? { pass: true, reason: 'pass', evidence } : refuse('check_not_successful', evidence)
 }
 
@@ -211,7 +262,7 @@ export const evidenceGate = ({ root, issue, landed, receipts }) => {
   try { mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`])) } catch { return required.map(check => ({ check, reason: 'missing' })) }
   const declarations = new Map()
   const unavailable = required.filter(check => {
-    const mapping = mappings?.version === 1 && mappings.checks?.[check]
+    const mapping = mappingsActive(mappings) && mappings.checks?.[check]
     if (!validMapping(mapping) || mapping.status) return true
     try {
       const declaration = checkDeclaration(root, landed, check)
@@ -255,13 +306,14 @@ export const evidenceGate = ({ root, issue, landed, receipts }) => {
 export const reverifyCi = ({ root, repo, landed, receipts, github, unpack = unpackResults }) => {
   let mappings
   try { mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`])) } catch { return [{ check: 'receipt', reason: 'missing' }] }
+  if (!mappingsActive(mappings)) return [{ check: 'receipt', reason: 'missing' }]
   const failures = []
   for (const path of receipts) {
     let r
     try { r = JSON.parse(readFileSync(confined(root, path), 'utf8')) } catch { failures.push({ check: 'receipt', receipt: path, reason: 'digest' }); continue }
     const mapping = mappings.checks?.[r?.check]
     if (!mapping || !('target' in mapping)) continue
-    const verdict = verifyCiRun({ github, unpack, repo, landed, label: mapping.target })
+    const verdict = verifyCiRun({ github, unpack, repo, landed, label: mapping.target, host: mapping.host, hosts: mapping.host === 'reference-host' ? referenceHosts(root, landed) : null })
     if (!verdict.pass) {
       const reason = verdict.reason === 'commit' ? 'commit' : verdict.reason === 'artifact_digest' ? 'digest' : ['no_run', 'artifact_missing'].includes(verdict.reason) ? 'missing' : verdict.reason === 'label_absent' ? 'coverage' : 'failed'
       failures.push({ check: r.check, receipt: path, reason })

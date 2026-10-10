@@ -52,25 +52,37 @@ export const fixture = () => {
   for (const id of ['C-FIX-01', 'C-FIX-02']) put(`.specs/engineering/checks/${id}.md`, `Proves: fixture · Layer: integration
 Automation: \`smthrs test //fixture:canary\` · Runs in: CI
 `)
-  put('scripts/check-commands.json', JSON.stringify({ version: 1, checks: Object.fromEntries(['C-FIX-01','C-FIX-02'].map(id => [id, { approvedBy: 'smithers-22', automation: 'smthrs test //fixture:canary', runsIn: 'CI', host: 'CI', target: '//fixture:canary' }])) }))
+  put('scripts/check-commands.json', JSON.stringify({ version: 1, activation: { mappingsApprovedBy: 'smithers-22' }, checks: Object.fromEntries(['C-FIX-01','C-FIX-02'].map(id => [id, { approvedBy: 'smithers-22', automation: 'smthrs test //fixture:canary', runsIn: 'CI', host: 'CI', target: '//fixture:canary' }])) }))
   const commit = () => { git('add','scripts','.specs'); git('commit','--allow-empty','-m','fixture inputs'); sha = git('rev-parse','HEAD'); git('push', 'origin', 'HEAD:refs/heads/main'); return sha }
   commit()
   const runner = (id = 'C-FIX-01') => spawnSync(process.execPath, ['scripts/check-run.mjs', id, '--landed', sha], { cwd: root, encoding: 'utf8', env: { ...process.env, HOME: join(root, 'home'), CI: 'true' } })
   const hash = data => `sha256:${createHash('sha256').update(data).digest('hex')}`
   // Literal CI responses and real artifact zip: closure uses the production verifier.
+  let reference = false
   let cachedCi
   const ci = (repo = 'o/r') => {
     if (cachedCi?.sha === sha && cachedCi.repo === repo) return cachedCi
-    put('ci/results.json', JSON.stringify({ version: 1, results: [{ label: '//fixture:canary', status: 'ran', key: 'fixture' }] }))
+    put('ci/results.json', JSON.stringify({ version: 1, ...(reference ? { referenceHost: { ioPlatformUUID: '12345678-1234-1234-1234-123456789abc', runnerName: 'reference-host-mac-mini' } } : {}), results: [{ label: '//fixture:canary', status: 'ran', key: 'fixture' }] }))
     rmSync(join(root, 'artifact.zip'), { force: true })
     zipFixture(join(root, 'ci'), join(root, 'artifact.zip'))
     const bytes = readFileSync(join(root, 'artifact.zip'))
     return cachedCi = { sha, repo, bytes, responses: {
       [`repos/${repo}/commits/${sha}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: sha, details_url: `https://github.com/${repo}/actions/runs/7/job/1` }] },
-      [`repos/${repo}/actions/runs/7`]: { id: 7, head_sha: sha, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: repo }, status: 'completed', run_attempt: 1 },
-      [`repos/${repo}/actions/runs/7/attempts/1/jobs?per_page=100`]: { jobs: [{ name: 'test', conclusion: 'success' }] },
-      [`repos/${repo}/actions/runs/7/artifacts?per_page=100`]: { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: hash(bytes) }] }
+      [`repos/${repo}/actions/runs/7`]: { id: 7, head_sha: sha, event: 'push', head_branch: 'main', path: reference ? '.github/workflows/reference-host.yml' : '.github/workflows/ci.yml', repository: { full_name: repo }, status: 'completed', run_attempt: 1 },
+      [`repos/${repo}/actions/runs/7/attempts/1/jobs?per_page=100`]: { jobs: [{ id: 1, name: reference ? 'macOS release-trust suite' : 'workspace graph (coverage gates enforced)', ...(reference ? { runner_name: 'reference-host-mac-mini', runner_id: 42, labels: ['self-hosted', 'reference-host', 'macOS', 'ARM64'] } : {}), status: 'completed', conclusion: 'success', run_attempt: 1 }] },
+      [`repos/${repo}/actions/runs/7/artifacts?per_page=100`]: { artifacts: [{ id: 10, name: reference ? 'smthrs-results-macos-release-trust-0-1' : 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: hash(bytes) }] }
     } }
+  }
+  const referenceSetup = (hosts = [{ runnerName: 'reference-host-mac-mini', runnerId: 42, ioPlatformUUID: '12345678-1234-1234-1234-123456789abc' }]) => {
+    reference = true
+    const mappings = JSON.parse(readFileSync(join(root, 'scripts/check-commands.json')))
+    for (const id of ['C-FIX-01', 'C-FIX-02']) {
+      mappings.checks[id].host = 'reference-host'; mappings.checks[id].runsIn = 'reference host'
+      put(`.specs/engineering/checks/${id}.md`, 'Layer: integration\nAutomation: `smthrs test //fixture:canary` · Runs in: reference host\n')
+    }
+    put('scripts/check-commands.json', JSON.stringify(mappings))
+    put('scripts/reference-host/hosts.json', JSON.stringify({ version: 1, hosts }))
+    commit()
   }
   let approvalComment = {}
   const writes = []; let closed = false; let comments = [{ body: `Claimed by fixture on ${hostname()} at ${new Date().toISOString()}; expires ${new Date(Date.now()+6*3600_000).toISOString()}`, created_at: new Date().toISOString() }]; let labeled = true
@@ -142,6 +154,6 @@ globalThis.fetch = async (url) => {
   const transportEnv = () => ({ ...process.env, HOME: join(root, 'home'), NODE_OPTIONS: `--import=${join(root, 'transport.mjs')}`, PRC03_TRANSPORT: join(root, 'transport.json'), SMITHERS_GITHUB_PROXY: 'http://fixture.test' })
   const cliClose = (paths, extra = []) => spawnSync(process.execPath, ['scripts/issue-claim.mjs', 'comment', 'o/r#7', '--by', 'fixture', '--body', 'Complete', '--close', '--landed', sha, ...paths.flatMap(p => ['--receipt', p]), ...extra], { cwd: root, encoding: 'utf8', env: transportEnv() })
   const invoke = (argv) => run(argv,{cwd:root,env:{SMITHERS_GITHUB_PROXY:'http://fixture.test'},ensure:()=>{},gh,ghBytes})
-  return { approval: comment => { approvalComment = comment }, root, put, git, get sha() { return sha }, commit, ci, runner, recorded, cliClose, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
+  return { referenceSetup, approval: comment => { approvalComment = comment }, root, put, git, get sha() { return sha }, commit, ci, runner, recorded, cliClose, close, writes, evidence, invoke, cleanup: () => { if (process.env.PRC03_EVIDENCE_DIR) cpSync(root, join(process.env.PRC03_EVIDENCE_DIR, 'fixtures', basename(root)), { recursive: true }); rmSync(root, { recursive: true, force: true }) } }
 }
 

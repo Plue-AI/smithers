@@ -301,7 +301,7 @@ const ciFixture = (overrides = {}) => {
   const api = {
     [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1', ...overrides.check }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2, html_url: 'https://github.com/o/r/actions/runs/7', ...overrides.run },
-    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'test', conclusion: 'failure', run_attempt: overrides.testAttempt ?? 2 }, ...(overrides.jobs ?? [])] },
+    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ id: 1, name: 'workspace graph (coverage gates enforced)', status: 'completed', conclusion: 'success', run_attempt: overrides.testAttempt ?? 2 }, ...(overrides.jobs ?? [])] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [
       { id: 10, name: 'smthrs-results-test-0-2', workflow_run: { id: 7 }, expired: false, digest: digest(latest), ...overrides.artifact },
       { id: 11, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(earlier) }
@@ -311,7 +311,7 @@ const ciFixture = (overrides = {}) => {
   return verifyCiRun({ github: { json: (path) => api[path] ?? (() => { throw new Error(`unexpected ${path}`) })(), bytes: (path) => zips[path] }, unpack: (bytes) => ({ files: files.get(bytes.toString()) ?? [] }), repo: 'o/r', landed: L, label })
 }
 
-test('CI receipt passes on the label\'s own status in the latest attempt, even when another target failed the job', () => {
+test('CI receipt passes on the label\'s own status in the latest attempt, when another target failed but the job succeeded', () => {
   const ok = ciFixture()
   assert.equal(ok.pass, true); assert.equal(ok.reason, 'pass')
   assert.deepEqual(ok.evidence.rows.map(row => [row.artifact, row.status]), [['smthrs-results-test-0-2', 'ran']])
@@ -401,7 +401,7 @@ test('unreadable results JSON refuses with a fixed reason and no file contents',
   const api = {
     [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
-    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
+    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [{ id: 1, name: 'workspace graph (coverage gates enforced)', status: 'completed', conclusion: 'success', run_attempt: 1 }] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
   }
   const r = verifyCiRun({ github: { json: (p) => api[p], bytes: () => bytes }, unpack: () => ({ files: [{ name: 'x.json', text: '-----BEGIN PRIVATE KEY----- abc' }] }), repo: 'o/r', landed: L, label: '//a:b' })
@@ -415,10 +415,11 @@ test('a partial rerun keeps each job leg at its newest attempt, and truncated li
   const rows = { a1: 'failed', b1: 'ran', a2: 'ran' }
   const artifact = (id, name, key) => ({ id, name, workflow_run: { id: 7 }, expired: false, digest: digest(bytes[key]) })
   const api = (extra = {}) => ({
-    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }], ...extra.checks },
+    [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }, { app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/2' }], ...extra.checks },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 2 },
-    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ name: 'a', conclusion: 'success', run_attempt: 2 }, { name: 'b', conclusion: 'success', run_attempt: 1 }], ...extra.jobs },
-    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [artifact(1, 'smthrs-results-a-0-1', 'a1'), artifact(2, 'smthrs-results-b-0-1', 'b1'), artifact(3, 'smthrs-results-a-0-2', 'a2')], ...extra.artifacts }
+    'repos/o/r/actions/runs/7/attempts/2/jobs?per_page=100': { jobs: [{ id: 1, name: 'workspace graph (coverage gates enforced)', status: 'completed', conclusion: 'success', run_attempt: 2 }, { id: 2, name: 'repository flows, apps and evals', status: 'completed', conclusion: 'success', run_attempt: 1 }], ...extra.jobs },
+    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [{ id: 2, name: 'repository flows, apps and evals', status: 'completed', conclusion: 'success', run_attempt: 1 }] },
+    'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [artifact(1, 'smthrs-results-test-0-1', 'a1'), artifact(2, 'smthrs-results-repository-0-1', 'b1'), artifact(3, 'smthrs-results-test-0-2', 'a2')], ...extra.artifacts }
   })
   const verify = (extra) => {
     const responses = api(extra); const zips = { 1: bytes.a1, 2: bytes.b1, 3: bytes.a2 }
@@ -426,7 +427,8 @@ test('a partial rerun keeps each job leg at its newest attempt, and truncated li
   }
   const r = verify()
   assert.equal(r.pass, true, JSON.stringify(r))
-  assert.deepEqual(r.evidence.rows.map(row => [row.artifact, row.status]), [['smthrs-results-a-0-2', 'ran'], ['smthrs-results-b-0-1', 'ran']])
+  assert.deepEqual(r.evidence.rows.map(row => [row.artifact, row.status]), [['smthrs-results-repository-0-1', 'ran'], ['smthrs-results-test-0-2', 'ran']])
+  assert.equal(verify({ jobs: { jobs: [{ id: 1, name: 'workspace graph (coverage gates enforced)', status: 'completed', conclusion: 'success', run_attempt: 2 }] } }).pass, true)
   for (const extra of [{ checks: { total_count: 101 } }, { jobs: { total_count: 150 } }, { artifacts: { total_count: 500 } }]) assert.equal(verify(extra).reason, 'truncated', JSON.stringify(extra))
 })
 
@@ -477,7 +479,7 @@ test('an empty or non-JSON results file refuses the receipt (38L: a crashed run 
   const api = {
     [`repos/o/r/commits/${L}/check-runs?per_page=100`]: { check_runs: [{ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: L, details_url: 'https://github.com/o/r/actions/runs/7/job/1' }] },
     'repos/o/r/actions/runs/7': { id: 7, head_sha: L, event: 'push', head_branch: 'main', path: '.github/workflows/ci.yml', repository: { full_name: 'o/r' }, status: 'completed', run_attempt: 1 },
-    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [] },
+    'repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100': { jobs: [{ id: 1, name: 'workspace graph (coverage gates enforced)', status: 'completed', conclusion: 'success', run_attempt: 1 }] },
     'repos/o/r/actions/runs/7/artifacts?per_page=100': { artifacts: [{ id: 10, name: 'smthrs-results-test-0-1', workflow_run: { id: 7 }, expired: false, digest: digest(bytes) }] }
   }
   for (const text of ['', 'not json', '{"results":[]}']) {
@@ -546,7 +548,7 @@ test('root-check-mapping-validation: markers refuse recorder and close without d
     const f = fixture()
     try {
       const paths = ['C-FIX-01', 'C-FIX-02'].map(f.evidence)
-      f.put('scripts/check-commands.json', JSON.stringify({ version: 1, checks: {
+      f.put('scripts/check-commands.json', JSON.stringify({ version: 1, activation: { mappingsApprovedBy: 'smithers-22' }, checks: {
         'C-FIX-01': { status, reason: 'root inputs lack owner-reviewed validation', ticket: 'T-SEC-01' },
         'C-FIX-02': { approvedBy: 'smithers-22', automation: 'smthrs test //fixture:canary', runsIn: 'CI', host: 'CI', target: '//fixture:canary' }
       } }))
@@ -716,4 +718,88 @@ test('GitHub check success authenticates artifact claims at recorder and close b
       assert.equal(f.writes.length, 0)
     } finally { f.cleanup() }
   }
+})
+
+test('mapping activation is required at recorder and close, including absent or false approval', () => {
+  for (const activation of [undefined, {}, { mappingsApprovedBy: null }, { mappingsApprovedBy: 'impostor' }]) {
+    const f = fixture()
+    try {
+      const mappings = JSON.parse(readFileSync(join(f.root, 'scripts/check-commands.json')))
+      mappings.activation = activation; f.put('scripts/check-commands.json', JSON.stringify(mappings)); f.commit()
+      const out = f.recorded(); assert.equal(out.status, 2, out.stdout + out.stderr)
+      assert.equal(JSON.parse(out.stdout).receipt, undefined)
+      assert.equal(f.close(['C-FIX-01', 'C-FIX-02'].map(f.evidence)).code, 2)
+      assert.equal(f.writes.length, 0)
+    } finally { f.cleanup() }
+  }
+})
+
+test('successful unrelated check cannot authenticate the label job at recorder or closure', () => {
+  const f = fixture()
+  try {
+    const data = f.ci().responses
+    data[`repos/o/r/commits/${f.sha}/check-runs?per_page=100`].check_runs.push({ app: { slug: 'github-actions' }, status: 'completed', conclusion: 'success', head_sha: f.sha, details_url: 'https://github.com/o/r/actions/runs/7/job/2' })
+    data[`repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100`].jobs[0].conclusion = 'failure'
+    const out = f.recorded(); assert.equal(out.status, 1, out.stdout + out.stderr)
+    assert.equal(JSON.parse(readFileSync(join(f.root, JSON.parse(out.stdout).receipt, '..', 'log.txt'))).reason, 'check_not_successful')
+    assert.equal(f.close(['C-FIX-01', 'C-FIX-02'].map(f.evidence)).code, 2)
+    assert.equal(f.writes.length, 0)
+  } finally { f.cleanup() }
+})
+
+test('reference-host recorder and closure verify committed UUID, runner identity, labels and workflow', () => {
+  for (const variant of ['pass', 'dispatch', 'empty', 'uuid', 'name', 'id', 'labels', 'workflow', 'event', 'branch', 'job', 'missingUuid', 'summaryName', 'uncommitted']) {
+    const f = fixture()
+    try {
+      f.referenceSetup(variant === 'empty' ? [] : undefined)
+      const data = f.ci().responses
+      const job = data['repos/o/r/actions/runs/7/attempts/1/jobs?per_page=100'].jobs[0]
+      const run = data['repos/o/r/actions/runs/7']
+      if (variant === 'dispatch') run.event = 'workflow_dispatch'
+      if (variant === 'name') job.runner_name = 'other'
+      if (variant === 'id') job.runner_id = 43
+      if (variant === 'labels') job.labels = ['self-hosted', 'reference-host']
+      if (variant === 'workflow') run.path = '.github/workflows/ci.yml'
+      if (variant === 'event') run.event = 'pull_request'
+      if (variant === 'branch') run.head_branch = 'branch'
+      if (variant === 'job') job.name = 'other'
+      if (variant === 'uuid' || variant === 'uncommitted') {
+        f.put('scripts/reference-host/hosts.json', JSON.stringify({ version: 1, hosts: [{ runnerName: 'reference-host-mac-mini', runnerId: 42, ioPlatformUUID: 'ffffffff-1234-1234-1234-123456789abc' }] }))
+        if (variant === 'uuid') f.commit()
+      }
+      if (variant === 'missingUuid' || variant === 'summaryName') {
+        const summary = JSON.parse(readFileSync(join(f.root, 'ci/results.json')))
+        if (variant === 'missingUuid') delete summary.referenceHost
+        else summary.referenceHost.runnerName = 'other'
+        f.put('ci/results.json', JSON.stringify(summary))
+        zipFixture(join(f.root, 'ci'), join(f.root, 'artifact.zip'))
+        const ci = f.ci(); ci.bytes = readFileSync(join(f.root, 'artifact.zip'))
+        data['repos/o/r/actions/runs/7/artifacts?per_page=100'].artifacts[0].digest = digest(ci.bytes)
+      }
+      const out = f.recorded()
+      const passing = ['pass', 'dispatch', 'uncommitted'].includes(variant)
+      assert.equal(out.status, passing ? 0 : 1, variant + out.stdout + out.stderr)
+      const receipt = JSON.parse(out.stdout).receipt
+      const log = JSON.parse(readFileSync(join(f.root, receipt, '..', 'log.txt')))
+      assert.equal(log.pass, passing, variant)
+      if (!['workflow', 'event', 'branch'].includes(variant)) assert.equal(log.evidence.run, 7)
+      const paths = [receipt, f.evidence('C-FIX-02')]
+      const cli = f.cliClose(paths)
+      assert.equal(cli.status, passing ? 0 : 2, variant + cli.stdout + cli.stderr)
+      const close = f.close(paths)
+      assert.equal(close.code, passing ? 0 : 2, variant + JSON.stringify(close))
+      assert.equal(f.writes.filter(args => args.includes('PATCH')).length, passing ? 1 : 0, variant)
+    } finally { f.cleanup() }
+  }
+})
+
+test('spike evidence cannot become a target receipt at the recorder boundary', () => {
+  const f = fixture()
+  try {
+    f.put('.specs/engineering/checks/C-FIX-01.md', 'Layer: spike\nAutomation: manual recorded\n'); f.commit()
+    const out = f.recorded()
+    assert.equal(out.status, 2, out.stdout + out.stderr)
+    assert.equal(JSON.parse(out.stdout).receipt, undefined)
+    assert.equal(f.writes.length, 0)
+  } finally { f.cleanup() }
 })

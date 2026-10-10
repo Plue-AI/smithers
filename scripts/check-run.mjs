@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-/** Record reviewed engineering targets from CI at a landed commit. @since 0.1.0 */
+/** Record reviewed engineering targets from authenticated workflows at a landed commit. @since 0.1.0 */
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { checkDeclaration, expectedCommand, fullSha, gitRead, hashLog, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
+import { checkDeclaration, expectedCommand, fullSha, gitRead, hashLog, mappingsActive, referenceHosts, unpackResults, validMapping, verifyCiRun, zeroTests } from './check-evidence.mjs'
 
 const root = realpathSync(process.cwd())
 /** Writes one receipt and its log; never follows a pre-existing artifact symlink. */
@@ -29,10 +29,10 @@ try {
   if (!fullSha(commit)) throw new Error('full commit SHA unavailable')
   const { automation, runsIn, layer } = checkDeclaration(root, landed, id)
   const mappings = JSON.parse(gitRead(root, ['show', `${landed}:scripts/check-commands.json`]))
-  const mapping = mappings.version === 1 && mappings.checks[id]
+  const mapping = mappings.checks?.[id]
   if (mapping && !mapping.status && !('target' in mapping)) throw new Error('argv mappings are not executable; map the check to a smthrs target')
-  if (!layer || !validMapping(mapping) || mapping.status || mapping.automation !== automation || mapping.runsIn !== runsIn) throw new Error('no reviewed executable mapping')
-  // CI already ran the label at `landed`: read its record, execute nothing (#3663).
+  if (!mappingsActive(mappings) || !layer || !validMapping(mapping) || mapping.status || mapping.automation !== automation || mapping.runsIn !== runsIn) throw new Error('no reviewed executable mapping')
+  // The approved host already ran the label at `landed`: read its record, execute nothing (#3663).
   const repo = /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?$/.exec(gitRead(root, ['config', '--get', 'remote.origin.url']))?.[1]
   const { proxied } = await import('./issue-claim.mjs')
   const { ensure, proxyUrl } = await import('./github-proxy.mjs')
@@ -40,6 +40,6 @@ try {
   const text = proxied({ gh: (args) => execFileSync('gh', args, { encoding: 'utf8', maxBuffer: 64 << 20 }), base: proxyUrl(process.env) })
   const binary = proxied({ gh: (args) => execFileSync('gh', args, { encoding: 'buffer', maxBuffer: 256 << 20 }), base: proxyUrl(process.env) })
   const started = new Date().toISOString()
-  const verdict = verifyCiRun({ github: { json: (path) => JSON.parse(text.read(['api', path])), bytes: (path) => binary.read(['api', path]) }, unpack: unpackResults, repo, landed, label: mapping.target })
+  const verdict = verifyCiRun({ github: { json: (path) => JSON.parse(text.read(['api', path])), bytes: (path) => binary.read(['api', path]) }, unpack: unpackResults, repo, landed, label: mapping.target, host: mapping.host, hosts: mapping.host === 'reference-host' ? referenceHosts(root, landed) : null })
   publish({ id, commit, layer, command: expectedCommand(mapping), exit: verdict.pass ? 0 : 1, started, ended: new Date().toISOString(), log: Buffer.from(`${JSON.stringify({ label: mapping.target, ...verdict }, null, 2)}\n`) })
 } catch (error) { refuse(error.message) }

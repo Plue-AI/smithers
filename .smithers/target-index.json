@@ -65146,6 +65146,10 @@
       },
       {
         "kind": "file",
+        "path": "scripts/reference-host/hosts.json"
+      },
+      {
+        "kind": "file",
         "path": "scripts/check-commands.json"
       },
       {
