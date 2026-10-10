@@ -109,6 +109,8 @@ func TestInstallBuildOnlyDefaultNeverInventsCommandPostgres(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &value))
 	require.JSONEq(t, `[{"id":"build-only","target":".","flow":"checks/build-only","tier":"fast","required":true}]`, string(value["checks"]))
 	require.JSONEq(t, `[{"flow":"checks/build-only","argv":[],"timeoutMs":1800000}]`, string(value["detected"]))
+	require.JSONEq(t, `true`, string(value["wikiCitations"]))
+	require.JSONEq(t, `[]`, string(value["pages"]))
 }
 
 func TestBuildOnlyEvidenceDisclosesNoDetectedChecks(t *testing.T) {

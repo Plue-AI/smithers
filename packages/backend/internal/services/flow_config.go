@@ -56,9 +56,10 @@ func PersistInstallCodingProject(ctx context.Context, pool *pgxpool.Pool, source
 	for _, role := range []string{"coding/implement", "coding/plan", "coding/poc", "coding/review", "wiki/reviewer", "coding/dispatch", "repository/research", "repository/evaluator", "repository/author", "flow/author"} {
 		seats[role] = "auto"
 	}
-	config := map[string]any{"conflictAttempts": 1, "implementation": "coding/implementation", "checks": checks, "detected": detected, "wiki": len(pages) > 0, "seats": seats}
+	// Plans read authored pages even when this repository has no generated
+	// pages. Keep the pinned declaration explicit, including an empty vault.
+	config := map[string]any{"conflictAttempts": 1, "implementation": "coding/implementation", "checks": checks, "detected": detected, "wiki": len(pages) > 0, "wikiCitations": true, "pages": pages, "seats": seats}
 	if len(pages) > 0 {
-		config["pages"] = pages
 		config["wikiOutput"] = "/var/tmp/smithers/wiki"
 		config["reviewer"] = "product-engineering-v1"
 	}

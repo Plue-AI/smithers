@@ -41,6 +41,7 @@ func TestInstallStoredConfigSourceReadyThroughRouter(t *testing.T) {
 				Reviewer         string            `json:"reviewer"`
 				ConflictAttempts int               `json:"conflictAttempts"`
 				Wiki             bool              `json:"wiki"`
+				WikiCitations    bool              `json:"wikiCitations"`
 				Seats            map[string]string `json:"seats"`
 				Checks           []struct {
 					ID       string `json:"id"`
@@ -58,6 +59,7 @@ func TestInstallStoredConfigSourceReadyThroughRouter(t *testing.T) {
 				} `json:"pages"`
 			}
 			require.NoError(t, json.Unmarshal(raw, &project))
+			require.True(t, project.WikiCitations)
 			argv := [][]string{}
 			checkIDs := []string{}
 			for _, check := range project.Checks {

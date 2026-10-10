@@ -181,6 +181,12 @@ func newRehearsal(t *testing.T, enable, check, keyPrefix string, poolCapacity ..
 	r.gitRoot = gitRoot
 	seed := filepath.Join(gitRoot, "seed")
 	require.NoError(t, os.MkdirAll(seed, 0700))
+	if !realMicroVM && os.Getenv("REHEARSAL_CONFIG_FIXTURE") == "" {
+		// This process stand-in cannot qualify machine-only wiki planning.
+		// Use the ordinary repository override rather than weakening isolation.
+		require.NoError(t, os.MkdirAll(filepath.Join(seed, ".smithers"), 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(seed, ".smithers", "coding-project.json"), []byte(`{"wikiCitations":false}`), 0600))
+	}
 	git := func(args ...string) {
 		t.Helper()
 		cmd := exec.Command("/usr/bin/git", args...)

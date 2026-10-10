@@ -526,8 +526,11 @@ func TestJ8Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("rev %d byte-identical for the owner and Ben; authors %v; history %v; rev %d reads the original", edited, view.Authors, numbers, page.Revision)
 		return nil
 	})
-	r.pending("3 Plan cites the edited revision", "POST /api/todos (T1's prompt); GET /api/todos/{n} evidence", fmt.Sprintf("the plan receipt cites %s at the co-edited revision with its SHA-256, and no earlier revision", slug), "T-FLW-10", "plan-wiki-provider")
-	r.pending("3 Plan follows the decision", "GET /api/todos/{n} plan; PR diff", "the plan and PR call retryFixed(5000) from deliver.ts and add no retryExponential( call", "T-FLW-10", "plan-wiki-provider")
+	// The install composes the relay provider and enables citations by default.
+	// This process rehearsal cannot qualify its machine-only authorization;
+	// C-J8-04's reference-host journey exercises the real provider instead.
+	r.pending("3 Plan cites the edited revision", "POST /api/todos (T1's prompt); GET /api/todos/{n} evidence", fmt.Sprintf("the plan receipt cites %s at the co-edited revision with its SHA-256, and no earlier revision", slug), "T-FLW-10", "reference-host-branch-machine")
+	r.pending("3 Plan follows the decision", "GET /api/todos/{n} plan; PR diff", "the plan and PR call retryFixed(5000) from deliver.ts and add no retryExponential( call", "T-FLW-10", "reference-host-branch-machine")
 	r.step("C-J8-03 Obsidian folder", "PUT /api/install {wiki_sync.obsidian}; folder sync passes; PATCH "+pageRoute+"{slug}", "a folder inside the state directory refused with folder_refused; the page exported byte-identical; a line added on disk becomes a revision by the owner; an app edit reaches the folder within one interval", "T-FLW-12", func() error {
 		inside := filepath.Join(state, "vault")
 		if err := os.MkdirAll(inside, 0700); err != nil {
