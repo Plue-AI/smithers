@@ -15,6 +15,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
+	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/jobs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -365,6 +366,9 @@ func TestMainMoveUsesCodingBranchDuringIsolatedReview(t *testing.T) {
 			require.NoError(t, err)
 			_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET head_commit_id=$2 WHERE id=$1`, coding.ID, item.CandidateHead)
 			require.NoError(t, err)
+			// A retained branch's capture is published at its head ref; an asleep
+			// rebase replaces exactly that ref (5ce63231ff).
+			f.git(f.hostDir, "update-ref", repohost.BranchHeadRef(coding.ID), item.CandidateHead)
 			if mode == "pending capture" {
 				_, err = f.pool.Exec(t.Context(), `UPDATE workspaces SET capture_pending='{}' WHERE id=$1`, coding.ID)
 				require.NoError(t, err)
@@ -418,7 +422,15 @@ func TestMainMoveUsesCodingBranchDuringIsolatedReview(t *testing.T) {
 				require.Equal(t, "integrating", next.State, next.Reason)
 				require.Equal(t, coding.ID, next.WorkspaceID)
 				require.Equal(t, 0, f.verifies(next))
-				require.Nil(t, mythicalChecksOf(next).Review)
+				// 6acdad5848: restoring the coding branch retires the review
+				// machine but keeps its attestation; verification of the rebased
+				// patch decides whether it still applies.
+				retained := mythicalChecksOf(next).Review
+				require.NotNil(t, retained)
+				require.Equal(t, item.PRHead, retained.Head)
+				lane, err := q.GetMythicalLane(t.Context(), review.ID)
+				require.NoError(t, err)
+				require.True(t, lane.RetiredAt.Valid, "the stale isolated review machine is retired")
 			default:
 				require.Equal(t, "integrating", next.State, next.Reason)
 				require.Equal(t, "rebase_pending", next.Reason)
