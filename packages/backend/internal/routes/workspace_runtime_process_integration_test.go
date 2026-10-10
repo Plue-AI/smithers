@@ -78,10 +78,19 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 	require.NoError(t, err)
 	commandCodec, err := webhook.NewSecretCodec("routes-process-command-secret")
 	require.NoError(t, err)
+	// Every branch machine needs its activation providers (de86a86992). A
+	// repository writer is a branch member, as on a hosted deployment; the
+	// trusted process runtime is no microVM, so this request-path test
+	// supplies the runtime qualification the reference host certifies.
+	providers := services.HostedBranchMachineProviders(runtime)
+	providers.MicroVM = func(context.Context) error { return nil }
+	providers.SessionIdentity = func(context.Context) error { return nil }
 	service := services.NewWorkspaceService(queries,
 		services.WithWorkspaceRuntime(runtime),
 		services.WithWorkspaceGitBaseURL(gitServer.URL+"/api"),
 		services.WithWorkspaceCommandJobs(commandJobs, commandCodec),
+		services.WithWorkspaceTransactions(pool),
+		services.WithBranchMachineProviders(providers),
 	)
 	t.Cleanup(func() {
 		drainDeadline := time.Now().Add(15 * time.Second)
@@ -210,32 +219,38 @@ func TestWorkspaceRuntimeProcessRequestPath(t *testing.T) {
 	cancelled := processWorkspaceWaitCommandRun(t, client, server.URL, cancelPath, 30*time.Second)
 	require.Equal(t, jobs.StateCancelled, cancelled.State)
 
-	writeResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPut, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", []byte(`{"content":"persisted-local-file"}`))
-	require.Equal(t, http.StatusOK, writeResponse.StatusCode)
+	// Compare-and-write needs the machine daemon, which a trusted process has
+	// not; the door refuses instead of writing unverified, and a command
+	// writes the file.
+	writeResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPut, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", []byte(`{"content":"persisted-local-file","base_digest":"absent"}`))
+	require.Equal(t, http.StatusServiceUnavailable, writeResponse.StatusCode)
 	_ = processWorkspaceReadBody(t, writeResponse)
+	writeRunResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, commandPath, []byte(`{"operation_id":"command-write","args":["/bin/sh","-c","printf persisted-local-file > note.txt"]}`))
+	require.Equal(t, http.StatusAccepted, writeRunResponse.StatusCode)
+	var writeReceipt jobs.RequestReceipt
+	processWorkspaceDecodeJSON(t, writeRunResponse, &writeReceipt)
+	written := processWorkspaceWaitCommandRun(t, client, server.URL, commandPath+"/"+writeReceipt.OperationID, 30*time.Second)
+	require.Equal(t, jobs.StateCompleted, written.State, written.Error)
+	require.NotNil(t, written.Result)
+	require.Equal(t, 0, written.Result.ExitCode, written.Result.Stderr)
 	readResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodGet, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", nil)
 	require.Equal(t, http.StatusOK, readResponse.StatusCode)
 	var file services.WorkspaceFileContent
 	processWorkspaceDecodeJSON(t, readResponse, &file)
 	require.Equal(t, "persisted-local-file", file.Content)
 
+	// Sleep needs the daemon's verified final capture. A trusted process has
+	// no daemon, so suspend is refused and the branch keeps running with its
+	// files; it never stops uncaptured.
 	suspendResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, basePath+"/workspaces/"+created.ID+"/suspend", nil)
-	require.Equal(t, http.StatusOK, suspendResponse.StatusCode)
-	var suspended services.WorkspaceResponse
-	processWorkspaceDecodeJSON(t, suspendResponse, &suspended)
-	require.Equal(t, "suspended", suspended.Status)
-	stoppedRuntime, err := runtime.InspectWorkspace(context.Background(), created.ID)
+	require.Equal(t, http.StatusServiceUnavailable, suspendResponse.StatusCode)
+	_ = processWorkspaceReadBody(t, suspendResponse)
+	runningRuntime, err := runtime.InspectWorkspace(context.Background(), created.ID)
 	require.NoError(t, err)
-	require.Equal(t, "stopped", string(stoppedRuntime.State))
-
-	resumeResponse := processWorkspaceDoRequest(t, client, server.URL, http.MethodPost, basePath+"/workspaces/"+created.ID+"/resume", nil)
-	require.Equal(t, http.StatusOK, resumeResponse.StatusCode)
-	var resumed services.WorkspaceResponse
-	processWorkspaceDecodeJSON(t, resumeResponse, &resumed)
-	require.Equal(t, "running", resumed.Status)
-	readAfterResume := processWorkspaceDoRequest(t, client, server.URL, http.MethodGet, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", nil)
-	require.Equal(t, http.StatusOK, readAfterResume.StatusCode)
-	processWorkspaceDecodeJSON(t, readAfterResume, &file)
+	require.Equal(t, "running", string(runningRuntime.State))
+	readAfterRefusal := processWorkspaceDoRequest(t, client, server.URL, http.MethodGet, basePath+"/workspaces/"+created.ID+"/files/content?path=note.txt", nil)
+	require.Equal(t, http.StatusOK, readAfterRefusal.StatusCode)
+	processWorkspaceDecodeJSON(t, readAfterRefusal, &file)
 	require.Equal(t, "persisted-local-file", file.Content)
 
 	previewAddress := reserveLoopbackAddress(t)
