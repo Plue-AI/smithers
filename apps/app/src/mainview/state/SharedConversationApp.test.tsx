@@ -163,6 +163,42 @@ test("private queue Edit patches its server turn and Remove deletes only that tu
   } finally { flushSync(() => root.unmount()); host.remove(); await controller.dispose() }
 })
 
+test("admission starts only after its request is durable, so a reload at the POST re-sends the same key", async () => {
+  // #3780: the POST raced its own durable write; a reload then lost a request the server had admitted.
+  const durable = new Map<string, string>()
+  const storageOf = (data: Map<string, string>) => ({ getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => void data.set(key, value), removeItem: (key: string) => void data.delete(key) })
+  const bootstrap = { apiVersion: 1 as const, host: "local" as const, version: "test", buildSha: "test", capabilities: ["install" as const], authFlow: "redirect" as const, sandbox: null }
+  let atAdmission: Map<string, string> | undefined
+  const store = await createAppStore({ kind: "localStorage", storage: storageOf(durable) })
+  const controller = createAppController(store, silentAgent, { bootstrap, fetchImpl: async input => {
+    const path = String(input)
+    // The server has admitted the prompt; the page reloads before its response arrives.
+    if (path.endsWith("/prompt")) { atAdmission ??= new Map(durable); return new Promise<Response>(() => {}) }
+    if (path === "/api/conversations/main") return Response.json({ id: "main", entries: [] })
+    if (path.endsWith("/view-state")) return Response.json({})
+    return new Response("{}", { status: 404 })
+  } })
+  await store.dispatch({ type: "identity.session.loaded", actor: "system", state: "signed-in", login: "ben", admin: false, scopesPlain: null }).isPersisted.promise
+  expect(await controller.send("List changed tests")).toBe(true)
+  await waitFor(() => atAdmission !== undefined)
+  const key = store.session().sharedPrompts![0]!.id
+  await controller.dispose()
+  const reloaded = await createAppStore({ kind: "localStorage", storage: storageOf(atAdmission!) })
+  expect(reloaded.session().sharedPrompts).toEqual([{ id: key, owner: "ben", branch: "main", prompt: "List changed tests", state: "requested" }])
+  const bodies: unknown[] = []
+  const next = createAppController(reloaded, silentAgent, { bootstrap, fetchImpl: async (input, init) => {
+    const path = String(input)
+    if (path.endsWith("/prompt")) { bodies.push(JSON.parse(String(init?.body))); return Response.json({ turnId: "turn-ben", terminal: true }, { status: 202 }) }
+    if (path === "/api/conversations/main") return Response.json({ id: "main", entries: bodies.length ? [ben] : [] })
+    if (path.endsWith("/view-state")) return Response.json({})
+    return new Response("{}", { status: 404 })
+  } })
+  try {
+    await waitFor(() => reloaded.session().sharedPrompts?.[0]?.state === "completed")
+    expect(bodies).toEqual([{ prompt: "List changed tests", idempotencyKey: key }])
+  } finally { await next.dispose() }
+})
+
 test("failed admission stays private and retry reuses its durable idempotency key", async () => {
   const store = await createAppStore({ kind: "localStorage", storage: memoryStorage() })
   let allowed = false

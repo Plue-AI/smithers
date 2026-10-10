@@ -10,16 +10,20 @@ export async function installConversationFixture(page: Page, options: { readonly
   const entries: Array<Record<string, unknown>> = []
   let active = false
   const queued: Array<{id: string; prompt: string}> = []
+  const admitted = new Map<string, Record<string, unknown>>()
   await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
   await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: queued } }))
   await page.route("**/api/conversations/main/prompt", route => {
     const { prompt, idempotencyKey } = route.request().postDataJSON()
     if (typeof prompt !== "string" || typeof idempotencyKey !== "string") throw new Error("Invalid shared prompt")
+    // A repeated key replays its turn, as the server does; a reload can re-send it (#3780).
+    const replay = admitted.get(idempotencyKey)
+    if (replay) return route.fulfill({ status: 202, json: { turnId: replay.id, terminal: replay.state !== "running" && replay.state !== "accepted" } })
     const id = `chat-${entries.length}`
     const entry = { id, author: 1, authorLogin: SCOPED_TEST_USER.login, runId: id, prompt, state: "completed", ...(options.context ? { context: options.context, preflight: { context: options.context, candidates: options.context.map(({ reason, ...item }) => item), model: options.model ?? "owner-fast", durationMs: 12 } } : {}), frames: [
       { runId: id, type: "delta", kind: "text", text: `stub: ${prompt}` }, { runId: id, type: "done", reason: "stop" }
     ] }
-    entries.push(entry)
+    entries.push(entry); admitted.set(idempotencyKey, entry)
     if (options.holdFirstTurn && entries.length === 1) {
       active = true; entry.state = "running"; entry.frames = []
       void options.holdFirstTurn.then(() => {

@@ -14,7 +14,9 @@ class PromptRefusal extends Data.TaggedError("PromptRefusal")<{ readonly sentenc
 
 /** Browser owns only admission receipts. The existing host dispatcher owns execution. */
 export function createSharedPrompts(ctx: ControllerContext, source: SharedConversationSeam) {
-  const pending = new Set<string>(), waking = new Set<() => void>()
+  // `saving` holds requests whose durable write is in flight: recover() sees
+  // the optimistic row first, and admission must not start before it lands.
+  const pending = new Set<string>(), saving = new Set<string>(), waking = new Set<() => void>()
   const branch = () => {
     const navigation = ctx.store.session().branchNavigation
     return navigation?.owner === ctx.accountOwner() ? navigation?.selected_branch ?? "main" : "main"
@@ -31,15 +33,15 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
     return response
   }
   const launch = (saved: SharedPrompt) => {
-    if (pending.has(saved.id) || ctx.disposed || saved.owner !== ctx.accountOwner()) return
+    if (pending.has(saved.id) || saving.has(saved.id) || ctx.disposed || saved.owner !== ctx.accountOwner()) return
     pending.add(saved.id)
     const epoch = ctx.accountEpoch
     const current = () => !ctx.disposed && ctx.accountEpoch === epoch && ctx.accountOwner() === saved.owner
     void ctx.withToast(`prompt-${saved.id}`, "Prompt", "Prompt", async () => {
       let row = saved
       try {
-        // submit awaited this request's durable write; unrelated view writes
-        // must not hold its network admission behind a global store drain.
+        // persistThenLaunch awaited this request's durable write; unrelated view
+        // writes must not hold its network admission behind a global store drain.
         if (!current()) return
         while (current()) {
           const local = ctx.store.session().sharedPrompts?.find(item => item.id === row.id)
@@ -78,6 +80,11 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
       }
     }, false, current).catch(error => ctx.failures.report("prompt.queue", error)).finally(() => pending.delete(saved.id))
   }
+  const persistThenLaunch = async (row: SharedPrompt, clearDraft = false) => {
+    saving.add(row.id)
+    try { await save(row, clearDraft) } finally { saving.delete(row.id) }
+    launch(row)
+  }
   const recover = () => {
     for (const row of ctx.store.session().sharedPrompts ?? []) if (row.state === "editing" || row.state === "requested" || row.state === "accepted") launch(row)
   }
@@ -89,8 +96,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
     const draftCurrent = capturedDraft ?? ctx.store.captureComposerDraft(text)
     const editing = ctx.store.session().sharedPrompts?.find(row => row.owner === owner && row.branch === at && row.state === "editing")
     const row: SharedPrompt = { id: editing?.id ?? randomUuid(), ...(editing?.turnId ? { turnId: editing.turnId } : {}), owner, branch: at, prompt, state: "requested" }
-    await save(row, draftCurrent())
-    launch(row)
+    await persistThenLaunch(row, draftCurrent())
     return true
   }
   const stop = () => {
@@ -129,7 +135,7 @@ export function createSharedPrompts(ctx: ControllerContext, source: SharedConver
     if (!saved) return
     // A failed transport retries the same admission key; a committed terminal turn gets a fresh one.
     const next: SharedPrompt = { ...saved, id: saved.turnId ? randomUuid() : saved.id, turnId: undefined, state: "requested", error: undefined }
-    void save(next).then(() => launch(next))
+    void persistThenLaunch(next)
   }
   const sessions = ctx.store.collections.sessions.subscribeChanges(recover)
   const identities = ctx.store.collections.identitySessions.subscribeChanges(recover)

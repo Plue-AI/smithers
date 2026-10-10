@@ -9,7 +9,8 @@ for (const stop of [false, true]) {
     await installCloudFixture(page, { capabilities: ["install", "identity", "agent"] })
     const prompt = stop ? "say never" : "say ok"
     let entries: unknown[] = []
-    let admissions = 0, stops = 0
+    const admitted = new Set<string>()
+    let stops = 0
     const legacyWrites: string[] = []
     page.on("request", request => {
       if (request.method() === "POST" && /\/api\/(agent|chat)\/turn(?:$|[/?])/.test(request.url())) legacyWrites.push(request.url())
@@ -17,8 +18,12 @@ for (const stop of [false, true]) {
     await page.route("**/api/conversations/main", route => route.fulfill({ json: { id: "main", entries } }))
     await page.route("**/api/conversations/main/view-state", route => route.fulfill({ json: { queue: [] } }))
     await page.route("**/api/conversations/main/prompt", route => {
-      expect(route.request().postDataJSON()).toMatchObject({ prompt, idempotencyKey: expect.any(String) })
-      admissions++
+      const body = route.request().postDataJSON()
+      expect(body).toMatchObject({ prompt, idempotencyKey: expect.any(String) })
+      // Like the server (internal/chat/prompt.go, spec 6.2.1), a repeated key replays its turn. A reload
+      // before the admission receipt is durable re-sends the same key (#3780); only a new key admits.
+      if (admitted.has(body.idempotencyKey)) return route.fulfill({ status: 202, json: { turnId: "button-turn", terminal: !stop || stops > 0 } })
+      admitted.add(body.idempotencyKey)
       entries = [{ id: "button-turn", author: 1, authorLogin: SCOPED_TEST_USER.login, runId: "button-run", prompt,
         state: stop ? "running" : "completed", frames: stop ? [] : [
           { runId: "button-run", type: "delta", kind: "text", text: "ok" },
@@ -52,7 +57,7 @@ for (const stop of [false, true]) {
     await expect(page.locator('[data-shared-turn="button-turn"]')).toContainText(prompt)
     if (stop) await expect(page.locator(".sui-chat-composer-stop")).toHaveCount(0)
     else await expect(page.getByTestId("transcript").getByText("ok", { exact: true })).toBeVisible()
-    expect(admissions).toBe(1)
+    expect(admitted.size).toBe(1)
     expect(stops).toBe(stop ? 1 : 0)
     expect(legacyWrites).toEqual([])
   })
