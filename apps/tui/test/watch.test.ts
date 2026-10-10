@@ -459,6 +459,34 @@ it.skipIf(process.getuid?.() === 0)(
   15000
 )
 
+it("leaves a root unreadable from the start to the listing's own notice, and recovers", async () => {
+  const diagnostics = mkdtempSync(join(tmpdir(), "tui-watch-start-"))
+  const previous = process.env.SMITHERS_TUI_SESSION_DIR
+  process.env.SMITHERS_TUI_SESSION_DIR = diagnostics
+  const notices: Array<string> = []
+  const unsubscribe = Log.subscribe((message) => notices.push(message))
+  // A symlink to itself: the first scan cannot read the root. Each conversation
+  // makes a new watcher, so a startup notice here would bury its acknowledgment.
+  const test = fixture(false, undefined, (cwd) => symlinkSync("flows", join(cwd, "flows")))
+  try {
+    await test.quiet()
+    expect(notices).toEqual([])
+    expect(test.count()).toBe(0)
+    const repaired = test.next()
+    fs.unlinkSync(test.directory)
+    mkdirSync(join(test.directory, "review"), { recursive: true })
+    writeFileSync(test.source, flow())
+    await repaired
+    expect(test.count()).toBe(1)
+  } finally {
+    unsubscribe()
+    test.close()
+    rmSync(diagnostics, { recursive: true, force: true })
+    if (previous === undefined) delete process.env.SMITHERS_TUI_SESSION_DIR
+    else process.env.SMITHERS_TUI_SESSION_DIR = previous
+  }
+}, 15000)
+
 it("retries a failed native install and ignores errors from a replaced handle", async () => {
   const diagnostics = mkdtempSync(join(tmpdir(), "tui-watch-install-"))
   const previous = process.env.SMITHERS_TUI_SESSION_DIR

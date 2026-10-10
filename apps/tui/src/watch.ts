@@ -216,8 +216,11 @@ export const flows = (cwd: string, refresh: () => void, debounce = debounceMs): 
       if (!closed) partial(observed)
     })
   } catch (error) {
+    // The listing reports a root it cannot read, once across conversations. Each
+    // conversation makes a new watcher, so announcing here too would bury the
+    // conversation's own acknowledgment; only a failure that differs is announced.
     scanFailure = Failures.identity(error)
-    queueMicrotask(() => report(error))
+    Log.write("flow.watch", error)
   }
   try {
     // `flows/` itself appearing or disappearing.
