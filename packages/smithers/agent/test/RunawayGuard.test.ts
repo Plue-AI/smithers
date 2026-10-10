@@ -727,13 +727,17 @@ const decideWithoutDriving = (
 const thirdOwner: Ownership.OwnerId = { hostId: "runaway-third", pid: 3, nonce: "third" }
 
 /** Composition C: a restarted host that is asked nothing, and follows the run to its settlement. */
-const settleInThirdProcess = (root: string, parked: { readonly runId: string; readonly sequence: number }) =>
+const settleInThirdProcess = (
+  root: string,
+  parked: { readonly runId: string; readonly sequence: number },
+  guarded: Guarded = {}
+) =>
   Effect.runPromise(
     Effect.gen(function*() {
       const next = yield* nextIncident(parked.runId, parked.sequence)
       const runtime = yield* ControlRuntime.ControlRuntime
       return { kind: next.kind, payload: next.payload, run: yield* runtime.getRun(parked.runId) }
-    }).pipe(Effect.provide(host(root, thirdOwner, "runaway-third")), Effect.scoped, Effect.orDie)
+    }).pipe(Effect.provide(host(root, thirdOwner, "runaway-third", guarded)), Effect.scoped, Effect.orDie)
   )
 
 describe("a decision whose deciding process drove nothing", () => {
@@ -744,7 +748,17 @@ describe("a decision whose deciding process drove nothing", () => {
     ] as const
   )("%s settles the run from the recorded decision in a restarted host", async (answer, kind, calls) => {
     const root = makeRoot()
-    const parked = await parkInFirstProcess(root)
+    // Wall time chosen by the case. On the host's clock, parking and the
+    // restarted host's replay before its first call are active time too, and
+    // on a loaded runner they spent more than the raise's 500 ms allowance, so
+    // Continue parked the run again.
+    const time = accountingClock()
+    const guarded: Guarded = { clock: time.clock }
+    script = (n) => {
+      time.advance(n === 0 ? firstCallMillis : 100)
+      return { source: n === 0 ? `console.log("working")` : `ctx.done("settled")`, delayMillis: 0 }
+    }
+    const parked = await parkInFirstProcess(root, undefined, guarded)
     expect(parked.kind).toBe("control.approval.requested")
     if (parked.approval === undefined || parked.sequence === undefined) return
 
@@ -756,7 +770,7 @@ describe("a decision whose deciding process drove nothing", () => {
     expect(readEngineRun(root, parked.runId)).toMatchObject({ status: "suspended", waiting_reason: "budget" })
     expect(modelCalls).toEqual(["runaway-first"])
 
-    const settled = await settleInThirdProcess(root, { runId: parked.runId, sequence: parked.sequence })
+    const settled = await settleInThirdProcess(root, { runId: parked.runId, sequence: parked.sequence }, guarded)
 
     expect(settled.kind).toBe(kind)
     expect(modelCalls).toEqual(calls)
