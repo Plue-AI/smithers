@@ -242,14 +242,14 @@ func TestTodoMovesOnSecondsAfterItsPassLosesARace(t *testing.T) {
 				}},
 				{"the claim's lease ends during the send", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
 					f.fake.OnNextRequest(http.MethodPost, effect.path, func() {
-						race(`UPDATE mythical_stacks SET lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
+						duringSend(effect.kind, race, `UPDATE mythical_stacks SET lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
 					})
 				}},
 				{"a newer claim takes the stack during the send", func(f *publicationFixture, _ db.MythicalItem, race func(string)) {
 					// The newer claimant's lease has ended too, so the stack is
 					// claimable again; only the lost pass's own request runs it.
 					f.fake.OnNextRequest(http.MethodPost, effect.path, func() {
-						race(`UPDATE mythical_stacks SET claim = claim + 1, lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
+						duringSend(effect.kind, race, `UPDATE mythical_stacks SET claim = claim + 1, lease_expires_at = NOW() - interval '1 second' WHERE repository_id = $1`)
 					})
 				}},
 				{"another writer moves the TODO during the send", func(f *publicationFixture, item db.MythicalItem, race func(string)) {
@@ -294,6 +294,18 @@ func TestTodoMovesOnSecondsAfterItsPassLosesARace(t *testing.T) {
 			}
 		})
 	}
+}
+
+// duringSend races a stack write with an outbound effect. A push holds the
+// stack row until GitHub answers (pushCurrentProposal, f6217fe349), so the
+// write waits for it and lands as the push returns, before the pass records
+// the send; waiting inside the push itself would deadlock the fixture.
+func duringSend(kind string, race func(string), sql string) {
+	if kind == "push" {
+		go race(sql)
+		return
+	}
+	race(sql)
 }
 
 // A pass that finds a newer claim when it finishes asks for another pass,
