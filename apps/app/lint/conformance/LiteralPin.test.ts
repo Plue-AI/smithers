@@ -493,8 +493,8 @@ const RESOLVES_ELSEWHERE: ReadonlyArray<Excuse> = [
     reason: "Playwright CSV attachment filename for the 400 measured keystrokes; never a product identifier."
   },
   {
-    literal: "fixture-", file: "e2e/real/portable/owned-repository.ts",
-    reason: "A random text marker written into fixture.txt by pushLocalFixture; it is file content, never a card ID."
+    literal: "demo.git", file: "scripts/mode-matrix/local-own.ts",
+    reason: "The bare repository directory the local-own GitHub fake serves (<owner>/demo.git); a path, never a product identifier."
   },
   {
     literal: "local-draft-", file: "e2e/real/wiki-collaboration.spec.ts",
