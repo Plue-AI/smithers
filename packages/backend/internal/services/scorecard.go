@@ -298,6 +298,21 @@ func (s *ScorecardService) Summary(ctx context.Context, from, to time.Time) (Sco
 		}
 		facts.Coverage["T-APP-04"] = complete
 	}
+	if present["workflow_definitions"] && present["flow_loads"] {
+		covered, err := queries.ScorecardFlowLoadCoverage(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		rows, err := queries.ScorecardFlowRevisions(ctx)
+		if err != nil {
+			return Scorecard{}, err
+		}
+		facts.Activations = make(map[string]time.Time)
+		for _, row := range rows {
+			facts.Activations[row.ID] = row.CreatedAt
+		}
+		facts.Coverage["T-FLW-03"] = covered
+	}
 	if present["memory_notes"] && present["mythical_items"] {
 		rows, err := queries.ScorecardLearnings(ctx)
 		if err != nil {
@@ -357,7 +372,7 @@ func unavailableScorecard(window ScorecardWindow) Scorecard {
 	add("terminal_edits", "diagnostic", "none", []string{"product_job_events", "burst_files"}, []string{"T-COL-04"})
 	add("second_member_actions", "diagnostic", "none", append([]string{"approvals"}, todoTables...), []string{"T-STK-01", "T-COL-04", "T-APP-04"})
 	add("no_hand_written_code", "diagnostic", "none", []string{"mythical_items", "product_job_events", "burst_files"}, append([]string{"T-COL-04"}, merges...))
-	add("flow_revisions", "diagnostic", "none", []string{"workflow_definitions"}, []string{"T-FLW-03"})
+	add("flow_revisions", "diagnostic", "none", []string{"workflow_definitions", "flow_loads"}, []string{"T-FLW-03"})
 	add("outside_work", "diagnostic", "over 50% of changes to main", []string{"github_synced_repos", "mythical_items"}, []string{"T-GH-02", "T-STK-01"})
 	add("multiplayer", "at least 3 sessions per week with two members on one branch", "zero sessions in week 2", []string{"audit_log"}, []string{"T-COL-06"})
 	add("retention", "at least 10 accepted TODOs in week 3", "fewer than 3 accepted TODOs in week 3", todoTables, []string{"T-STK-01"})

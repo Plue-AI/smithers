@@ -1,0 +1,292 @@
+{
+ "window": {
+  "from": "2026-10-04T06:30:00Z",
+  "to": "2026-10-18T06:30:00Z"
+ },
+ "measures": {
+  "install_start": {
+   "value": "2026-10-04T06:30:00Z",
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "install_settings"
+   ]
+  },
+  "first_answer": {
+   "value": "2026-10-04T06:35:00Z",
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "chat_turns",
+    "chat_turn_batches"
+   ]
+  },
+  "first_merge": {
+   "value": "2026-10-04T07:18:00Z",
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "accepted": {
+   "value": 60,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "merged": {
+   "value": 52,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "dropped": {
+   "value": 1,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "failed": {
+   "value": 1,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "dogfood": {
+   "value": null,
+   "target": "50 merged TODOs in 14 days",
+   "kill_signal": "fewer than 20 merged TODOs or outside work exceeds 50%",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "github_synced_repos",
+    "mythical_items",
+    "product_job_events"
+   ],
+   "missing_tickets": [
+    "T-GH-02"
+   ]
+  },
+  "activation": {
+   "value": 48,
+   "target": "first merge within 60 minutes",
+   "kill_signal": "two of three teams need help (manual)",
+   "verdict": "pass",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "install_settings",
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "core_value": {
+   "value": {
+    "accepted_per_week": [
+     30,
+     30
+    ]
+   },
+   "target": "at least 10 accepted TODOs per week; sampled median under 15 person-minutes (manual)",
+   "kill_signal": "fewer than 3 accepted in week 2 or rising sampled median (manual)",
+   "verdict": "pass",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "terminal_edits": {
+   "value": null,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "product_job_events",
+    "burst_files"
+   ],
+   "missing_tickets": [
+    "T-COL-04"
+   ]
+  },
+  "second_member_actions": {
+   "value": null,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "approvals",
+    "mythical_items",
+    "product_job_events"
+   ],
+   "missing_tickets": [
+    "T-COL-04"
+   ]
+  },
+  "no_hand_written_code": {
+   "value": null,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events",
+    "burst_files"
+   ],
+   "missing_tickets": [
+    "T-COL-04"
+   ]
+  },
+  "flow_revisions": {
+   "value": 2,
+   "target": "diagnostic",
+   "kill_signal": "none",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "workflow_definitions",
+    "flow_loads"
+   ]
+  },
+  "outside_work": {
+   "value": null,
+   "target": "diagnostic",
+   "kill_signal": "over 50% of changes to main",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "github_synced_repos",
+    "mythical_items"
+   ],
+   "missing_tickets": [
+    "T-GH-02"
+   ]
+  },
+  "multiplayer": {
+   "value": null,
+   "target": "at least 3 sessions per week with two members on one branch",
+   "kill_signal": "zero sessions in week 2",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "audit_log"
+   ],
+   "missing_tickets": [
+    "T-COL-06"
+   ]
+  },
+  "retention": {
+   "value": null,
+   "target": "at least 10 accepted TODOs in week 3",
+   "kill_signal": "fewer than 3 accepted TODOs in week 3",
+   "verdict": "between",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "product_job_events"
+   ]
+  },
+  "self_improvement": {
+   "value": null,
+   "target": "at least one merged learning proposal reduces its signature rate over the next 5 TODOs versus the previous 5",
+   "kill_signal": "no accepted proposal in two weeks",
+   "verdict": "source_missing",
+   "window": {
+    "from": "2026-10-04T06:30:00Z",
+    "to": "2026-10-18T06:30:00Z"
+   },
+   "source_tables": [
+    "mythical_items",
+    "memory_notes"
+   ],
+   "missing_tickets": [
+    "T-FLW-06"
+   ]
+  }
+ },
+ "person_minutes": {
+  "source": "sampled_alpha_sessions",
+  "verdict": "manual"
+ }
+}

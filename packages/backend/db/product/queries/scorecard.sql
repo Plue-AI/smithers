@@ -11,10 +11,13 @@ SELECT source.name::text AS name,
         AND (source.name <> 'approvals' OR EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='approvals' AND column_name='member_id'))
         AND (source.name <> 'chat_turns' OR EXISTS(
              SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
-              AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
+              AND table_name = 'chat_turns' AND column_name = 'conversation_id'))
+        AND (source.name <> 'workflow_definitions' OR EXISTS(
+             SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+              AND table_name = 'workflow_definitions' AND column_name = 'digest')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
-                 'workflow_definitions', 'memory_notes', 'approvals']) AS source(name);
+                 'workflow_definitions', 'flow_loads', 'memory_notes', 'approvals']) AS source(name);
 
 -- Creation receipts, not row creation times, establish stack acceptance.
 -- Deduplicate repeated deliveries by the TODO identity.
@@ -127,3 +130,21 @@ FROM approvals a LEFT JOIN mythical_items i ON i.repository_id=a.repository_id
  AND a.subject->>'kind'='todo' AND a.subject->>'ref'='T'||i.number::text
  AND (i.source='todo' OR i.checks->>'todo'='true')
 WHERE a.member_id IS NOT NULL AND a.kind='review_merge' AND a.command='merge';
+
+-- T-FLW-03's flow-load writes one workflow_definitions row per loaded digest
+-- and activates it in the same transaction, so a version that became Active
+-- is dated by its load. Only Active rows ever change updated_at: a version
+-- Active now, or moved off Active later, was activated; a stale load's row
+-- that never became Active keeps is_active false and updated_at = created_at.
+-- A revert to a version that already has a row writes no new version.
+-- name: ScorecardFlowRevisions :many
+SELECT id::text AS id, created_at
+FROM workflow_definitions
+WHERE digest IS NOT NULL AND status = 'loaded'
+  AND (is_active OR updated_at <> created_at);
+
+-- A finished flow-load proves the version writer runs on this install; an
+-- empty workflow_definitions table alone does not.
+-- name: ScorecardFlowLoadCoverage :one
+SELECT (count(*) > 0 AND bool_and(loaded_commit <> ''))::boolean AS covered
+FROM flow_loads;

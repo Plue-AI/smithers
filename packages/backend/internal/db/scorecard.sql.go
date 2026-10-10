@@ -152,6 +152,58 @@ func (q *Queries) ScorecardFirstAnswer(ctx context.Context) (ScorecardFirstAnswe
 	return i, err
 }
 
+const scorecardFlowLoadCoverage = `-- name: ScorecardFlowLoadCoverage :one
+SELECT (count(*) > 0 AND bool_and(loaded_commit <> ''))::boolean AS covered
+FROM flow_loads
+`
+
+// A finished flow-load proves the version writer runs on this install; an
+// empty workflow_definitions table alone does not.
+func (q *Queries) ScorecardFlowLoadCoverage(ctx context.Context) (bool, error) {
+	row := q.db.QueryRow(ctx, scorecardFlowLoadCoverage)
+	var covered bool
+	err := row.Scan(&covered)
+	return covered, err
+}
+
+const scorecardFlowRevisions = `-- name: ScorecardFlowRevisions :many
+SELECT id::text AS id, created_at
+FROM workflow_definitions
+WHERE digest IS NOT NULL AND status = 'loaded'
+  AND (is_active OR updated_at <> created_at)
+`
+
+type ScorecardFlowRevisionsRow struct {
+	ID        string    `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// T-FLW-03's flow-load writes one workflow_definitions row per loaded digest
+// and activates it in the same transaction, so a version that became Active
+// is dated by its load. Only Active rows ever change updated_at: a version
+// Active now, or moved off Active later, was activated; a stale load's row
+// that never became Active keeps is_active false and updated_at = created_at.
+// A revert to a version that already has a row writes no new version.
+func (q *Queries) ScorecardFlowRevisions(ctx context.Context) ([]ScorecardFlowRevisionsRow, error) {
+	rows, err := q.db.Query(ctx, scorecardFlowRevisions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ScorecardFlowRevisionsRow{}
+	for rows.Next() {
+		var i ScorecardFlowRevisionsRow
+		if err := rows.Scan(&i.ID, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const scorecardInstallStart = `-- name: ScorecardInstallStart :many
 SELECT value FROM install_settings WHERE key = 'setup.started_at'
 `
@@ -356,10 +408,13 @@ SELECT source.name::text AS name,
         AND (source.name <> 'approvals' OR EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='approvals' AND column_name='member_id'))
         AND (source.name <> 'chat_turns' OR EXISTS(
              SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
-              AND table_name = 'chat_turns' AND column_name = 'conversation_id')))::boolean AS present
+              AND table_name = 'chat_turns' AND column_name = 'conversation_id'))
+        AND (source.name <> 'workflow_definitions' OR EXISTS(
+             SELECT 1 FROM information_schema.columns WHERE table_schema = 'public'
+              AND table_name = 'workflow_definitions' AND column_name = 'digest')))::boolean AS present
 FROM unnest(ARRAY['install_settings', 'mythical_items', 'product_job_events',
                  'chat_turns', 'chat_turn_batches', 'burst_files', 'audit_log',
-                 'workflow_definitions', 'memory_notes', 'approvals']) AS source(name)
+                 'workflow_definitions', 'flow_loads', 'memory_notes', 'approvals']) AS source(name)
 `
 
 type ScorecardSourceRelationsRow struct {
