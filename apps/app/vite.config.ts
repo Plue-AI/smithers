@@ -6,6 +6,7 @@ import { defineConfig } from "vite"
 import type { Plugin } from "vite"
 import { buildStamp, resolveBuildSha } from "./scripts/build-stamp"
 import { assertAcyclicChunks } from "./scripts/chunk-graph"
+import { devBackendProxy } from "./scripts/dev-backend-proxy"
 
 /*
  * Every vite invocation in package.json passes `--configLoader runner`. The
@@ -45,12 +46,7 @@ const entryChunkGuard = (): Plugin => ({
 })
 
 export default defineConfig({
-  server: process.env.SMITHERS_DEV_BACKEND_ORIGIN ? {
-    proxy: {
-      "/api": { target: process.env.SMITHERS_DEV_BACKEND_ORIGIN, changeOrigin: false, ws: true },
-      "/readyz": process.env.SMITHERS_DEV_BACKEND_ORIGIN
-    }
-  } : undefined,
+  server: devBackendProxy(process.env.SMITHERS_DEV_BACKEND_ORIGIN),
   plugins: [openApiChunk(), react(), buildStamp(), entryChunkGuard(), {
     name: "smithers-sqlite-worker",
     enforce: "pre",
