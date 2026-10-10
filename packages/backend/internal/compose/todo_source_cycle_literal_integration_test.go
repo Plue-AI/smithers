@@ -632,7 +632,8 @@ func TestTodoFoldedQuestionAndForeignPushSequences(t *testing.T) {
 				// cannot publish, or acquire write permissions, through this wait.
 				for _, write := range after[len(writes):] {
 					require.Equal(t, "POST", write.Method)
-					require.Equal(t, "/app/installations/351507/access_tokens", write.Path, "a settled question cannot authorize an outside-head overwrite")
+					// This fixture's installation; the sequence depends on test order.
+					require.Equal(t, fmt.Sprintf("/app/installations/%d/access_tokens", int64(351502)+pollingFixtureSequence.Load()), write.Path, "a settled question cannot authorize an outside-head overwrite")
 					var token struct {
 						Repositories []int64           `json:"repository_ids"`
 						Permissions  map[string]string `json:"permissions"`
