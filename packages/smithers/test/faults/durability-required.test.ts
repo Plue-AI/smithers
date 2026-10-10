@@ -89,6 +89,10 @@ for (const [check, file, name, points] of selected) {
       const referenceMachine = check === "C-DUR-02" || file === "internal/compose/rebase_fault_test.go"
       const rebaseFault = file === "internal/compose/rebase_fault_test.go"
       const packagedPause = name === "TestTodoStartPauseResumeCrashThroughRoutes"
+      // Slow by design, not hung: K4b holds a real 30-second outage in each of
+      // its 10 runs. The file took 344 s on nyc-02 (2026-10-10; K4b 329.7 s,
+      // K4 12.4 s) and overran the old 2-minute budget.
+      const machinedFault = file === "internal/machined/fault_test.go"
       const timeout = rebaseFault
         ? 14_500_000
         : githubControl
@@ -97,6 +101,8 @@ for (const [check, file, name, points] of selected) {
         ? 2_700_000
         : packagedPause
         ? 750_000
+        : machinedFault
+        ? 630_000
         : 150_000
       const evidenceNames = githubControl
         ? githubCrossings.map((crossing) => `TestGitHubOutboundKillProductionProposal/${crossing}/crossing`)
@@ -121,6 +127,8 @@ for (const [check, file, name, points] of selected) {
           ? "44m"
           : packagedPause
           ? "12m"
+          : machinedFault
+          ? "10m"
           : "2m"
       ], {
         cwd: backend,
@@ -162,6 +170,8 @@ for (const [check, file, name, points] of selected) {
       ? 2_730_000
       : name === "TestTodoStartPauseResumeCrashThroughRoutes"
       ? 780_000
+      : file === "internal/machined/fault_test.go"
+      ? 660_000
       : 180_000
   )
 }
