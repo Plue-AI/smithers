@@ -208,6 +208,17 @@ test("the home screen names ? as the keys, and only ? opens them", async () => {
   expect(turns).toHaveLength(0)
 })
 
+test("? then a, with no ask waiting, keeps both as the draft", async () => {
+  await mount()
+  await key("?")
+  await waitFor(() => setup!.captureCharFrame().includes("Pick model"))
+  await type("a")
+  await waitFor(() => !setup!.captureCharFrame().includes("Pick model"))
+  await enter()
+  await waitFor(() => turns.length === 1)
+  expect(turns[0]!.input.prompt).toBe("?a")
+})
+
 test("Ctrl+K finds undo with its key and says so when there is nothing to undo", async () => {
   await mount()
   await key("k", { ctrl: true })

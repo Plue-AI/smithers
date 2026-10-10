@@ -2055,13 +2055,20 @@ export function App(props: AppProps) {
   const actRef = useRef(act)
   actRef.current = act
 
+  /** `a` in the chat answers the one ask waiting, once it has been on screen long enough not to take typing. */
+  const answersAsk = (): boolean =>
+    surface === "chat" && !panelFocus && soleAsk !== undefined && live.current.approvals.length === 0 &&
+    Date.now() - soleAsk.askedAt >= Approvals.armMs
+
   const handleKey = (key: KeyEvent): void => {
     const { turn: running, shell: shellRunning, picker: open } = live.current
     const { menu: completing, index: completingIndex } = liveMenu()
     const text = composer.current?.plainText ?? ""
     if (whichKeyRef.current) {
+      const bound = Keys.bindingFor(key, keyContext(), merged)
       if (
-        Dispatch.whichKeyKey(key, Keys.bindingFor(key, keyContext(), merged), {
+        // With no ask to answer, `a` is a letter, so `?a` stays the draft.
+        Dispatch.whichKeyKey(key, bound?.id === "answer" && !answersAsk() ? undefined : bound, {
           close: () => setWhichKeyOpen(false),
           type: setText,
           scroll: (direction) => keyScroll.current?.scrollBy(direction * 0.75, "viewport")
@@ -2377,14 +2384,12 @@ export function App(props: AppProps) {
         scroll: (by, page) => reviewScroll.current?.(by, page)
       })
     }
-    // `a` in the chat answers the one ask waiting, once it has been on screen long enough not to take typing.
     if (
       key.name === "a" && !key.ctrl && !key.meta && !key.option && !key.shift && text === "" && open === undefined &&
-      surface === "chat" && !panelFocus && soleAsk !== undefined && live.current.approvals.length === 0 &&
-      Date.now() - soleAsk.askedAt >= Approvals.armMs
+      answersAsk()
     ) {
       key.preventDefault()
-      return flushSync(() => openAsk(soleAsk.from, "a"))
+      return flushSync(() => openAsk(soleAsk!.from, "a"))
     }
     if (
       overviewKeys && open === undefined && !key.ctrl &&
