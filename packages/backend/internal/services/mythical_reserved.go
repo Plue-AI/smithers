@@ -188,6 +188,11 @@ func (s *MythicalService) ReservedStackOperation(ctx context.Context, repository
 	step := mythicalItemStep{s: s, q: q, r: &mythicalRun{row: stack, mainTip: stack.LandedMain}, items: items}
 	prefix := step.prefix(item)
 	initialBase := mythicalAttemptPrefix(item)
+	// An adopted TODO owns the captured seed as well as the later coding edit.
+	// Rebase their complete delta from the fork base, never from the seed head.
+	if seed := mythicalChecksOf(item).Seed; seed != nil {
+		initialBase = seed.Base
+	}
 	initialMoved := command == "stack.candidate" && item.CandidateHead == "" && codingCommitID.MatchString(initialBase) && initialBase != prefix
 	var integration struct{ Kind, Head, Tree string }
 	_ = json.Unmarshal(item.Integration, &integration)

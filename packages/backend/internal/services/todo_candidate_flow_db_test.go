@@ -269,7 +269,15 @@ func TestReservedFirstCandidateRetainsMovedPrefix(t *testing.T) {
 	testReservedCandidateProposesVerifiedTree(t, false, false, false, false, true)
 }
 
-func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold, earlySteer, movedPrefix bool) {
+func TestReservedCandidateKeepsAdoptedScratchSeed(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, false, false, false, false, true)
+}
+
+func TestReservedCandidateKeepsCapturedScratchSeed(t *testing.T) {
+	testReservedCandidateProposesVerifiedTree(t, false, true, false, false, false, true)
+}
+
+func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCapture, foreignHold, earlySteer, movedPrefix bool, adopted ...bool) {
 	f := newRebaseFixture(t)
 	ctx := context.Background()
 	q := db.New(f.pool)
@@ -278,9 +286,16 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 		predecessor = f.candidate("Earlier publication", f.main, "FIRST.md", "earlier work\n")
 	}
 	item := f.candidate("Reserved positive", f.main, "AGENT.md", "agent work\n")
+	seedHead := item.CandidateHead
+	withSeed := len(adopted) > 0 && adopted[0]
 	guest := &reservedGuest{dir: filepath.Join(t.TempDir(), "guest")}
 	f.git(f.root, "clone", "-q", f.hostDir, guest.dir)
 	guest.run(t, "jj", "git", "init", "--colocate")
+	if withSeed {
+		guest.run(t, "git", "fetch", "-q", f.hostDir, seedHead+":refs/remotes/origin/seed")
+		guest.run(t, "jj", "git", "import")
+		guest.run(t, "jj", "new", seedHead)
+	}
 	_, err := f.pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,name,vm_id,status) VALUES($1,$2,$3,'reserved','reserved-vm','running')`, item.WorkspaceID, f.repoID, f.userID)
 	require.NoError(t, err)
 	_, err = f.pool.Exec(ctx, `INSERT INTO mythical_lanes(workspace_id,repository_id,item_id,name) VALUES($1,$2,$3,'request')`, item.WorkspaceID, f.repoID, item.ID)
@@ -292,6 +307,10 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	item.FlowDigest = pgtype.Text{String: todoPinOne, Valid: true}
 	checks := mythicalChecksOf(item)
 	checks.FlowSource, checks.RunAttached, checks.RunLaunched = f.main, true, true
+	if withSeed {
+		item.BaseCommit = seedHead
+		checks.Seed = &branchSeed{Base: f.main, Head: seedHead, Captured: seedHead}
+	}
 	// Bring in can resume the same run with its question/steer history still
 	// retained. Its sealed candidate must reach checks without erasing that
 	// history or treating a delivered steer as a consumption receipt.
@@ -342,6 +361,9 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	tree := guest.run(t, "git", "rev-parse", head+"^{tree}")
 	guest.run(t, "git", "push", "-q", f.hostDir, head+":"+repohost.WorkspaceSourceRef(item.WorkspaceID, head))
 	source := repohost.WorkspaceSource{ChangeID: change, CommitID: head, TreeID: tree, ParentCommitIDs: []string{f.main}}
+	if withSeed {
+		source.ParentCommitIDs = []string{seedHead}
+	}
 	planJSON := json.RawMessage(`{"changes":[{"title":"Reserved positive","atoms":[{"message":"member work"}],"checks":[{"id":"checks/fast","required":true,"tier":"fast"},{"id":"checks/slow","required":true,"tier":"slow"}]}]}`)
 	capture := ReservedStackInput{RequestID: "11111111-1111-4111-8111-111111111111", Source: &source, Plan: planJSON}
 	if existingCapture {
@@ -436,6 +458,10 @@ func testReservedCandidateProposesVerifiedTree(t *testing.T, expire, existingCap
 	require.Equal(t, generation+1, verifying.Generation)
 	require.Equal(t, f.main, verifying.CandidateBase)
 	require.Equal(t, head, verifying.CandidateHead)
+	if withSeed {
+		require.Equal(t, "agent work", f.git(f.hostDir, "show", verifying.CandidateHead+":AGENT.md"))
+		require.Equal(t, "member bytes", f.git(f.hostDir, "show", verifying.CandidateHead+":MEMBER.md"))
+	}
 	require.Nil(t, mythicalChecksOf(verifying).Capture)
 	require.Equal(t, steers, mythicalChecksOf(verifying).Steers)
 	require.Equal(t, 1, f.verifies(verifying))
