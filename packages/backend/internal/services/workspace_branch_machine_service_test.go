@@ -157,3 +157,39 @@ func TestBranchMachineAdmissionUsesTransactionConnection(t *testing.T) {
 	require.NoError(t, err, "a nested lifecycle operation reuses the held authority")
 	require.Equal(t, 2, calls)
 }
+
+// A background machine stays refused to a step nested under held authority,
+// and the held transaction answers that refusal: the mark below exists only
+// inside it, and the one-connection pool has no second connection to give.
+func TestBackgroundMachineRefusalReadsTheHeldTransaction(t *testing.T) {
+	pool := newProductTestPool(t)
+	person, repo := setupTestUserAndRepo(t, pool)
+	cfg := pool.Config().Copy()
+	cfg.MaxConns, cfg.MinConns = 1, 0
+	single, err := pgxpool.NewWithConfig(t.Context(), cfg)
+	require.NoError(t, err)
+	t.Cleanup(single.Close)
+	svc := NewWorkspaceService(db.New(single), WithWorkspaceTransactions(single), WithBranchMachineProviders(branchMachineTestProviders()))
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	row, err := svc.createWorkspaceRow(ctx, db.CreateWorkspaceParams{RepositoryID: repo, UserID: person,
+		TargetBookmark: "scratch/owner/background", Kind: "container", Status: "starting"})
+	require.NoError(t, err)
+	var definition, run int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_definitions(repository_id,name,path,config) VALUES ($1,'manual','.smithers/manual.ts','{}') RETURNING id`, repo).Scan(&definition))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workflow_runs(repository_id,workflow_definition_id,status,trigger_event,trigger_ref) VALUES ($1,$2,'running','manual','main') RETURNING id`, repo, definition).Scan(&run))
+	nested := 0
+	err = svc.withWorkspaceMutationAuthority(ctx, row, person, func(held context.Context) error {
+		tx := heldWorkspaceMutationTransaction(held, row.ID, person)
+		require.NotNil(t, tx)
+		_, err := tx.Exec(held, `INSERT INTO workflow_run_flow_invocations(workflow_run_id,user_id,flow_id,operation_id,background_workspace_id) VALUES ($1,$2,'main','background-op',$3::uuid)`, run, person, row.ID)
+		require.NoError(t, err)
+		return svc.withWorkspaceMutationAuthority(held, row, person, func(context.Context) error {
+			nested++
+			return nil
+		})
+	})
+	requireBranchStatus(t, err, 403)
+	require.ErrorContains(t, err, "background machine belongs to its run")
+	require.Zero(t, nested)
+}

@@ -238,9 +238,15 @@ func (s *WorkspaceService) touchWorkspaceEntryRecency(ctx context.Context, works
 // Background machines have no branch/session/file door. The sole authority
 // is their persisted manual run; ordinary workspace ownership grants none.
 func (s *WorkspaceService) refuseBackgroundWorkspaceAccess(ctx context.Context, id string) error {
-	if store, ok := s.q.(interface {
+	store, ok := s.q.(interface {
 		IsWorkflowBackgroundWorkspace(context.Context, string) (bool, error)
-	}); ok {
+	})
+	// A step under held mutation authority over this workspace asks its own
+	// transaction: a second pool connection could wait on the one it holds.
+	if held, found := ctx.Value(workspaceMutationTransactionKey{}).(workspaceMutationTransaction); found && held.authority.workspaceID == id {
+		store, ok = db.New(held.tx), true
+	}
+	if ok {
 		background, err := store.IsWorkflowBackgroundWorkspace(ctx, id)
 		if err != nil {
 			return err

@@ -792,6 +792,19 @@ type missingToolCommandRuntime struct {
 	calls atomic.Int32
 }
 
+// WriteRepositoryReceipt forwards the process runtime's receipt writer, which
+// 12bccbbc3a (#3560) made the only way a checkout's receipt is committed;
+// the embedded interface alone hides it.
+func (r *missingToolCommandRuntime) WriteRepositoryReceipt(ctx context.Context, id string, content []byte) error {
+	writer, ok := r.WorkspaceRuntime.(interface {
+		WriteRepositoryReceipt(context.Context, string, []byte) error
+	})
+	if !ok {
+		return errors.New("wrapped runtime has no receipt writer")
+	}
+	return writer.WriteRepositoryReceipt(ctx, id, content)
+}
+
 func (r *missingToolCommandRuntime) ExecuteCommand(ctx context.Context, id string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
 	result, err := r.WorkspaceRuntime.ExecuteCommand(ctx, id, command)
 	if len(command.Args) == 4 && strings.HasPrefix(command.Args[3], "smithers-missing-tool-fixture") && err == nil {
