@@ -1,8 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    // Tests share the process-table probe in packages/testing; this config emits nothing.
-    "rootDir": "../../..",
+    // Tests share the process-table probe in packages/testing, and the coding
+    // edit-atom integration test drives the repository flows/coding filesystem;
+    // this config emits nothing.
+    "rootDir": "../../../..",
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "declaration": false,

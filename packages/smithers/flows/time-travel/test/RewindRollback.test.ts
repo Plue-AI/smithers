@@ -863,13 +863,15 @@ describe("Rewind protocol fault matrix", () => {
           }
         ]
       ) {
-        const store = MemoryTimeTravelStore.make({ records: [stored(0, "baseline", {}), stored(1, "suffix", {})] })
+        const memory = MemoryTimeTravelStore.make({ records: [stored(0, "baseline", {}), stored(1, "suffix", {})] })
         const logs: Array<{ level: string; message: unknown; annotations: unknown }> = []
-        const updateAudit = store.updateAudit
-        store.updateAudit = (id, patch) =>
-          (patch.detail as Rewind.AuditDetail | undefined)?.failure !== undefined
-            ? Effect.fail(error("unknown", "postcommit audit unavailable"))
-            : updateAudit(id, patch)
+        const store: typeof memory = {
+          ...memory,
+          updateAudit: (id, patch) =>
+            (patch.detail as Rewind.AuditDetail | undefined)?.failure !== undefined
+              ? Effect.fail(error("unknown", "postcommit audit unavailable"))
+              : memory.updateAudit(id, patch)
+        }
         const runs = makeRuns(runRow(), { transitionOwned: scenario.transition })
         const jj = makeJj()
 

@@ -158,7 +158,7 @@ for (const [check, file, name, points] of selected) {
       ? 14_550_000
       : file === "internal/compose/github_outbound_kill_test.go"
       ? (githubRunMinutes + 1.5) * 60_000
-      : (check === "C-DUR-02" || file === "internal/compose/rebase_fault_test.go")
+      : check === "C-DUR-02"
       ? 2_730_000
       : name === "TestTodoStartPauseResumeCrashThroughRoutes"
       ? 780_000

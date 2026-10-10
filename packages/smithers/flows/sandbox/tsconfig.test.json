@@ -2,7 +2,10 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     // Tests share the process-table probe in packages/testing; this config emits nothing.
+    // Tests run on the pinned Node, which has ES2024 (Promise.withResolvers);
+    // the published build keeps the ES2022 lib.
     "rootDir": "../../..",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
     "noEmit": true,
     "declaration": false,
     "declarationMap": false,

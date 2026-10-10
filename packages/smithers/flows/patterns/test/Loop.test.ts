@@ -23,20 +23,33 @@ import { PatternError } from "../src/PatternError.ts"
 import { callsTo, payloadOf } from "./Graphs.ts"
 
 /**
- * The `@smthrs/std` signature, read through `@smthrs/core`'s own sugar.
+ * The real `@smthrs/std` glob declaration, lowered onto `@smthrs/flow`.
  *
- * `Glob.flow` is a real, unmodified `@smthrs/core` body-less signature
- * (`agent/std/src/Glob.ts:143`): a name, a struct input, a struct output,
- * `capabilities`, and a sealed hermetic `effects` envelope. Nothing about it
- * changes here; it is read. The signature carries the `Action.Declared` a
- * host implements and the `Flow` whose body is one call to it, which is what
- * this file composes a loop out of. The sugar's own lowering rules are pinned
- * in `flows/core/test/Flow.test.ts`.
+ * `Glob.flow` is a plain, unmodified declaration (`agent/std/src/Glob.ts`): a
+ * name, a struct input, a struct output, `capabilities`, and a sealed hermetic
+ * `effects` envelope. Nothing about it changes here; it is read. A host
+ * implements it as an `Action.Declared`, and the `Flow` beside the action,
+ * whose body is one call to it, carries the capability ceiling `Graph.build`
+ * reads off a flow declaration. This file composes a loop out of both.
  */
+const globAction = Action.make(Glob.flow.name, {
+  payload: Glob.flow.input,
+  success: Glob.flow.output,
+  capabilities: Glob.flow.capabilities,
+  effects: Glob.flow.effects,
+  tier: Glob.flow.effects.tier
+})
 const glob = {
-  action: Glob.flow.action!,
-  flow: Glob.flow.flow,
-  payload: Glob.flow.flow.payloadSchema
+  action: globAction,
+  flow: Flow.make(Glob.flow.name, {
+    description: Glob.flow.description,
+    payload: Glob.flow.input,
+    success: Glob.flow.output,
+    capabilities: Glob.flow.capabilities,
+    effects: Glob.flow.effects,
+    body: (payload) => globAction.call(payload)
+  }),
+  payload: Glob.flow.input
 }
 
 /** The calls the scripted glob implementation received, in order. */
@@ -121,7 +134,7 @@ const services = <R>(loop: Loop.LoopFlow<R>) =>
 
 /** Runs one declared loop to settlement against the scripted glob. */
 const execute = (
-  loop: Loop.LoopFlow<Action.Requirement<string>>,
+  loop: Loop.LoopFlow<Action.Requirement<typeof Glob.flow.name>>,
   input: unknown,
   executionId: string,
   script: (pattern: string) => ReadonlyArray<string>
@@ -160,9 +173,8 @@ describe("Loop", () => {
   it("declares the glob signature it composes as one action call per iteration", () => {
     const graph = Graph.build(Loop.ralph({ body, maxIterations: 3 }), { input: "seed" })
 
-    // The `@smthrs/std` signature reaches the plan as an ActionCall under the
-    // spliced body of each iteration, which is what candidate Y claims a
-    // body-less core signature becomes.
+    // The `@smthrs/std` declaration reaches the plan as an ActionCall under
+    // the spliced body of each iteration.
     expect(callsTo(graph, "glob")).toHaveLength(3)
     expect(callsTo(graph, "glob").map((node) => payloadOf(node).pattern)).toEqual([
       "round-1/*.ts",
@@ -171,17 +183,17 @@ describe("Loop", () => {
     ])
   })
 
-  it("carries the capability ceiling and the sealed envelope the core signature declared", () => {
-    // `Graph.build` reads a declared ceiling only off a FLOW declaration
-    // (`flow/src/Graph.ts:1068`), which is why the sugar produces a flow beside
-    // the action rather than an action alone.
+  it("carries the capability ceiling and the sealed envelope the std declaration states", () => {
+    // `Graph.build` reads a declared ceiling only off a FLOW declaration, which
+    // is why the lowering above builds a flow beside the action rather than an
+    // action alone.
     const graph = Graph.build(glob.flow, { pattern: "*.ts" })
     const root = Graph.nodes(graph).find((node) => node.kind === "ActionCall")
 
     expect(root).toBeDefined()
     expect(root!.capabilities).toEqual(Glob.capabilities)
     expect(root!.draft.material.kind).toBe("sealed")
-    // The envelope the core signature declared is the same annotation key
+    // The envelope the std declaration states is the same annotation key
     // `@smthrs/flow` reads: both are `@smthrs/plan`'s `Effects.Envelope`.
     expect(glob.action.tier).toBe("sealed")
   })

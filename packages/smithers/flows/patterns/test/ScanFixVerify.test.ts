@@ -1,5 +1,5 @@
 import { describe, it } from "@effect/vitest"
-import { Flow, Graph } from "@smthrs/flow"
+import { Action, Flow, Graph } from "@smthrs/flow"
 import * as Node from "@smthrs/plan/Node"
 import * as Glob from "@smthrs/std/Glob"
 import * as Effect from "effect/Effect"
@@ -288,7 +288,13 @@ describe("ScanFixVerify", () => {
   describe("executed declaration matches run", () => {
     // Every stage calls the real `@smthrs/std` glob action, so the scripted
     // implementation below records exactly the stage calls a run made.
-    const glob = Glob.flow.action!
+    const glob = Action.make(Glob.flow.name, {
+      payload: Glob.flow.input,
+      success: Glob.flow.output,
+      capabilities: Glob.flow.capabilities,
+      effects: Glob.flow.effects,
+      tier: Glob.flow.effects.tier
+    })
     const called: Array<string> = []
     let rounds: ReadonlyArray<ReadonlyArray<string>> = []
     const globLayer = glob.toLayer((payload) =>
