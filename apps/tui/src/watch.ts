@@ -80,6 +80,8 @@ export const flows = (cwd: string, refresh: () => void, debounce = debounceMs): 
   let attached: string | undefined
   let scanFailure: string | undefined
   let watchFailure: string | undefined
+  // The tree a native watcher failed on; it is reattached only after the tree changes.
+  let refused: string | undefined
   let partialFailures = new Set<string>()
   const announce = (failure: FlowDiscoveryFailed | typeof sourceFailure) => {
     if (closed) return
@@ -93,7 +95,8 @@ export const flows = (cwd: string, refresh: () => void, debounce = debounceMs): 
   const observerFailed = (cause: unknown) => {
     if (closed) return
     Log.write("flow.watch", cause)
-    announce(sourceFailure)
+    // An unreadable entry also stops a recursive watch; the scan's notice already says so.
+    if ((baseline?.failures.size ?? 0) === 0) announce(sourceFailure)
   }
   const partial = (observed: Snapshot) => {
     const failures = new Set<string>()
@@ -132,7 +135,12 @@ export const flows = (cwd: string, refresh: () => void, debounce = debounceMs): 
         watched.close()
         tree = undefined
         attached = undefined
-        if (!missing(error)) observerFailed(error)
+        // Bun fails every recursive watch over an unreadable directory on Linux,
+        // so reattaching at once would loop. Reconciliation keeps the tree fresh.
+        refused = baseline?.digest
+        const key = Failures.identity(error)
+        if (!missing(error) && key !== watchFailure) observerFailed(error)
+        watchFailure = key
         reconcile()
       })
     } catch (error) {
@@ -186,7 +194,7 @@ export const flows = (cwd: string, refresh: () => void, debounce = debounceMs): 
       if (closed || observed === undefined) return
       scanFailure = undefined
       partial(observed)
-      open(observed.root)
+      if (observed.digest !== refused) open(observed.root)
       if (observed.digest !== baseline?.digest) changed()
       baseline = observed
     }).catch((error: unknown) => {
