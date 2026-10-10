@@ -968,10 +968,14 @@ const lint = Smithers.EsLint({
   fix: false
 })
 
+// 53 end-to-end cases drive commit.mjs through real git, jj and the production
+// build CLI's gates: 798 s on a loaded 48-core lane host, past the 10-minute
+// default that timed the target out in the Release gates lane (#3765).
 const commit = Smithers.NodeTest({
   runner: Smithers.testRunner([Smithers.file("//scripts/commit.test.mjs")]),
   srcs: [Smithers.file("//scripts/commit.mjs")],
-  deps: []
+  deps: [],
+  timeout: "30m"
 })
 
 /** Exercises real Bun coverage collection and sealed process receipts. */

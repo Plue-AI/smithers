@@ -85,10 +85,13 @@ export const apiSurface = (root = repoRoot, declarationRoot = root) =>
       return [name, {
         exports: manifest.publishConfig.exports,
         declarations: Object.fromEntries(names.map((file) => {
-          const contents = canonicalDeclaration(
-            readFileSync(join(directory, file), "utf8").replace(/\r\n/g, "\n")
-              .replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim()
-          )
+          // set-release-version stamps the package's own version into literal
+          // types. A release cut is not an API change, so that one string reads
+          // as a placeholder; every other literal still counts.
+          const stamp = typeof manifest.version === "string" ? JSON.stringify(manifest.version) : undefined
+          const text = readFileSync(join(directory, file), "utf8").replace(/\r\n/g, "\n")
+            .replace(/^\/\/# sourceMappingURL=.*$/gm, "").trim()
+          const contents = canonicalDeclaration(stamp === undefined ? text : text.replaceAll(stamp, "\"<release-version>\""))
           return [file, createHash("sha256").update(contents).digest("hex")]
         }))
       }]

@@ -35,6 +35,36 @@ it("detects signature changes through private declarations even when export path
   }
 })
 
+// set-release-version stamps the package's own version into literal-typed
+// constants (`export declare const version = "1.0.0-rc.3"`). A release cut is
+// not an API change, so it must not redden the drift gate on every cut.
+it("treats the package's own release version stamp as one value across cuts, but keeps other literals", () => {
+  const root = mkdtempSync(join(tmpdir(), "smithers-api-baseline-version-"))
+  const write = (name, text) => {
+    mkdirSync(join(root, name, ".."), { recursive: true })
+    writeFileSync(join(root, name), text)
+  }
+  const release = (version, other = "2") => {
+    write(
+      "packages/example/package.json",
+      JSON.stringify({ name: "@smthrs/example", version, publishConfig: { exports: { ".": "./dist/esm/index.js" } } })
+    )
+    write(
+      "packages/example/dist/esm/index.d.ts",
+      `export declare const version = "${version}";\nexport declare const tool: { readonly version: "${version}" };\nexport declare const other = "${other}";\n`
+    )
+    return apiSurface(root)
+  }
+  try {
+    write("pnpm-workspace.yaml", "packages:\n  - \"packages/*\"\n")
+    const baseline = release("1.0.0-rc.2")
+    assert.doesNotThrow(() => assertApiBaseline(baseline, release("1.0.0-rc.3")))
+    assert.throws(() => assertApiBaseline(baseline, release("1.0.0-rc.3", "3")), /@smthrs\/example/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 it("emits the build-cli release declaration surface with its package compiler and copied declarations", async () => {
   const root = mkdtempSync(join(tmpdir(), "smithers-api-build-cli-"))
   const packageRoot = join(repoRoot, "packages/smithers/build/build-cli")
