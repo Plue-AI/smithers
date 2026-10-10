@@ -518,6 +518,14 @@
   },
   {
     "package": "packages/backend/internal/compose",
+    "file": "machine_start_member_writes_integration_test.go",
+    "tests": [
+      "TestMemberMachineStartLetsMemberWritesThroughPostgres",
+      "TestMachineStartReclaimsAWorkspaceDeletedDuringAdmissionPostgres"
+    ]
+  },
+  {
+    "package": "packages/backend/internal/compose",
     "file": "member_actor_integration_test.go",
     "tests": [
       "TestMemberActorAdmissionCommitsBeforeLaunchAndRechecksAuthority"
