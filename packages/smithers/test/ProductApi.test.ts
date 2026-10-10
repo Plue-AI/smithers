@@ -141,7 +141,10 @@ describe("the generated product API client", () => {
     // Includes confirmed, attributed install issue comments (d5618796c7, #3492).
     // Includes the public install sign-in session probe (48fbb67655, #3492).
     // Includes ACK-delay read/write (730bb65909) and canonical secrets POST (5a121e6330).
-    expect(expected).toHaveLength(568)
+    // Includes the debug API command door (2c7484d8bd, #3434), confirmed install issue
+    // creation and its request read (7ba4c5a53f, #3492), and the terminal command
+    // route (87bf2cf115, #3492).
+    expect(expected).toHaveLength(572)
     expect(spec.paths["/api/install/ack-delay"]).toHaveProperty("get.operationId", "get_api_install_ack_delay")
     expect(spec.paths["/api/install/ack-delay"]).toHaveProperty("post.operationId", "post_api_install_ack_delay")
     expect(spec.paths["/api/secrets"]).toHaveProperty("post.operationId", "post_api_secrets")
