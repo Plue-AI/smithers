@@ -1869,12 +1869,18 @@ describe("the assembled gateway over a real loopback bind", () => {
       const frames = yield* Effect.gen(function*() {
         const rpc = yield* RpcClient.make(GatewayRpcs)
         return yield* Stream.runCollect(
-          Stream.take(rpc["Projection.Subscribe"]({ selector: { _tag: "run-summary", runId } }), 4)
+          Stream.take(rpc["Projection.Subscribe"]({ selector: { _tag: "run-summary", runId } }), 8)
         )
       }).pipe(Effect.provide(projectionsClient(url)), Effect.timeoutOption("5 seconds"))
       expect(frames._tag).toBe("Some")
       if (frames._tag !== "Some") return
-      expect(frames.value.map((frame) => frame._tag)).toEqual(["snapshot-start", "row", "snapshot-end", "heartbeat"])
+      // A 25 ms beat may land before a slow host has started the snapshot, so
+      // the two are read apart: the snapshot arrives whole and in order, and
+      // the other five frames are beats, which the 30 s default cadence could
+      // not deliver inside this case's five seconds.
+      const tags = frames.value.map((frame) => frame._tag)
+      expect(tags.filter((tag) => tag !== "heartbeat")).toEqual(["snapshot-start", "row", "snapshot-end"])
+      expect(tags.filter((tag) => tag === "heartbeat")).toHaveLength(5)
     }).pipe(Effect.provide(
       NodeGateway.layer(health, { host: "127.0.0.1", port: 0, heartbeatMillis: 25 }).pipe(
         Layer.provideMerge(defaultCadenceStack)
