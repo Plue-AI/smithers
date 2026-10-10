@@ -22,6 +22,8 @@ closes. The database user needs permission to create and drop schemas. It checks
 fact and note backfill, namespace isolation, phrase and AND matching, bounded
 results, legacy fold migration, and search index restoration.
 
-The unit coverage floors remain unchanged. PostgreSQL-only FTS statements and
-functions are excluded from unit coverage and exercised by the `postgresFts`
-target. The existing `test:matrix` command exercises the broader adapter matrix.
+The package `test` target runs the suite twice, on SQLite and on a real
+PostgreSQL server, and merges the coverage before it checks the floors. The
+PostgreSQL pass runs this regression, so the PostgreSQL-only FTS statements
+count toward coverage like every other line. Run the same matrix from the
+package directory with `pnpm run test:matrix`.

@@ -52,7 +52,6 @@ const ftsTable = (kind: Kind): string => `memory_fts_${kind}`
 // reduced to Unicode alphanumeric runs, with the database-independent built-in
 // `pg_c_utf8` collation classifying the characters. Every step is immutable
 // core SQL, so the generated column needs no extension such as `unaccent`.
-/* v8 ignore start -- PostgreSQL adapter; covered by //packages/smithers/agent/memory:postgresFts */
 const postgresWords = (sql: SqlClient.SqlClient, text: Fragment): Fragment =>
   sql`regexp_replace(
     normalize(regexp_replace(normalize((${text}) COLLATE "pg_c_utf8", NFD), '[\\u0300-\\u036f]+', '', 'g'), NFC),
@@ -79,8 +78,6 @@ export const postgresSearchIndex = (sql: SqlClient.SqlClient, kind: Kind): State
   sql`CREATE INDEX IF NOT EXISTS ${sql(`${ftsTable(kind)}_search`)} ON ${
     sql.literal(ftsTable(kind))
   } USING GIN (search)`
-
-/* v8 ignore stop */
 
 /**
  * Returns whether a namespace kind has opted into FTS5.
@@ -123,14 +120,12 @@ export const enableFts = (
       return
     }
     if (Dialect.isPostgres(sql)) {
-      /* v8 ignore start -- PostgreSQL adapter; covered by //packages/smithers/agent/memory:postgresFts */
       yield* sql`CREATE TABLE IF NOT EXISTS ${table} (
         record_id TEXT NOT NULL, record_kind TEXT NOT NULL, namespace_id TEXT NOT NULL,
         record_key TEXT NOT NULL, text TEXT NOT NULL,
         ${postgresSearchColumn(sql)}
       )`
       yield* postgresSearchIndex(sql, kind)
-      /* v8 ignore stop */
     } else {
       yield* sql`CREATE VIRTUAL TABLE IF NOT EXISTS ${table}
         USING fts5(record_id UNINDEXED, record_kind UNINDEXED, namespace_id UNINDEXED, record_key, text)`
@@ -142,12 +137,10 @@ export const enableFts = (
       SELECT fact_key, 'fact', namespace_id, fact_key,
         ${
       Dialect.isPostgres(sql) ?
-        /* v8 ignore start -- PostgreSQL adapter; covered by //packages/smithers/agent/memory:postgresFts */
         sql`CASE
           WHEN jsonb_typeof(value_json::jsonb) = 'string' THEN value_json::jsonb #>> '{}'
           WHEN jsonb_typeof(value_json::jsonb -> 'content') = 'string' THEN value_json::jsonb ->> 'content'
           ELSE value_json END`
-        /* v8 ignore stop */
         : sql`CASE
           WHEN json_type(value_json) = 'text' THEN json_extract(value_json, '$')
           WHEN json_type(value_json) = 'object' AND json_type(value_json, '$.content') = 'text'
@@ -255,7 +248,6 @@ export const searchFts = (
   const tableName = ftsTable(kind)
   const table = sql.literal(tableName)
   if (Dialect.isPostgres(sql)) {
-    /* v8 ignore start -- PostgreSQL adapter; covered by //packages/smithers/agent/memory:postgresFts */
     // Each term is a phrase of its words, and the terms are ANDed, as FTS5
     // reads the quoted terms of `literalFtsQuery`.
     const query = terms
@@ -264,7 +256,6 @@ export const searchFts = (
     return sql<FtsMatch>`SELECT record_id, record_kind, -ts_rank(search, ${query}) AS rank
       FROM ${table} WHERE search @@ (${query}) AND namespace_id = ${namespaceId}
       ORDER BY rank, record_id LIMIT ${limit} OFFSET ${offset}`
-    /* v8 ignore stop */
   }
   const bm25 = sql.literal(`bm25(${tableName})`)
   return sql<FtsMatch>`SELECT record_id, record_kind, ${bm25} AS rank
