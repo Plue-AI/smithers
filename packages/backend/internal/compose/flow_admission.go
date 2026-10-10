@@ -248,11 +248,47 @@ func (staleRoleSource) Error() string {
 func (staleRoleSource) FlowRuntimeCode() string    { return "runtime_source_revision_mismatch" }
 func (staleRoleSource) FlowRuntimeRetryable() bool { return false }
 
+// flowHostConfiguration is the one configuration every flow host starts
+// through (#3783), whatever its kind and whichever workspace runtime holds its
+// machine: admission, the install's coding project and model seat, the
+// target's environment, and the release of a machine whose host exhausted its
+// starts. Run 15 and run 16 lost /review three times to a review resolver
+// whose bare launcher skipped part of it.
+//
+// A kind that may not land (flowHostMayLand) is refused one thing: its box's
+// authority (PrepareBoxHost), which is the publisher binding, the landing and
+// cache credentials and the repository's variables. A repository variable
+// can key a model seat, and no provider key or write authority reaches a
+// review or learning run (T-FLW-13, T-FLW-06).
+type flowHostConfiguration struct {
+	boxes   boxHostPreparer
+	targets flowHostEnvironment
+	queries *db.Queries
+	policy  admission.Policy
+	// The install's coding seat, coding project and per-host seat pin
+	// (boxHostLauncher); nil keeps the catalog's.
+	codingModel    func(context.Context) (string, error)
+	codingProject  func(context.Context, flowhost.HostLaunch) ([]byte, error)
+	pinCodingModel func(context.Context, flowhost.HostLaunch, string) (string, error)
+}
+
+// launcher puts the configuration over a workspace runtime's host launcher.
+// Admission comes first: a refused start never touches the box.
+func (c flowHostConfiguration) launcher(base flowhost.Launcher) (*admittedFlowLauncher, error) {
+	hosts, ok := base.(boxHostBase)
+	if !ok {
+		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
+	}
+	box := newBoxHostLauncher(hosts, c.boxes, c.targets)
+	box.codingModel, box.codingProject, box.pinCodingModel = c.codingModel, c.codingProject, c.pinCodingModel
+	return newAdmittedFlowLauncher(box, c.queries, c.policy)
+}
+
 // landingFlowHostKinds are the flow host kinds that publish their box's
-// source, so their host gets the box's landing credential (PrepareBoxHost).
-// The list is default deny. Learning and review load a local pinned source,
-// and their guest refuses any landing binding (#3783). A kind added later
-// gets no credential until it is named here.
+// source, so their host gets the box's authority (PrepareBoxHost). The list
+// is default deny. Learning and review load a local pinned source, and their
+// guest refuses any landing binding. A kind added later gets none until it
+// is named here.
 var landingFlowHostKinds = map[string]bool{
 	flowdispatch.StackBindingKind: true, "mythical-wiki": true, "flow-load": true,
 	"browser-flow": true, flowdispatch.DraftBindingKind: true, services.InstallRunFlowBinding: true,
@@ -293,12 +329,12 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
-	// Learning reads its authenticated pinned source. Its workspace launcher
-	// enforces the local pin.
-	if launch.Authority.Target.BindingKind == "learning" || launch.Binding.BindingKind == "learning" {
+	// A review or learning host reads its authenticated pinned source. Its
+	// workspace launcher enforces the local pin.
+	if target, bound := launch.Authority.Target.BindingKind, launch.Binding.BindingKind; flowhost.PinnedSourceKind(target) || flowhost.PinnedSourceKind(bound) {
 		pin := launch.Authority.ExecutionPin
-		if launch.Authority.Target.BindingKind != "learning" || launch.Binding.BindingKind != "learning" || pin == nil || !pin.Valid() || pin.Flow != "learning" || pin.SourceCommit != launch.Binding.SourceRevision || launch.Authority.SourceRevision != launch.Binding.SourceRevision {
-			return flowhost.Connection{}, errors.New("learning host requires its authenticated pinned source")
+		if target != bound || pin == nil || !pin.Valid() || pin.Flow != bound || pin.SourceCommit != launch.Binding.SourceRevision || launch.Authority.SourceRevision != launch.Binding.SourceRevision {
+			return flowhost.Connection{}, errors.New("pinned-source host requires its authenticated pinned source")
 		}
 	}
 	var targetEnvironment map[string]string

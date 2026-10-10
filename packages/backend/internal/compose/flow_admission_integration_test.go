@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/services"
 	"github.com/smithersai/smithers/packages/backend/jobs"
+	"github.com/smithersai/smithers/packages/backend/modelproxy"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 	"github.com/stretchr/testify/require"
 
@@ -142,4 +144,83 @@ func TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch(t *testing.T) {
 	canceled := dispatch("canceled")
 	waitRefused(canceled)
 	require.Equal(t, contacted, attempts.Load(), "same running worker must observe cancellation and refuse before launch")
+}
+
+// A TODO host and a review host start through one configuration (#3783). With
+// the same host identity, their process specs differ only in what a kind that
+// may not land is refused (the box's landing and cache credentials and the
+// repository's variables) and in their source mode. A setting added for one
+// kind reaches the other, or this fails. Run 16's review host exited without
+// SMITHERS_CODING_IMPLEMENT_MODEL: its launcher bypassed the configuration.
+func TestTodoAndReviewHostsDifferOnlyInLandingAuthorityPostgres(t *testing.T) {
+	pool, _ := postgresfixture.NewProductDatabase(t)
+	ctx := t.Context()
+	q := db.New(pool)
+	var owner, repo int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO users(username,lower_username,email,lower_email,display_name) VALUES ('owner','owner','owner@example.test','owner@example.test','Owner') RETURNING id`).Scan(&owner))
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO repositories(user_id,name,lower_name,is_public,default_bookmark) VALUES ($1,'repo','repo',false,'main') RETURNING id`, owner).Scan(&repo))
+	box := uuid.NewString()
+	_, err := pool.Exec(ctx, `INSERT INTO workspaces(id,repository_id,user_id,vm_id,status) VALUES ($1,$2,$3,'machine','running')`, box, repo, owner)
+	require.NoError(t, err)
+	// Model access wrote the install's coding role on the owner's Gateway key.
+	require.NoError(t, q.UpsertInstallSetting(ctx, db.UpsertInstallSettingParams{Key: "agent:coding",
+		Value: []byte(`{"protocol":"openai-chat","modelId":"openai/gpt-5.1","credential":"AI_GATEWAY_API_KEY","baseUrl":"https://ai-gateway.vercel.sh"}`)}))
+	seats := modelproxy.OfferedSeats(modelproxy.NewStaticKeys(map[string]string{modelproxy.ProviderVercel: "owner-gateway-key"}))
+	boxes := &todoWakeBoxes{recordingBoxes: recordingBoxes{env: map[string]string{
+		"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": "https://install.test/api",
+		"SMITHERS_CACHE_TOKEN": "cache", "SMITHERS_CACHE_URL": "https://install.test/api/repos/owner/repo/build-cache", "REGION": "eu",
+	}}}
+	transport := &revisionHostTransport{revision: strings.Repeat("a", 40)}
+	launcher, err := flowHostConfiguration{boxes: boxes, queries: q, policy: services.NewUnlimitedBillingPolicy(),
+		codingModel: ownerCodingSeat(q, seats), pinCodingModel: pinCodingHostModel(q),
+		codingProject: func(context.Context, flowhost.HostLaunch) ([]byte, error) { return []byte(`{"version":1}`), nil },
+	}.launcher(transport)
+	require.NoError(t, err)
+	catalog := flowhost.Catalog{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("b", 64),
+		ServiceName: "smithers-coding-host", SystemFlows: services.SystemFlows, ModelProxyURL: "https://install.test" + modelproxy.Path, ModelSeats: seats,
+		Environment: map[string]string{"SMITHERS_URL": "https://install.test", "SMITHERS_PRODUCT_API_URL": "https://install.test"}}
+	host := uuid.NewString()
+	start := func(kind, flow string) flowhost.ProcessSpec {
+		t.Helper()
+		target := flowruntime.Target{TenantID: fmt.Sprintf("repository:%d", repo), PrincipalID: fmt.Sprintf("user:%d", owner), WorkspaceID: box, BindingKind: kind, BindingID: uuid.NewString()}
+		launch := flowhost.HostLaunch{
+			Binding: flowhost.Binding{ID: host, TenantID: target.TenantID, PrincipalID: target.PrincipalID, BindingKind: kind, BindingID: target.BindingID, RepositoryID: repo, UserID: owner, WorkspaceID: box,
+				CatalogKey: catalog.Key, ServiceName: catalog.ServiceName, RuntimeArtifactDigest: catalog.ArtifactDigest, SourceRevision: transport.revision, OwnerGeneration: 1, State: "starting"},
+			Authority: flowhost.Authority{Target: target, RepositoryID: repo, UserID: owner, WorkspaceID: box, CatalogKey: catalog.Key, SourceRevision: transport.revision,
+				ExecutionPin: &flowruntime.Pin{Flow: flow, SourceCommit: transport.revision, ExecutionDigest: strings.Repeat("c", 64)}},
+			Catalog: catalog, Credential: "host-credential"}
+		// The resolver configures a launch before it starts it.
+		launch, err := launcher.ConfigureFlowHost(ctx, launch)
+		require.NoError(t, err)
+		_, err = launcher.StartFlowHost(ctx, launch)
+		require.NoError(t, err)
+		spec, err := flowhost.BuildProcessSpec(transport.started[len(transport.started)-1], flowhost.WorkspacePaths{Root: "/workspace", StateDir: "/var/lib/smithers/flow-host"}, 4100)
+		require.NoError(t, err)
+		return spec
+	}
+	todo := start(flowdispatch.StackBindingKind, "todo")
+	review := start("review", "review")
+
+	only := func(a, b map[string]string) (names []string) {
+		for name := range a {
+			if _, shared := b[name]; !shared {
+				names = append(names, name)
+			}
+		}
+		slices.Sort(names)
+		return names
+	}
+	require.Equal(t, []string{"REGION", "SMITHERS_CACHE_TOKEN", "SMITHERS_CACHE_URL", "SMITHERS_JJHUB_API_URL", "SMITHERS_JJHUB_TOKEN", "SMITHERS_TODO_EXECUTION_DIGEST"},
+		only(todo.Environment, review.Environment), "a review host is refused only its box's authority, and carries no TODO pin")
+	require.Equal(t, []string{"SMITHERS_FLOW_SOURCE_LOCAL"}, only(review.Environment, todo.Environment), "a review host adds only its local pinned source mode")
+	for name, value := range review.Environment {
+		if expected, shared := todo.Environment[name]; shared {
+			require.Equal(t, expected, value, name)
+		}
+	}
+	require.Equal(t, todo.Args, review.Args)
+	// What run 16's review host lacked: the install's coding seat and project.
+	require.Equal(t, "vercel:openai/gpt-5.1", review.Environment["SMITHERS_CODING_IMPLEMENT_MODEL"])
+	require.JSONEq(t, `{"version":1}`, review.Environment["SMITHERS_CODING_PROJECT_JSON"])
+	require.Equal(t, []string{host + "@" + box}, boxes.prepared, "only the TODO start prepares the box")
 }

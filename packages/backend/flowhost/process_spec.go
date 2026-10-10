@@ -120,7 +120,7 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		// Import the backend-retained main ref before exporting its JJ tree.
 		// This uses the same authenticated source-import boundary as TODOs.
 		environment["SMITHERS_FLOW_SOURCE_MAIN"] = "1"
-	} else if launch.Binding.BindingKind == "review" || launch.Binding.BindingKind == "learning" {
+	} else if PinnedSourceKind(launch.Binding.BindingKind) {
 		// A review machine's working copy is the reviewed PR. Its host loads
 		// flows only from the pinned commit its restore fetched beside it, and
 		// never imports, publishes or registers the working copy's flows.
@@ -171,6 +171,12 @@ func BuildProcessSpec(launch HostLaunch, paths WorkspacePaths, port uint16) (Pro
 		ReadyTimeout: launch.Catalog.ReadyTimeout,
 	}, nil
 }
+
+// PinnedSourceKind reports a host kind that loads flows only from the pinned
+// commit its machine's restore fetched: review and learning. Such a host
+// never imports, publishes or registers its working copy's flows, and its
+// guest refuses a landing binding.
+func PinnedSourceKind(kind string) bool { return kind == "review" || kind == "learning" }
 
 // Port and adapter paths are observations, not immutable host authority.
 // Include the entire operator configuration so changed model/env settings

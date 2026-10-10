@@ -300,21 +300,24 @@ func TestLearningHostNeverReceivesPublishingCredential(t *testing.T) {
 // Only a flow host kind that may land gets its box's landing credential.
 // Learning and review load a local pinned source, and their guest refuses any
 // landing binding (real install run 15, #3783). An unnamed kind, or a binding
-// whose kind differs from its authority's, gets none either.
+// whose kind differs from its authority's, gets none either. A pinned-source
+// kind on only one side is no authenticated pin: the start is refused.
 func TestOnlyLandingFlowHostKindsReceiveTheBoxCredential(t *testing.T) {
 	source := strings.Repeat("a", 40)
 	for _, c := range []struct {
 		target, binding string
-		lands           bool
+		lands, refused  bool
 	}{
-		{"learning", "learning", false},
-		{"review", "review", false},
-		{"future-kind", "future-kind", false},
-		{"browser-flow", "review", false},
-		{"review", "browser-flow", false},
-		{"browser-flow", "browser-flow", true},
-		{"agent-session", "agent-session", true},
-		{"workflow-invoke", "workflow-invoke", true},
+		{"learning", "learning", false, false},
+		{"review", "review", false, false},
+		{"future-kind", "future-kind", false, false},
+		{"browser-flow", "future-kind", false, false},
+		{"browser-flow", "review", false, true},
+		{"review", "browser-flow", false, true},
+		{"learning", "review", false, true},
+		{"browser-flow", "browser-flow", true, false},
+		{"agent-session", "agent-session", true, false},
+		{"workflow-invoke", "workflow-invoke", true, false},
 	} {
 		t.Run(c.target+"/"+c.binding, func(t *testing.T) {
 			launch := flowhost.HostLaunch{
@@ -326,6 +329,12 @@ func TestOnlyLandingFlowHostKindsReceiveTheBoxCredential(t *testing.T) {
 			boxes := &recordingBoxes{env: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": "https://install.test/api", "SMITHERS_CACHE_TOKEN": "cache"}}
 			transport := &recordingHostTransport{}
 			_, err := newBoxHostLauncher(transport, boxes, nil).StartFlowHost(context.Background(), launch)
+			if c.refused {
+				require.Error(t, err)
+				require.Empty(t, boxes.prepared)
+				require.Empty(t, transport.started)
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, transport.started, 1)
 			started := transport.started[0].Environment

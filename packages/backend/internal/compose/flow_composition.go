@@ -152,22 +152,21 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		targets = withLearningTargets(withMythicalTargets(targets, services.NewMythicalFlowHostTargetResolver(mythical), flowLoad), mythical.LearningRuntime())
 		projectors = append(projectors, mythical, flowLoad, mythical.LearningRuntime())
 	}
-	workspaceHosts, ok := launcher.(boxHostBase)
-	if !ok {
-		return nil, errors.New("Flow workspace launcher cannot resolve sources or stop hosts")
+	// Every host starts through this one configuration, on every resolver.
+	hosts := flowHostConfiguration{boxes: boxes, queries: db.New(pool), policy: policy}
+	if invoked != nil {
+		hosts.targets = invoked
 	}
-	boxLauncher := newBoxHostLauncher(workspaceHosts, boxes, invoked)
 	if config.IsSingleOwner(cfg.Auth) && options.Repository != nil {
-		boxLauncher.codingProject = installCodingProject(pool, repositorySourceFiles{client: options.Repository})
-		boxLauncher.pinCodingModel = pinCodingHostModel(db.New(pool))
+		hosts.codingProject = installCodingProject(pool, repositorySourceFiles{client: options.Repository})
+		hosts.pinCodingModel = pinCodingHostModel(db.New(pool))
 	}
 	if _, ownerPaid := options.proxyKeys(); ownerPaid {
 		// An install pins no coding model: its hosts run the coding role
 		// Model access wrote, on the owner's key through the proxy.
-		boxLauncher.codingModel = ownerCodingSeat(db.New(pool), modelSeats)
+		hosts.codingModel = ownerCodingSeat(db.New(pool), modelSeats)
 	}
-	// Admission first: a refused start never touches the box.
-	admitted, err := newAdmittedFlowLauncher(boxLauncher, db.New(pool), policy)
+	admitted, err := hosts.launcher(launcher)
 	if err != nil {
 		return nil, err
 	}
@@ -198,7 +197,12 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		owner.SetFlowJournals(postgres)
 		journals = postgres
 	}
-	resolver, err := flowhost.New(flowhost.Config{AllowTrustedProcessForTests: options.FlowHostConfig.AllowTrustedProcessForTests, Store: bindings, Targets: targets, Launcher: launcher, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals})
+	// Both resolvers share this configuration. They differ only in the targets
+	// they authorize and the runtime under their launcher.
+	resolvers := flowhost.Config{Store: bindings, Catalogs: catalogs, ActiveRuns: activeRuns, Journals: journals}
+	mainResolver := resolvers
+	mainResolver.AllowTrustedProcessForTests, mainResolver.Targets, mainResolver.Launcher = options.FlowHostConfig.AllowTrustedProcessForTests, targets, launcher
+	resolver, err := flowhost.New(mainResolver)
 	if err != nil {
 		return nil, fmt.Errorf("Flow host resolver: %w", err)
 	}
@@ -298,17 +302,25 @@ func newFlowComposition(options runOptions, cfg *config.Config, pool *pgxpool.Po
 		reviewWorkspace = options.Workspace
 	}
 	if config.IsSingleOwner(cfg.Auth) && reviewWorkspace.Isolation() == workspace.IsolationSandboxed {
-		reviewLauncher, err := flowhost.NewWorkspaceLauncher(reviewWorkspace)
+		reviewHosts, err := flowhost.NewWorkspaceLauncher(reviewWorkspace)
 		if err != nil {
 			return nil, err
 		}
-		// Bypass the box launcher, repository variables and write credentials.
+		// A review host starts through the configuration every host does. Its
+		// kind may not land, so it gets no publisher binding, write credential
+		// or repository variable (#3612).
+		reviewLauncher, err := hosts.launcher(reviewHosts)
+		if err != nil {
+			return nil, err
+		}
 		review = &reviewMachine{pool: pool, jobs: store, workspace: reviewWorkspace}
-		reviewResolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: review, Launcher: reviewLauncher, Catalogs: catalogs})
+		reviewResolver := resolvers
+		reviewResolver.Targets, reviewResolver.Launcher = review, reviewLauncher
+		resolved, err := flowhost.New(reviewResolver)
 		if err != nil {
 			return nil, err
 		}
-		review.resolver, review.existing = reviewResolver, reviewResolver
+		review.resolver, review.existing = resolved, resolved
 		// The composition binds the read-only pinned source once the
 		// repository source retention it needs exists (services.ReviewSource).
 		// An absent source refuses in Prepare before machine allocation.

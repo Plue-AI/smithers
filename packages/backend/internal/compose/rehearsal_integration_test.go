@@ -316,16 +316,24 @@ path = "lib.rs"
 		"SMITHERS_AUTH_GITHUB_API_BASE_URL": r.fake.URL, "SMITHERS_AUTH_GITHUB_OAUTH_BASE_URL": r.fake.URL, "SMITHERS_GITHUB_APP_API_BASE_URL": r.fake.URL,
 		// TODO branches are pushed to the fake's Git, never to github.com.
 		"SMITHERS_GITHUB_GIT_BASE_URL": r.fake.URL,
-		// The coding host binds its lane's checkout through the native helper
-		// and implements on the platform seat the scripted model answers.
-		"SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL": "cerebras:gpt-oss-120b",
-		// The platform's AI Gateway key below serves only Jev, so the
-		// review's default second-vendor seat (vercel:...) would be refused;
-		// the operator pins the review to the seat the scripted model answers.
-		"SMITHERS_WORKSPACE_CODING_REVIEW_MODEL": "cerebras:gpt-oss-120b",
 	} {
 		t.Setenv(name, value)
 	}
+	// The coding host binds its lane's checkout through the native helper and
+	// implements on the platform seat the scripted model answers. The
+	// platform's AI Gateway key below serves only Jev, so the review's default
+	// second-vendor seat (vercel:...) would be refused; the operator pins the
+	// review to the seat the scripted model answers.
+	codingModel, reviewModel := "cerebras:gpt-oss-120b", "cerebras:gpt-oss-120b"
+	if keyPrefix == "j10-review-" {
+		// The member review runs as a Mac install does: no operator pins a
+		// model, so its hosts take the coding role Model access wrote. A host
+		// whose launcher skips the install's configuration then exits at
+		// start, as run 16's review host did (#3783). The pins hid that.
+		codingModel, reviewModel = "", ""
+	}
+	t.Setenv("SMITHERS_WORKSPACE_CODING_DEFAULT_MODEL", codingModel)
+	t.Setenv("SMITHERS_WORKSPACE_CODING_REVIEW_MODEL", reviewModel)
 	if r.deferredDoors {
 		origin, err := url.Parse(os.Getenv("SMITHERS_DEFERRED_PROVIDER_ORIGIN"))
 		require.NoError(t, err)
