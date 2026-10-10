@@ -64742,11 +64742,19 @@
       },
       {
         "kind": "file",
+        "path": "scripts/journeys/release-install.test.mjs"
+      },
+      {
+        "kind": "file",
         "path": "scripts/migration-landing.test.mjs"
       },
       {
         "kind": "file",
         "path": "scripts/perf/questions.test.mjs"
+      },
+      {
+        "kind": "file",
+        "path": "scripts/release/host-maintenance-evidence.test.mjs"
       },
       {
         "kind": "file",
