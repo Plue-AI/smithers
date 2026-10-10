@@ -287,7 +287,9 @@ func testGitHubCommentSteerThroughComposedInstall(t *testing.T, revocation strin
 		var intents, events, completed int
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='flow.runtime.steer'`).Scan(&intents))
 		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_events WHERE event_type='todo.github_input'`).Scan(&events))
-		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed'`).Scan(&completed))
+		// Only review input counts: since 24190c6705 the PR's issue snapshot
+		// (resource "issues") completes as a cache write of its own.
+		require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM product_job_requests WHERE operation='github.fetched.consume' AND state='completed' AND payload->>'resource' IN ('issues/comments','pulls/comments','pulls/reviews')`).Scan(&completed))
 		require.Zero(t, intents)
 		require.Zero(t, events)
 		require.Zero(t, completed)
