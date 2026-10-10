@@ -137,6 +137,11 @@ function MessageScrollerProviderImpl({
   const anchoringRef = useRef(scrollAnchor === "bottom");
   const followingRef = useRef(scrollAnchor === "bottom");
   const ignoreScrollUntilBottomRef = useRef(false);
+  // Read through a ref: the saved view's anchor changes as the member scrolls, and a
+  // restore callback that changed with it would re-register every item, blanking
+  // their visibility (and the on-screen band) until the observer reports again.
+  const initialMessageIdRef = useRef(initialMessageId);
+  initialMessageIdRef.current = initialMessageId;
   const restorePendingRef = useRef(initialMessageId !== undefined);
   const initialRestoreSeenRef = useRef(initialMessageId !== undefined);
   // A member's saved view may arrive after the mounted conversation. Arm its
@@ -427,14 +432,15 @@ function MessageScrollerProviderImpl({
   /* ---- saved-transcript restore ------------------------------------------ */
 
   const tryRestore = useCallback(() => {
-    if (!restorePendingRef.current || initialMessageId === undefined) return;
+    const initialId = initialMessageIdRef.current;
+    if (!restorePendingRef.current || initialId === undefined) return;
     const viewport = viewportRef.current;
-    const el = itemsRef.current.get(initialMessageId);
+    const el = itemsRef.current.get(initialId);
     if (!viewport || !el) return;
     restorePendingRef.current = false;
     setJumpTracking(false);
     if (readAnchorRef.current) {
-      activeReadRef.current = { id: initialMessageId, arrival: true };
+      activeReadRef.current = { id: initialId, arrival: true };
       const decision = decideTranscriptScroll({ following: true }, viewport,
         { top: itemTopWithinViewport(el), height: el.getBoundingClientRect().height }, "arrival");
       viewport.scrollTop = decision.top!;
@@ -448,7 +454,6 @@ function MessageScrollerProviderImpl({
     remember(viewport);
     refreshVisibilityFallback();
   }, [
-    initialMessageId,
     itemTopWithinViewport,
     measure,
     remember,
@@ -477,7 +482,7 @@ function MessageScrollerProviderImpl({
       // Arrival starts armed on mount. A later Home response must not undo a
       // scroll-up the reader made while Welcome was loading.
       if (actor === "arrival" && !followingRef.current) actor = "output";
-      activeReadRef.current = { id: request.messageId, arrival: actor === "arrival" || (restorePendingRef.current && request.messageId === initialMessageId) };
+      activeReadRef.current = { id: request.messageId, arrival: actor === "arrival" || (restorePendingRef.current && request.messageId === initialMessageIdRef.current) };
       restorePendingRef.current = false;
     }
     if (restorePendingRef.current) tryRestore();
@@ -508,7 +513,7 @@ function MessageScrollerProviderImpl({
     measure(viewport);
     remember(viewport);
     refreshVisibilityFallback();
-  }, [initialMessageId, itemTopWithinViewport, measure, remember, refreshVisibilityFallback, setFollowing, tryRestore]);
+  }, [itemTopWithinViewport, measure, remember, refreshVisibilityFallback, setFollowing, tryRestore]);
 
   const requestUserRead = useCallback((event: MouseEvent) => {
     if (readAnchorRef.current && event.target instanceof Element && event.target.closest("button[data-flow]")) {
@@ -781,6 +786,8 @@ function MessageScrollerProviderImpl({
       return;
     }
 
+    // A saved view that arrives after mount restores at the next commit.
+    tryRestore();
     const previous = snapshotRef.current;
     const anchorChanged = previousAnchorRef.current !== scrollAnchor;
     previousAnchorRef.current = scrollAnchor;

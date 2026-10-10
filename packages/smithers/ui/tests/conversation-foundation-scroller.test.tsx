@@ -692,6 +692,32 @@ describe("MessageScroller compound", () => {
     } finally { globalThis.IntersectionObserver = intersectionObserver; }
   });
 
+  test("a saved view arriving after the reader moved keeps items registered, so the band never blinks out", async () => {
+    const intersectionObserver = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
+    const bands: (readonly [string, string] | undefined)[] = [];
+    function Probe() { useMessageBand(["a", "b"], band => bands.push(band)); return null; }
+    geometryByMessageId.set("a", { top: 0, height: 100 });
+    geometryByMessageId.set("b", { top: 800, height: 100 });
+    const view = (initialMessageId?: string) => <MessageScrollerProvider initialMessageId={initialMessageId}>
+      <MessageScrollerViewport><MessageScrollerContent>
+        <MessageScrollerItem messageId="a">a</MessageScrollerItem>
+        <MessageScrollerItem messageId="b">b</MessageScrollerItem>
+      </MessageScrollerContent></MessageScrollerViewport><Probe />
+    </MessageScrollerProvider>;
+    try {
+      await render(view(), { scrollHeight: 1000, clientHeight: 200, scrollTop: 0 });
+      metrics().scrollTop = 10;
+      await scroll();
+      const before = bands.length;
+      // The member's own scroll anchor reads back from the saved view.
+      await act(async () => root!.render(view("a")));
+      expect(bands.slice(before)).not.toContain(undefined);
+      expect(bands.at(-1)).toEqual(["a", "a"]);
+      expect(getViewport().scrollTop).toBe(10);
+    } finally { globalThis.IntersectionObserver = intersectionObserver; }
+  });
+
   test("visibility treats an item filling the viewport as visible", async () => {
     const intersectionObserver = globalThis.IntersectionObserver;
     globalThis.IntersectionObserver = undefined as unknown as typeof IntersectionObserver;
