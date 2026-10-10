@@ -70,11 +70,8 @@ export const makeUnsafe = (options: Encoded): FlowRuntime.FlowRuntime["Service"]
           )
           : Effect.acquireUseRelease(
             Effect.sync(() => {
-              let gate = registrationGates.get(name)
-              if (gate === undefined) {
-                gate = { semaphore: Semaphore.makeUnsafe(1), users: 0 }
-                registrationGates.set(name, gate)
-              }
+              const gate = registrationGates.get(name) ?? { semaphore: Semaphore.makeUnsafe(1), users: 0 }
+              registrationGates.set(name, gate)
               gate.users++
               return gate
             }),

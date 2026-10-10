@@ -16,13 +16,14 @@ const sourceFiles = (directory: string): ReadonlyArray<string> =>
  * Every place a JSDoc block is followed by another JSDoc block rather than by
  * the declaration it documents, as `<relative path>:<1-indexed line>`.
  *
- * A module docblock — the first block in the file, opening on line 1 — is the
- * exception: it documents the module, and the block under it documents the
- * first export.
+ * A module docblock is the exception: it documents the module, and the block
+ * under it documents the first export. It is the first block in the file,
+ * with nothing above it but line comments, such as a generator's notice.
  */
 const orphanedDocblocks = (file: string, text: string): ReadonlyArray<string> => {
   const lines = text.split("\n")
   const found: Array<string> = []
+  const header = lines.findIndex((line) => !line.trim().startsWith("//"))
   let openedAt = -1
   for (let index = 0; index < lines.length; index++) {
     const line = lines[index]!.trim()
@@ -33,7 +34,7 @@ const orphanedDocblocks = (file: string, text: string): ReadonlyArray<string> =>
     if (!line.endsWith("*/")) continue
     let next = index + 1
     while (next < lines.length && lines[next]!.trim() === "") next += 1
-    if (openedAt > 0 && next < lines.length && lines[next]!.trim().startsWith("/**")) {
+    if (openedAt !== header && next < lines.length && lines[next]!.trim().startsWith("/**")) {
       found.push(`${Path.relative(sourceRoot, file)}:${openedAt + 1}`)
     }
     openedAt = -1
@@ -46,6 +47,13 @@ describe("the package's own sources", () => {
     const source =
       "/** One line. */\nconst first = 1\n/**\n * Second.\n */\nconst second = 2\n/** Third. */\nconst third = 3"
     expect(orphanedDocblocks(Path.join(sourceRoot, "Fixture.ts"), source)).toEqual([])
+  })
+
+  it("takes a block under a generator's line comment as the module header, and nothing later", () => {
+    const generated = "// Generated; do not edit.\n/**\n * Module.\n */\n\n/** Export. */\nexport const a = 1"
+    expect(orphanedDocblocks(Path.join(sourceRoot, "Fixture.ts"), generated)).toEqual([])
+    const code = "import x from \"x\"\n/** Orphan. */\n/** Export. */\nexport const a = x"
+    expect(orphanedDocblocks(Path.join(sourceRoot, "Fixture.ts"), code)).toEqual(["Fixture.ts:2"])
   })
 
   it("finds adjacent one-line and multiline docblocks after the module header", () => {

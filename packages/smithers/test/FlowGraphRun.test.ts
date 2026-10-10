@@ -240,7 +240,9 @@ describe("a live plan graph over a bridged real engine", () => {
    * it, and no delivery is attempted, so the host's inbox is the only thing
    * that can finish the run.
    */
-  it("delivers an admitted answer its first delivery did not complete, through the host's signal inbox", { timeout: 120_000 }, () =>
+  it("delivers an admitted answer its first delivery did not complete, through the host's signal inbox", {
+    timeout: 120_000
+  }, () =>
     runOn(
       stack,
       Effect.gen(function*() {
@@ -248,7 +250,12 @@ describe("a live plan graph over a bridged real engine", () => {
         const runtime = yield* ControlRuntime
         const { runId } = yield* parked("inbox")
         const principal = yield* runtime.stampPrincipal(relayPrincipal)
-        yield* runtime.admitSignal(`signal:inbox:${runId}`, runId, { name: "graph-gate#1", payload: "merged" }, principal)
+        yield* runtime.admitSignal(
+          `signal:inbox:${runId}`,
+          runId,
+          { name: "graph-gate#1", payload: "merged" },
+          principal
+        )
         expect(yield* engine.settled(runId)).toBe("completed")
       })
     ))
