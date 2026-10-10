@@ -104,13 +104,18 @@ describe.skipIf(!jjInstalled)("NodeJj against a repository its occupant controls
 
   const marker = () => join(directory, "signer-ran")
 
-  /** A signer that signs and reports every signature good, leaving a marker. */
+  /**
+   * A signer that signs and reports every signature good, leaving a marker.
+   * It reads all of its input first, as gpg does: jj writes the commit to the
+   * signer's stdin, and a signer that exited without reading it failed that
+   * write with EPIPE whenever it exited first.
+   */
   const writeSigner = () =>
     Effect.promise(async () => {
       const signer = join(directory, "signer.sh")
       await writeFile(
         signer,
-        `#!/bin/sh\necho "$*" >> "${marker()}"\n`
+        `#!/bin/sh\ncat > /dev/null\necho "$*" >> "${marker()}"\n`
           + "case \"$*\" in *--verify*) echo '[GNUPG:] GOODSIG 0 x'; exit 0;; esac\n"
           + "printf -- '-----BEGIN PGP SIGNATURE-----\\n\\nabc\\n-----END PGP SIGNATURE-----\\n'\n"
       )
