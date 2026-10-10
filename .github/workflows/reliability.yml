@@ -250,13 +250,17 @@ jobs:
       fail-fast: false
       matrix:
         host: ${{ fromJSON(inputs.campaign == 'faults-linux' && '["linux"]' || '["linux","reference"]') }}
+        # release is the release gate's matrix, //packages/smithers:faults;
+        # long is //packages/smithers:faultsLong, the cases measured in tens of
+        # minutes or budgeted in hours, which only this nightly job runs.
+        tier: [release, long]
     runs-on: ${{ matrix.host == 'reference' && fromJSON('["self-hosted","macOS","ARM64","smithers-reference"]') || fromJSON('["ubuntu-latest"]') }}
-    # //packages/smithers:faults declares its own PostgreSQL service and URL:
-    # the runner passes a case only the host bootstrap environment, so a
-    # database URL set here never reached it (#3459).
-    env:
-      SMITHERS_FAULT_HOST: ${{ matrix.host }}
-    timeout-minutes: 60
+    # The fault targets declare their PostgreSQL service, its URL, the host
+    # class and the programs they build: the runner passes a case only the host
+    # bootstrap environment, so a value set here never reached it (#3459).
+    # The long tier's budget is the hosted runner's six-hour ceiling; its
+    # target stops at 345 minutes so it reports before the job is cut.
+    timeout-minutes: ${{ matrix.tier == 'long' && 360 || 60 }}
     steps:
       - uses: "actions/checkout@11d5960a326750d5838078e36cf38b85af677262"
       - name: Refuse unapproved reference-host execution
@@ -273,30 +277,6 @@ jobs:
           throw new Error('Reference-host case refused: approved main-bundle provenance and authenticated host selection are not yet composed')
           JS
         shell: bash
-      - name: Build private-cluster PostgreSQL 18 binaries
-        if: matrix.host == 'linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          postgres_source="$RUNNER_TEMP/fault-postgres-source"
-          postgres_prefix="$RUNNER_TEMP/fault-postgres"
-          mkdir -p "$postgres_source" "$postgres_prefix"
-          curl --fail --location --retry 3 \
-            https://ftp.postgresql.org/pub/source/v18.0/postgresql-18.0.tar.bz2 \
-            --output "$postgres_source/postgresql-18.0.tar.bz2"
-          printf '%s  %s\n' \
-            '0d5b903b1e5fe361bca7aa9507519933773eb34266b1357c4e7780fdee6d6078' \
-            "$postgres_source/postgresql-18.0.tar.bz2" | shasum -a 256 -c
-          tar -xjf "$postgres_source/postgresql-18.0.tar.bz2" -C "$postgres_source"
-          cd "$postgres_source/postgresql-18.0"
-          ./configure --prefix="$postgres_prefix" --without-icu --without-readline --without-zlib --with-ssl=openssl
-          make -j2
-          make install
-          make -C contrib/pgcrypto -j2
-          make -C contrib/pgcrypto install
-          "$postgres_prefix/bin/postgres" --version
-          "$postgres_prefix/bin/initdb" --version
-          printf 'SMITHERS_FAULT_POSTGRES_BIN=%s\n' "$postgres_prefix/bin" >> "$GITHUB_ENV"
       - name: Install Go
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
         with:
@@ -337,12 +317,28 @@ jobs:
       - name: "Initialize colocated jj repository"
         id: setup
         run: "jj git init --colocate"
+      # K7's document installs run the daemon in Linux user namespaces and its
+      # epoch cases drive the shipped app client under Bun.
+      - name: Prepare the long fault tier host
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.tier == 'long' }}
+        run: |
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends 'bubblewrap'
+            if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+              sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+            fi
+          fi
+        shell: bash
+      - uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.tier == 'long' }}
+        with:
+          "bun-version": "1.4.1"
       # The fault matrix's disk case (#3367) boots one Microsandbox microVM
       # from a cached node:26-trixie image and refuses to pull, so the runner
       # needs KVM for its user and that image in msb's cache. The step carries
       # the fault matrix's condition, so it runs exactly when the matrix does.
       - name: Prepare the fault matrix microVM
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.tier == 'release' }}
         run: |
           if [ "$(uname -s)" = Linux ]; then
             echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
@@ -360,19 +356,22 @@ jobs:
           ')"
           "$msb" pull docker.io/library/node:26-trixie
       - name: "Exclusive fault matrix"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.tier == 'release' }}
         run: "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
+      - name: "Long fault tier"
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.tier == 'long' }}
+        run: "pnpm exec smthrs test '//packages/smithers:faultsLong' --jobs 1 --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
       - name: "Upload smthrs results"
         if: always()
         uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
         with:
-          "name": "smthrs-results-e2e-faults-${{ matrix.host }}-${{ github.run_attempt }}"
+          "name": "smthrs-results-e2e-faults-${{ matrix.host }}-${{ matrix.tier }}-${{ github.run_attempt }}"
           "path": "${{ runner.temp }}/smthrs-results"
           "if-no-files-found": "error"
       - name: Preserve durability observations
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: durability-observations-${{ matrix.host }}-${{ github.run_attempt }}
+          name: durability-observations-${{ matrix.host }}-${{ matrix.tier }}-${{ github.run_attempt }}
           path: .artifacts/checks/C-DUR-*/**
           if-no-files-found: warn

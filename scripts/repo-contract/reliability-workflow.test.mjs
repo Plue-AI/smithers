@@ -69,15 +69,28 @@ it('durability runs nightly and reference execution refuses before branch tools'
   assert.match(job.steps[refusal].run, /approved main-bundle provenance/)
   const suite = job.steps.find((step) => step.name === 'Exclusive fault matrix')
   assert.match(suite.run, /--jobs 1/)
+  // The release tier and the long tier run nightly side by side; the long tier
+  // has its own budget, the hosted runner's six-hour ceiling (#3459).
+  assert.deepEqual(job.strategy.matrix.tier, ['release', 'long'])
+  assert.match(suite.if, /matrix\.tier == 'release'/)
+  const longTier = job.steps.find((step) => step.name === 'Long fault tier')
+  assert.equal(longTier.run, `pnpm exec smthrs test '//packages/smithers:faultsLong' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`)
+  assert.match(longTier.if, /matrix\.tier == 'long'/)
+  assert.equal(job['timeout-minutes'], "${{ matrix.tier == 'long' && 360 || 60 }}")
   // The runner passes a case only the host bootstrap environment, so the fault
-  // target declares its own PostgreSQL service and URL; a workflow URL never
-  // reached a case (#3459).
+  // targets declare the PostgreSQL service and URL, the host class and the
+  // programs they build; a value the workflow set never reached a case.
   assert.equal(job.services, undefined)
+  assert.equal(job.env, undefined)
   assert.equal(suite.env?.SMITHERS_TEST_DATABASE_URL, undefined)
+  assert.doesNotMatch(JSON.stringify(job), /SMITHERS_FAULT_POSTGRES_BIN|postgresql-18\.0\.tar/)
   const faults = readFileSync(join(root, 'packages/smithers/PACKAGE.ts'), 'utf8')
   assert.match(faults, /services: \[faultPostgresDatabase\]/)
   assert.match(faults, /SMITHERS_TEST_DATABASE_URL: "postgres:\/\/smithers:smithers-fault-test@127\.0\.0\.1:55439\//)
+  assert.match(faults, /SMITHERS_FAULT_HOST: "linux"/)
+  assert.match(faults, /SMITHERS_FAULT_POSTGRES_BIN: "\.artifacts\/fault-postgres\/bin"/)
   assert.doesNotMatch(suite.run, /known-red/)
+  assert.doesNotMatch(longTier.run, /known-red/)
   assert.doesNotMatch(JSON.stringify(job), /secrets\./)
   const ci = parseWorkflow(readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
   assert.equal(ci.jobs['e2e-faults'], undefined)

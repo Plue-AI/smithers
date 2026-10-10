@@ -392,8 +392,11 @@ describe("the fault matrix is wired to a gate", () => {
   })
 
   it("selects the whole matrix nightly and retains the release fault gate", () => {
+    // The long tier (//packages/smithers:faultsLong) runs nightly only; the
+    // release gate keeps the cases that fit its budget (#3459).
     for (const [file, command] of [
       ["reliability.yml", `pnpm exec smthrs test '//packages/...:faults' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`],
+      ["reliability.yml", `pnpm exec smthrs test '//packages/smithers:faultsLong' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose`],
       ["release.yml", "pnpm exec smthrs test '//packages/...:faults' --jobs 1 --verbose"]
     ]) {
       const workflow = parseWorkflow(readFileSync(join(root, ".github", "workflows", file), "utf8"))
