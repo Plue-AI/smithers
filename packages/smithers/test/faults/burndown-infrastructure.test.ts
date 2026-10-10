@@ -910,11 +910,16 @@ it.skipIf(!["darwin", "linux"].includes(process.platform))(
     }
     const require = createRequire(new URL("../../../../flows/package.json", import.meta.url))
     const sdkEntry = require.resolve("microsandbox")
-    const platform = join(
-      dirname(dirname(dirname(sdkEntry))),
-      "@superradcompany",
-      `microsandbox-${process.platform}-${process.arch}`
+    // The SDK's platform package sits beside it. Linux names carry the libc
+    // (`microsandbox-linux-x64-gnu`), so select by prefix and require exactly
+    // one candidate that ships the `msb` binary, as the SDK's own resolver does.
+    const scope = join(dirname(dirname(dirname(sdkEntry))), "@superradcompany")
+    const triple = `microsandbox-${process.platform}-${process.arch}`
+    const candidates = readdirSync(scope).filter((name) =>
+      (name === triple || name.startsWith(`${triple}-`)) && existsSync(join(scope, name, "bin", "msb"))
     )
+    expect(candidates, `platform packages in ${scope}`).toHaveLength(1)
+    const platform = join(scope, candidates[0]!)
     const sdkPackage = JSON.parse(readFileSync(join(dirname(dirname(sdkEntry)), "package.json"), "utf8"))
     json(join(root, "disk-sdk-identity.json"), {
       path: realpathSync(sdkEntry),

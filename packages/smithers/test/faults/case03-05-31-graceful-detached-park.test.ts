@@ -58,7 +58,11 @@ writeFileSync(
     "  name: \"idle\",",
     "  description: \"Waits for an external executor.\",",
     "  input: Schema.Struct({ args: Schema.String }),",
-    "  output: Schema.String",
+    "  output: Schema.String,",
+    // A FlowBinding.Declared record names its capabilities and effects; the
+    // loader refuses a module that is neither that nor a Flow.make value.
+    "  capabilities: [],",
+    "  effects: undefined",
     "})",
     ""
   ].join("\n"),

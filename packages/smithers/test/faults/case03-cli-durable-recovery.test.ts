@@ -22,11 +22,13 @@ const recover = async (mode: "approval" | "timer" | "checkpoint") => {
   Object.assign(environment, {
     NODE_OPTIONS: `--import=${preload}`,
     SMITHERS_TEST_RECORDING: recording,
-    // Completion judgments run only on subscription seats (ade54a831f), so the
-    // agent and its judge share the ChatGPT seat behind the recorded model proxy.
+    // The agent runs on the ChatGPT seat and its completion judge on Jev, both
+    // behind the recorded model proxy. Without a gateway key the host has no
+    // judge, and a run cannot complete.
     SMITHERS_OPENAI_AUTH: "chatgpt",
     SMITHERS_MODEL_PROXY_URL: "https://model-proxy.recorded.invalid",
-    OPENAI_API_KEY: "recorded-fixture-not-a-real-key"
+    OPENAI_API_KEY: "recorded-fixture-not-a-real-key",
+    AI_GATEWAY_API_KEY: "recorded-fixture-not-a-real-key"
   })
   const invoke = (...args: Array<string>) => {
     const result = spawnSync(process.execPath, [executable, ...args, "--json"], {

@@ -33,26 +33,37 @@ const stream = (text) => {
     responseOptions: { headers: { "content-type": "text/event-stream" } }
   }
 }
-// Completion judgments run on the agent's subscription seat (ade54a831f), so
-// the seat answers the judge's system prompt with a recorded verdict.
-const judge = (request) => {
-  const prompt = request.input.find((item) => item.role === "user").content[0].text
-  const questions = Object.fromEntries(
-    Object.entries(JSON.parse(prompt).questions).map(([id, question]) => [id, question.type])
-  )
-  deepStrictEqual(questions, { complete: "boolean", overclaims: "boolean", invented: "boolean" })
-  appendFileSync(`${directory}/evaluations.jsonl`, `${JSON.stringify({ pid: process.pid, questions })}\n`)
-  return stream(JSON.stringify({
+// A judgment arrives on one of two routes, so both answer the same recorded
+// verdict. Jev is the completion judge, through the recorded proxy's `vercel`
+// route (Endpoint.providerOrigin); a host without AI_GATEWAY_API_KEY has no
+// Jev and never falls back (EvaluatorBackup.withFallback), so a test that
+// completes a run sets a fixture key. A judgment on the subscription seat
+// (ade54a831f, and Jev's backup) arrives on the ChatGPT route.
+const verdict = (questions) => {
+  const types = Object.fromEntries(Object.entries(questions).map(([id, question]) => [id, question.type]))
+  deepStrictEqual(types, { complete: "boolean", overclaims: "boolean", invented: "boolean" })
+  appendFileSync(`${directory}/evaluations.jsonl`, `${JSON.stringify({ pid: process.pid, questions: types })}\n`)
+  return {
     answers: {
       complete: { type: "boolean", probability: 0.99 },
       overclaims: { type: "boolean", probability: 0.01 },
       invented: { type: "boolean", probability: 0.01 }
     }
-  }))
+  }
 }
-mock.get("https://model-proxy.recorded.invalid").intercept({ path: "/chatgpt/codex/responses", method: "POST" }).reply(({ body }) => {
-  const request = JSON.parse(typeof body === "string" ? body : Buffer.from(body).toString("utf8"))
-  if (request.instructions?.startsWith("Judge the supplied evidence")) return judge(request)
+const decode = (body) => JSON.parse(typeof body === "string" ? body : Buffer.from(body).toString("utf8"))
+const proxy = mock.get("https://model-proxy.recorded.invalid")
+proxy.intercept({ path: "/vercel/v4/ai/evaluation-model", method: "POST" }).reply(({ body }) => ({
+  statusCode: 200,
+  data: JSON.stringify(verdict(decode(body).questions)),
+  responseOptions: { headers: { "content-type": "application/json" } }
+})).persist()
+proxy.intercept({ path: "/chatgpt/codex/responses", method: "POST" }).reply(({ body }) => {
+  const request = decode(body)
+  if (request.instructions?.startsWith("Judge the supplied evidence")) {
+    const prompt = request.input.find((item) => item.role === "user").content[0].text
+    return stream(JSON.stringify(verdict(JSON.parse(prompt).questions)))
+  }
   appendFileSync(`${directory}/requests.jsonl`, `${JSON.stringify({ pid: process.pid })}\n`)
   return stream(`\`\`\`cell\n${readFileSync(`${directory}/cell.txt`, "utf8")}\n\`\`\``)
 }).persist()

@@ -1,5 +1,6 @@
 import * as ProcessReaper from "@smthrs/platform-node/ProcessReaper"
 import { isAlive, parentPid, waitFor } from "@smthrs/testing/Faults"
+import * as ProcessTable from "@smthrs/testing/ProcessTable"
 import { spawnSync } from "node:child_process"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -20,6 +21,51 @@ const processState = (pid: number) => {
   return { group: Number(group), stopped: state?.startsWith("T") === true }
 }
 
+/** Every process the host reports, keyed by host pid. */
+const hostTable = () => {
+  const table = new Map<number, { readonly parent: number; readonly group: number }>()
+  for (const line of ProcessTable.query({ columns: ["pid", "ppid", "pgid"] }).split("\n")) {
+    const [pid, parent, group] = line.trim().split(/\s+/).map(Number)
+    if (Number.isSafeInteger(pid) && Number.isSafeInteger(parent) && Number.isSafeInteger(group)) {
+      table.set(pid!, { parent: parent!, group: group! })
+    }
+  }
+  return table
+}
+
+/** The host pids below `root` in one table, nearest generation first. */
+const descendantsOf = (table: ReturnType<typeof hostTable>, root: number) => {
+  const found: Array<number> = []
+  let generation = [root]
+  while (generation.length > 0) {
+    const next = [...table].filter(([, { parent }]) => generation.includes(parent)).map(([pid]) => pid)
+    found.push(...next)
+    generation = next
+  }
+  return found
+}
+
+/**
+ * The pid the process with host pid `pid` sees as its own: the innermost
+ * `NSpid` entry on Linux, the pid itself elsewhere, `undefined` once it is gone.
+ *
+ * On Linux an approved shell command runs under bubblewrap in its own PID
+ * namespace (#3140), so the pid it announces is 2 there, and the host's pid 2
+ * is a kernel thread. The release smoke fixture made the same mistake and sent
+ * SIGKILL to host pid 2 (5e83665567).
+ */
+const selfReportedPid = (pid: number): number | undefined => {
+  if (process.platform !== "linux") return pid
+  let status: string
+  try {
+    status = readFileSync(`/proc/${pid}/status`, "utf8")
+  } catch {
+    return undefined
+  }
+  const line = /^NSpid:\s+(\d+(?:\s+\d+)*)\s*$/m.exec(status)
+  return line === null ? pid : Number(line[1]!.split(/\s+/).at(-1))
+}
+
 const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reaper") => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "smithers-cli-containment-")))
   const recording = join(root, "recording")
@@ -29,7 +75,7 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
   const environment: NodeJS.ProcessEnv = {
     NODE_OPTIONS: `--import=${preload}`,
     SMITHERS_TEST_RECORDING: recording,
-    // The recorded model proxy serves the ChatGPT seat and its judge.
+    // The recorded model proxy serves the ChatGPT seat.
     SMITHERS_OPENAI_AUTH: "chatgpt",
     SMITHERS_MODEL_PROXY_URL: "https://model-proxy.recorded.invalid",
     OPENAI_API_KEY: "recorded-fixture-not-a-real-key"
@@ -52,6 +98,7 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
     })
     // A failed invocation may still have launched a detached CLI or MCP pair.
     // Capture its recorded identities before status or JSON assertions throw.
+    if (Number.isSafeInteger(result.pid)) launchedPids.add(result.pid)
     captureLiveRecorded()
     expect(result.error, result.stderr).toBeUndefined()
     expect(result.status, `${result.stderr}\n${result.stdout}`).toBe(0)
@@ -78,15 +125,35 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
     }
     return pid
   }
+  // A record is what a process says about itself, and a confined command says
+  // it from inside a PID namespace. A recorded pid is owned only when the host
+  // agrees about its parent, or the parent was a command this fixture launched
+  // and has since exited (the detached owner). An MCP supervisor records
+  // nothing itself; it is owned once its target or the process above it is.
+  const launchedPids = new Set<number>()
   const captureLiveRecorded = () => {
-    const recorded = [
-      ...processes().filter((entry) => entry.event === "start").map((entry) => entry.pid),
-      ...mcpProcesses().flatMap((entry) => [entry.pid, entry.supervisor])
+    const table = hostTable()
+    const pairs = [
+      ...processes().filter((entry) => entry.event === "start").map((entry) => [entry.pid, entry.ppid] as const),
+      ...mcpProcesses().map((entry) => [entry.pid, entry.supervisor] as const)
     ]
-    for (const pid of recorded) {
-      if (!Number.isSafeInteger(pid) || pid <= 1 || owned.has(pid)) continue
+    const own = (pid: number) => {
       const started = ProcessReaper.posixSystem.startedAtMs(pid)
       if (started._tag === "started") owned.set(pid, started.startedAtMs)
+    }
+    for (const [pid, parent] of pairs) {
+      if (!Number.isSafeInteger(pid) || pid <= 1 || owned.has(pid)) continue
+      const state = table.get(pid)
+      if (state === undefined || (state.parent !== parent && !launchedPids.has(parent))) continue
+      own(pid)
+    }
+    for (const pid of new Set(mcpProcesses().map((entry) => entry.supervisor))) {
+      if (!Number.isSafeInteger(pid) || pid <= 1 || owned.has(pid)) continue
+      const state = table.get(pid)
+      if (state === undefined) continue
+      if (owned.has(state.parent) || [...table].some(([child, entry]) => entry.parent === pid && owned.has(child))) {
+        own(pid)
+      }
     }
   }
   const expectCompletedMcpGone = (supervisor: number) => {
@@ -167,19 +234,49 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
       )
       return mcpProcesses().find((entry) => spawned.some((event) => event.payload.pid === entry.supervisor))
     }
+    // The shell child announces the pid it sees for itself. Its supervisor
+    // comes from the ledger, the one this owner spawned, and its host pid is
+    // the process below that supervisor reporting the announced pid. Without
+    // a PID namespace that is the announced pid itself.
+    const shellSupervisor = () => {
+      const spawned = ledger().filter((event) =>
+        event.kind === "flows.host.process-spawned.v1" && event.payload.ownerPid === owner
+      ).map((event) => event.payload.pid as number)
+      expect(spawned.length, `shell supervisors: ${spawned.join(", ")}`).toBeLessThanOrEqual(1)
+      return spawned[0]
+    }
+    const shellChild = () => {
+      const supervisor = shellSupervisor()
+      if (supervisor === undefined || !existsSync(marker)) return undefined
+      const announced = Number(readFileSync(marker, "utf8"))
+      const found = descendantsOf(hostTable(), supervisor).filter((pid) => selfReportedPid(pid) === announced)
+      expect(found.length, `processes below ${supervisor} reporting pid ${announced}`).toBeLessThanOrEqual(1)
+      return found[0]
+    }
     await waitFor(
-      () => mode === "mcp" ? ownedMcp() !== undefined : existsSync(marker),
+      () => mode === "mcp" ? ownedMcp() !== undefined : shellChild() !== undefined,
       "the real child to announce itself under its recorded supervisor",
       30_000
     ).catch((cause) => {
       throw new Error(`${String(cause)}\n${readFileSync(launched.value.logFile, "utf8")}`, { cause })
     })
-    const child = remember(mode === "mcp" ? ownedMcp()!.pid : Number(readFileSync(marker, "utf8")))
+    const supervisor = remember(mode === "mcp" ? ownedMcp()!.supervisor : shellSupervisor()!)
+    const child = remember(mode === "mcp" ? ownedMcp()!.pid : shellChild()!)
     expect(Number.isSafeInteger(child) && child > 1).toBe(true)
-    const supervisor = remember(parentPid(child)!)
+    expect(descendantsOf(hostTable(), supervisor)).toContain(child)
+    // A confined child hangs below its supervisor through the sandbox's own
+    // processes, in the session the sandbox opened, so the direct-parent and
+    // same-group checks apply only to an unconfined child.
+    const confined = selfReportedPid(child) !== child
+    const childParent = parentPid(child)
     expect(supervisor).not.toBe(owner)
     expect(parentPid(supervisor)).toBe(owner)
-    expect(processState(child)?.group).toBe(supervisor)
+    if (confined) {
+      expect(childParent).not.toBe(owner)
+    } else {
+      expect(childParent).toBe(supervisor)
+      expect(processState(child)?.group).toBe(supervisor)
+    }
     expect(processState(supervisor)?.group).toBe(supervisor)
     expect(isAlive(child)).toBe(true)
     const childEvents = () =>
@@ -192,7 +289,7 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
     // for the workspace boundary the first agent is currently holding.
     invoke("plan", "done")
     expect(isAlive(owner!)).toBe(true)
-    expect(parentPid(child)).toBe(supervisor)
+    expect(parentPid(child)).toBe(childParent)
     expect(parentPid(supervisor)).toBe(owner)
     expect(isAlive(child)).toBe(true)
     expectCompletedMcpGone(supervisor)
@@ -214,11 +311,14 @@ const containment = async (mode: "shell" | "mcp", recovery: "automatic" | "reape
     } else {
       expect(isAlive(child)).toBe(true)
       expect(isAlive(supervisor)).toBe(true)
-      expect(parentPid(child)).toBe(supervisor)
+      expect(parentPid(child)).toBe(childParent)
       await waitFor(() => parentPid(supervisor) !== owner, "the stopped supervisor to be reparented", 10_000)
     }
     invoke("plan", "done")
     expectCompletedMcpGone(supervisor)
+    // The reaper kills the supervisor's group. A confined child is outside
+    // that group and dies with its namespace a moment after the group is gone.
+    if (confined) await waitFor(() => !isAlive(child), "the confined orphan to die with its namespace", 5_000)
     expect(isAlive(child), "A replacement CLI left the crashed CLI's child alive").toBe(false)
     expect(isAlive(supervisor), "A replacement CLI left the crashed CLI's supervisor alive").toBe(false)
     expect(childEvents()).toMatchObject([
