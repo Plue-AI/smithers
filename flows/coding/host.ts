@@ -3,6 +3,7 @@ import * as Seat from "@smthrs/agent/Seat"
 import * as SeatResolver from "@smthrs/agent/SeatResolver"
 import type * as SeatRouter from "@smthrs/agent/SeatRouter"
 import * as Digest from "@smthrs/core/Digest"
+import { DurableEngineState } from "@smthrs/engine-store"
 import { HumanTask, Interpreter, WaitFor } from "@smthrs/flow"
 import * as Action from "@smthrs/flow/Action"
 import * as FlowRuntime from "@smthrs/flow/FlowRuntime"
@@ -18,7 +19,7 @@ import * as NativeControl from "../../packages/smithers/src/internal/NativeContr
 import * as NativeEquipment from "../../packages/smithers/src/internal/NativeEquipment.ts"
 import { expandSeat, seatAliases, seatRefusal } from "../../packages/smithers/src/Providers.ts"
 import * as Serve from "../../packages/smithers/src/Serve.ts"
-import { layer as learningLayer, machineBinding } from "../learning/flow.ts"
+import { layer as learningLayer, LearningFailed, machineBinding } from "../learning/flow.ts"
 import { activationLayers } from "../repository/activation.ts"
 import { changeLayers, changeModelLayers, changeModelNames } from "../repository/changes.ts"
 import { checkLayers as repositoryCheckLayers } from "../repository/checks.ts"
@@ -876,6 +877,24 @@ export const layer = (platform: NativeControl.Platform, options: Options, suppli
                 evaluator,
                 machineBinding({
                   origin: options.learningEvidenceOrigin,
+                  // The catalog module is a durable child of the dispatch.
+                  // Evidence and returned receipts belong to that recorded parent.
+                  resolveRun: (execution) =>
+                    Effect.gen(function*() {
+                      const state = yield* Effect.serviceOption(DurableEngineState.DurableEngineState)
+                      if (Option.isNone(state)) {
+                        return yield* Effect.fail(
+                          new LearningFailed({ code: "unavailable", message: "Learning dispatch unavailable" })
+                        )
+                      }
+                      const parents = yield* state.value.runParents(execution)
+                      if (parents.length !== 1) {
+                        return yield* Effect.fail(
+                          new LearningFailed({ code: "invalid_input", message: "Learning dispatch unavailable" })
+                        )
+                      }
+                      return parents[0]!.parentId
+                    }),
                   host: options.gatewayId,
                   credential: options.credential
                 })

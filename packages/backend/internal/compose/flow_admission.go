@@ -272,6 +272,16 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
+	// Learning reads its authenticated pinned source without a publisher or
+	// landing credential. Its workspace launcher enforces the local pin.
+	if launch.Authority.Target.BindingKind == "learning" || launch.Binding.BindingKind == "learning" {
+		pin := launch.Authority.ExecutionPin
+		if launch.Authority.Target.BindingKind != "learning" || launch.Binding.BindingKind != "learning" || pin == nil || !pin.Valid() || pin.Flow != "learning" || pin.SourceCommit != launch.Binding.SourceRevision || launch.Authority.SourceRevision != launch.Binding.SourceRevision {
+			return flowhost.Connection{}, errors.New("learning host requires its authenticated pinned source")
+		}
+		launch.Environment = nil
+		return l.Launcher.StartFlowHost(ctx, launch)
+	}
 	var targetEnvironment map[string]string
 	if l.targets != nil {
 		if targetEnvironment, err = l.targets.FlowHostEnvironment(ctx, launch.Authority); err != nil {

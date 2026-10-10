@@ -171,10 +171,12 @@ export const machineBinding = (options: {
   readonly origin?: string | undefined
   readonly host: string
   readonly credential?: string | undefined
+  readonly resolveRun?: ((execution: string) => Effect.Effect<string, LearningFailed>) | undefined
 }) =>
   Layer.succeed(Binding, {
     read: (todo, run) =>
       Effect.gen(function*() {
+        if (options.resolveRun) run = yield* options.resolveRun(run)
         const origin = yield* Effect.try({
           try: () => {
             const url = new URL(options.origin ?? "")

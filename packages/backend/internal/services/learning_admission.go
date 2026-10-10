@@ -140,7 +140,7 @@ func (s *MythicalService) HandleLearningAdmission(ctx context.Context, lease *jo
 	var receipt jobs.RequestReceipt
 	err = pgx.BeginFunc(ctx, s.store, func(tx pgx.Tx) error {
 		var err error
-		receipt, err = s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{Scope: claim.Scope, RequestID: "learning-run:" + input.Item, Target: target, FlowID: "learning", Payload: payload, Pin: pin, AuthorizationContext: claim.AuthorizationContext, Projection: json.RawMessage(fmt.Sprintf(`{"kind":"learning","todo":%d}`, input.Todo))})
+		receipt, err = s.launcher.AdmitInTx(ctx, tx, flowdispatch.LaunchRequest{Scope: claim.Scope, RequestID: "learning-run:" + input.Item, Target: target, FlowID: "learning", Payload: payload, Pin: pin, ApprovalPolicy: flowdispatch.ApprovalAuto, AuthorizationContext: claim.AuthorizationContext, Projection: json.RawMessage(fmt.Sprintf(`{"kind":"learning","todo":%d}`, input.Todo))})
 		return err
 	})
 	if err != nil {

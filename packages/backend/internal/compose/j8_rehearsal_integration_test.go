@@ -18,7 +18,9 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/live"
+	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
 
 // The trusted-process runtime addresses its isolated process by workspace ID.
@@ -33,17 +35,80 @@ func (r bindingProcessRuntime) WorkspaceMachineIdentity(ctx context.Context, id 
 	return current.ID, err
 }
 
+// CancelFailedAdmission completes the process adapter's shared admission contract.
+func (r bindingProcessRuntime) CancelFailedAdmission(holder, actor string) {
+	(&rehearsalReviewRuntime{rehearsalAdmissionRuntime: r.rehearsalAdmissionRuntime}).CancelFailedAdmission(holder, actor)
+}
+
+var _ reviewMachineAdmission = bindingProcessRuntime{}
+
+// j8ProcessRuntime keeps branch daemon admission intact while satisfying the
+// learning allocator's pre-registration source read. The ephemeral workspace
+// must be the exact learning workspace for its item, with no publishing token.
+type j8ProcessRuntime struct {
+	bindingProcessRuntime
+	reader *rehearsalReviewRuntime
+}
+
+func (r j8ProcessRuntime) learningWorkspace(ctx context.Context, id string) (bool, error) {
+	row, err := db.New(r.pool).GetWorkspace(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	item, learning := strings.CutPrefix(row.Name, "learning-")
+	return learning && id == learningWorkspaceID(item) && !row.HeadPushTokenID.Valid, nil
+}
+
+func (r j8ProcessRuntime) ResolveWorkspaceSourceRevision(ctx context.Context, id string) (string, error) {
+	learning, err := r.learningWorkspace(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if learning {
+		ctx, release, err := r.Runtime.CleanupGate.Enter(ctx, id)
+		if err != nil {
+			return "", err
+		}
+		defer release()
+		return workspaceapi.ResolveSourceRevision(ctx, r, id)
+	}
+	return r.bindingProcessRuntime.ResolveWorkspaceSourceRevision(ctx, id)
+}
+
+func (r j8ProcessRuntime) StartManagedHost(ctx context.Context, id string, spec workspaceapi.ManagedHostSpec) (workspaceapi.ManagedHostConnection, error) {
+	learning, err := r.learningWorkspace(ctx, id)
+	if err != nil {
+		return workspaceapi.ManagedHostConnection{}, err
+	}
+	if learning {
+		// The production local-source pin forbids a publishing binding. Reuse
+		// the review adapter's confined, read-only host rather than the branch
+		// adapter, which installs its publishing binding into the environment.
+		return r.reader.StartManagedHost(ctx, id, spec)
+	}
+	return r.bindingProcessRuntime.StartManagedHost(ctx, id, spec)
+}
+
+func (r j8ProcessRuntime) DeleteWorkspace(ctx context.Context, id string) error {
+	learning, err := r.learningWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if learning {
+		return r.reader.DeleteWorkspace(ctx, id)
+	}
+	return r.bindingProcessRuntime.DeleteWorkspace(ctx, id)
+}
+
 // TestJ8Rehearsal walks journey J8 (mvp.md §5, Memory; C-J8-01 to C-J8-05)
 // on the install J1 sets up: a TODO merges and its learning run is admitted
 // in the background; the owner and Ben co-edit the decision page over
 // /api/live and change the decision; the next related TODO's plan cites the
 // edited revision. C-J8-03's Obsidian folder runs last, on the same page.
-// The install's pinned learning path is built. This trusted-process adapter
-// still lacks learning's admission cancellation and local pinned-source read:
-// its coding source resolver requires daemon authority before allocation has
-// recorded the learning source. The decision-page row remains unverified here.
+// Learning restores its immutable checkout before the allocator records its
+// VM/source binding. The process adapter below reads that checkout locally,
+// as the microVM runtime does; ordinary branches still require their daemon.
 // Planning citations require the isolated wiki provider.
-// Co-editing uses an owner-authored page independently of learning.
 func TestJ8Rehearsal(t *testing.T) {
 	// The install's state directory, as localbootstrap gives it: an Obsidian
 	// folder inside it is refused. It is created here, not with t.TempDir,
@@ -58,13 +123,26 @@ func TestJ8Rehearsal(t *testing.T) {
 	if !r.install("0 Install through Machine ready") {
 		return
 	}
+	if runtime, ok := r.options.Workspace.(bindingProcessRuntime); ok {
+		r.options.Workspace = j8ProcessRuntime{bindingProcessRuntime: runtime, reader: r.options.ReviewWorkspace.(*rehearsalReviewRuntime)}
+		r.restartBackend()
+	}
 	var todo int64
 	var item, squash string
 	// J8.2 and the Obsidian folder use a page of their own: a failed merge
 	// blocks only the learning rows.
 	r.step("1 TODO merges", "POST /api/todos [FILE retry.md]; POST /api/todos/{n}/merge", "in_review with merge ready; merged after GitHub's squash; install main follows", "T-STK-04", func() error {
 		var err error
-		if todo, err = r.file("Retry webhook deliveries", "[FILE retry.md] Retry failed webhook deliveries with retryExponential()"); err != nil {
+		if todo, err = r.file("Retry webhook deliveries", "[HOLD j8] [FILE retry.md] Retry failed webhook deliveries with retryExponential()"); err != nil {
+			return err
+		}
+		if err = r.waitHeld("j8", 8*time.Minute); err != nil {
+			return err
+		}
+		if err = r.amend(todo, "Use the existing retry helper because it already backs off."); err != nil {
+			return err
+		}
+		if err = r.release("j8"); err != nil {
 			return err
 		}
 		v, err := r.waitTodoWithin(todo, 8*time.Minute, "in_review")
@@ -176,7 +254,66 @@ func TestJ8Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("%s %s class=background; Home %q %s; %d TODO; checkpoint %q, last error %q", request, jobState, title, shown, todos, reason, lastError)
 		return nil
 	})
-	r.pending("1 Learning writes the decision page", "learning run in its machine; GET /api/repos/{o}/{r}/wiki; SQL mythical_items.lessons", "one page revision linking PR and merge commit, with a reason from a steer or review, authored {agent: coding, run}; T<n> shows N lessons", "T-FLW-06", "learning-rehearsal-runtime")
+	r.step("1 Learning writes the decision page", "GET wiki and TODO; SQL wiki revision author", "one decision revision linking merge and run with the steer reason; one lesson", "T-FLW-06", func() error {
+		var body, slug, author string
+		for deadline := time.Now().Add(3 * time.Minute); ; time.Sleep(500 * time.Millisecond) {
+			err := r.pool.QueryRow(r.ctx, `SELECT p.body,p.slug,v.learning_author::text FROM wiki_pages p JOIN wiki_page_revisions v ON v.page_id=p.id WHERE v.learning_author IS NOT NULL ORDER BY v.id LIMIT 1`).Scan(&body, &slug, &author)
+			if err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				return fmt.Errorf("learning wrote no decision page: %w", err)
+			}
+		}
+		var attribution struct {
+			Agent string `json:"agent"`
+			Run   string `json:"run"`
+		}
+		if err := json.Unmarshal([]byte(author), &attribution); err != nil {
+			return err
+		}
+		for _, text := range []string{squash, "/pull/", "Run: ", "because it already backs off", attribution.Run} {
+			if text == "" || !strings.Contains(body, text) {
+				return fmt.Errorf("decision page lacks %q: %s", text, body)
+			}
+		}
+		if attribution.Agent != "coding" || attribution.Run == "" {
+			return fmt.Errorf("wrong learning author %s", author)
+		}
+		var revisions, lessons int
+		if err := r.pool.QueryRow(r.ctx, `SELECT count(*) FROM wiki_page_revisions WHERE learning_author IS NOT NULL`).Scan(&revisions); err != nil {
+			return err
+		}
+		if err := r.pool.QueryRow(r.ctx, `SELECT lessons FROM mythical_items WHERE id::text=$1`, item).Scan(&lessons); err != nil {
+			return err
+		}
+		if revisions != 1 || lessons != 1 {
+			return fmt.Errorf("revisions=%d lessons=%d, want 1 each", revisions, lessons)
+		}
+		data, err := r.expect("GET", "/api/repos/"+rehearsalRepository+"/wiki/"+url.PathEscape(slug), "", 200)
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(string(data), squash) {
+			return fmt.Errorf("served wiki lacks merge: %s", data)
+		}
+		data, err = r.expect("GET", fmt.Sprintf("/api/todos/%d", todo), "", 200)
+		if err != nil {
+			return err
+		}
+		var card struct {
+			State   string
+			Lessons int
+		}
+		if err := json.Unmarshal(data, &card); err != nil {
+			return err
+		}
+		if card.State != "merged" || card.Lessons != 1 {
+			return fmt.Errorf("learning card %s", data)
+		}
+		r.actual = fmt.Sprintf("one coding revision by %s; merged T%d has one lesson; served page links merge and steer reason", attribution.Run, todo)
+		return nil
+	})
 	const (
 		base      = "# Webhook retries\n\nDecision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits.\n"
 		decision  = "Decision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits."

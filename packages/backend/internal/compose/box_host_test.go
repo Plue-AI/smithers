@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -248,4 +249,45 @@ func TestTodoHostWakeRunsOnlyOnStartBeforePreparation(t *testing.T) {
 	require.ErrorIs(t, err, boxes.wakeErr)
 	require.Len(t, boxes.prepared, 1, "denied wake mints no credential")
 	require.Len(t, transport.started, 1, "denied wake dispatches no host")
+}
+
+func TestLearningHostNeverReceivesPublishingCredential(t *testing.T) {
+	source := strings.Repeat("a", 40)
+	launch := flowhost.HostLaunch{
+		Binding:     flowhost.Binding{ID: "learning-host", BindingKind: "learning", SourceRevision: source},
+		Authority:   flowhost.Authority{SourceRevision: source, Target: flowruntime.Target{BindingKind: "learning"}, ExecutionPin: &flowruntime.Pin{Flow: "learning", SourceCommit: source, ExecutionDigest: strings.Repeat("b", 64)}},
+		Environment: map[string]string{"SMITHERS_JJHUB_TOKEN": "caller"},
+	}
+	for _, scenario := range []string{"valid", "missing pin", "wrong flow", "wrong binding", "wrong target", "changed source"} {
+		t.Run(scenario, func(t *testing.T) {
+			current := launch
+			pin := *launch.Authority.ExecutionPin
+			current.Authority.ExecutionPin = &pin
+			switch scenario {
+			case "missing pin":
+				current.Authority.ExecutionPin = nil
+			case "wrong flow":
+				pin.Flow = "todo"
+			case "wrong binding":
+				current.Binding.BindingKind = "todo"
+			case "wrong target":
+				current.Authority.Target.BindingKind = "todo"
+			case "changed source":
+				current.Authority.SourceRevision = strings.Repeat("c", 40)
+			}
+			boxes := &recordingBoxes{env: map[string]string{"SMITHERS_JJHUB_TOKEN": "publisher"}}
+			transport := &recordingHostTransport{}
+			_, err := newBoxHostLauncher(transport, boxes, nil).StartFlowHost(context.Background(), current)
+			require.Empty(t, boxes.prepared)
+			if scenario != "valid" {
+				require.Error(t, err)
+				require.Empty(t, transport.started)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, transport.started, 1)
+			require.Empty(t, transport.started[0].Environment)
+			require.Equal(t, launch.Authority.ExecutionPin, transport.started[0].Authority.ExecutionPin)
+		})
+	}
 }

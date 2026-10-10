@@ -153,12 +153,25 @@ test("guest Binding reads only its runtime run, refuses mismatches and cancels u
   const address = server.address()
   assert.ok(address && typeof address !== "string")
   const options = { origin: `http://127.0.0.1:${address.port}`, host: "learning-host", credential: "host-secret" }
-  const read = (configured = options) =>
+  const read = (configured: Parameters<typeof machineBinding>[0] = options, execution = "learning-7") =>
     Effect.gen(function*() {
-      return yield* (yield* Binding).read(7, "learning-7")
+      return yield* (yield* Binding).read(7, execution)
     }).pipe(Effect.provide(machineBinding(configured)))
   try {
     assert.deepEqual(await Effect.runPromise(read()), snapshot)
+    let resolved = ""
+    assert.deepEqual(
+      await Effect.runPromise(read({
+        ...options,
+        resolveRun: (execution) =>
+          Effect.sync(() => {
+            resolved = execution
+            return "learning-7"
+          })
+      }, "catalog-child")),
+      snapshot
+    )
+    assert.equal(resolved, "catalog-child")
     const runtime = ManagedRuntime.make(
       Layer.mergeAll(
         Interpreter.layer(Learning),

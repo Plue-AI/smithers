@@ -134,11 +134,13 @@ func TestLearningAdmissionDurablePinAndRefusal(t *testing.T) {
 	var launch []byte
 	require.NoError(t, pool.QueryRow(ctx, `SELECT payload FROM product_job_requests WHERE operation='flow.runtime.launch'`).Scan(&launch))
 	var saved struct {
-		Pin     flowruntime.Pin    `json:"pin"`
-		Target  flowruntime.Target `json:"target"`
-		Payload map[string]int64   `json:"payload"`
+		ApprovalPolicy flowdispatch.ApprovalPolicy `json:"approvalPolicy"`
+		Pin            flowruntime.Pin             `json:"pin"`
+		Target         flowruntime.Target          `json:"target"`
+		Payload        map[string]int64            `json:"payload"`
 	}
 	require.NoError(t, json.Unmarshal(launch, &saved))
+	require.Equal(t, flowdispatch.ApprovalAuto, saved.ApprovalPolicy, "authenticated background learning must execute without a manual plan approval")
 	require.Equal(t, digest, saved.Pin.ExecutionDigest)
 	require.Equal(t, itemID, saved.Target.BindingID)
 	require.Equal(t, int64(1), saved.Payload["todo"])
