@@ -54,11 +54,21 @@ func TestFileTodoNeverCreatesAnIssueWithoutAdmission(t *testing.T) {
 		require.ErrorAs(t, err, &failure)
 		require.Equal(t, pkgerrors.CodeServiceUnavailable, failure.Code)
 	}
+	// Authorize decides every credential, terminals' delegated ones included
+	// (263c41d3d8 retired the separate run-credential check here). Without
+	// a store a run credential is refused as unavailable, and Authorize
+	// refuses it for todo.new before it reads any row.
 	ctx := middleware.ContextWithAuthInfo(context.Background(), &middleware.AuthInfo{User: &db.User{ID: 2}, IsTokenAuth: true, TokenSystemIssued: true})
-	_, err := s.FileTodo(ctx, 1, 2, MythicalTodoInput{Title: "Original"})
+	item, err := s.FileTodo(ctx, 1, 2, MythicalTodoInput{Title: "Original"})
+	require.Equal(t, MythicalItemView{}, item)
 	var failure *pkgerrors.APIError
 	require.ErrorAs(t, err, &failure)
-	require.Equal(t, http.StatusForbidden, failure.Status)
+	require.Equal(t, pkgerrors.CodeServiceUnavailable, failure.Code)
+	_, err = Authorize(ctx, db.New(nil), "todo.new")
+	var refused *AccessError
+	require.ErrorAs(t, err, &refused)
+	require.Equal(t, http.StatusForbidden, refused.Status)
+	require.Equal(t, "permission", refused.Class)
 }
 
 // This exercises the production poll/retry path. The mock stores only observe
