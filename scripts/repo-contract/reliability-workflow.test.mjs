@@ -69,7 +69,14 @@ it('durability runs nightly and reference execution refuses before branch tools'
   assert.match(job.steps[refusal].run, /approved main-bundle provenance/)
   const suite = job.steps.find((step) => step.name === 'Exclusive fault matrix')
   assert.match(suite.run, /--jobs 1/)
-  assert.ok(suite.env.SMITHERS_TEST_DATABASE_URL.includes("job.services.postgres.ports['5432']"))
+  // The runner passes a case only the host bootstrap environment, so the fault
+  // target declares its own PostgreSQL service and URL; a workflow URL never
+  // reached a case (#3459).
+  assert.equal(job.services, undefined)
+  assert.equal(suite.env?.SMITHERS_TEST_DATABASE_URL, undefined)
+  const faults = readFileSync(join(root, 'packages/smithers/PACKAGE.ts'), 'utf8')
+  assert.match(faults, /services: \[faultPostgresDatabase\]/)
+  assert.match(faults, /SMITHERS_TEST_DATABASE_URL: "postgres:\/\/smithers:smithers-fault-test@127\.0\.0\.1:55439\//)
   assert.doesNotMatch(suite.run, /known-red/)
   assert.doesNotMatch(JSON.stringify(job), /secrets\./)
   const ci = parseWorkflow(readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8'))
