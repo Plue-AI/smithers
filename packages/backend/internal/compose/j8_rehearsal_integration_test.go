@@ -21,23 +21,29 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/live"
 )
 
+// The trusted-process runtime addresses its isolated process by workspace ID.
+// Resolve that identity from the running runtime, as the microVM adapter does.
+func (r *rehearsalReviewRuntime) WorkspaceMachineIdentity(ctx context.Context, id string) (string, error) {
+	current, err := r.InspectWorkspace(ctx, id)
+	return current.ID, err
+}
+
+func (r bindingProcessRuntime) WorkspaceMachineIdentity(ctx context.Context, id string) (string, error) {
+	current, err := r.InspectWorkspace(ctx, id)
+	return current.ID, err
+}
+
 // TestJ8Rehearsal walks journey J8 (mvp.md §5, Memory; C-J8-01 to C-J8-05)
 // on the install J1 sets up: a TODO merges and its learning run is admitted
 // in the background; the owner and Ben co-edit the decision page over
 // /api/live and change the decision; the next related TODO's plan cites the
 // edited revision. C-J8-03's Obsidian folder runs last, on the same page.
-// Rows whose product code has not landed are pending with their lane:
-//   - learning-host: the install allocates the learning run's ephemeral
-//     machine (bindLearningMachines), but its host would start through the
-//     shared box launcher, which installs a source-publishing binding, and
-//     flowhost refuses a learning execution pin. Learning needs review's
-//     pinned-local host path (T-FLW-06, C-SEC-02).
-//   - plan-wiki-provider: no trusted host binds MemoryOptions.wikiCitations and
-//     wikiProvider (flows/coding/planning-wiki.md), so no plan cites a page
-//     revision (T-FLW-10).
-//
-// Until learning-host lands, the owner writes the decision page in the
-// app; the co-editing rows exercise that page.
+// The install's pinned learning path is built. This trusted-process adapter
+// still lacks learning's admission cancellation and local pinned-source read:
+// its coding source resolver requires daemon authority before allocation has
+// recorded the learning source. The decision-page row remains unverified here.
+// Planning citations require the isolated wiki provider.
+// Co-editing uses an owner-authored page independently of learning.
 func TestJ8Rehearsal(t *testing.T) {
 	// The install's state directory, as localbootstrap gives it: an Obsidian
 	// folder inside it is refused. It is created here, not with t.TempDir,
@@ -170,7 +176,7 @@ func TestJ8Rehearsal(t *testing.T) {
 		r.actual = fmt.Sprintf("%s %s class=background; Home %q %s; %d TODO; checkpoint %q, last error %q", request, jobState, title, shown, todos, reason, lastError)
 		return nil
 	})
-	r.pending("1 Learning writes the decision page", "learning run in its machine; GET /api/repos/{o}/{r}/wiki; SQL mythical_items.lessons", "one page revision linking PR and merge commit, with a reason from a steer or review, authored {agent: coding, run}; T<n> shows N lessons", "T-FLW-06", "learning-host")
+	r.pending("1 Learning writes the decision page", "learning run in its machine; GET /api/repos/{o}/{r}/wiki; SQL mythical_items.lessons", "one page revision linking PR and merge commit, with a reason from a steer or review, authored {agent: coding, run}; T<n> shows N lessons", "T-FLW-06", "learning-rehearsal-runtime")
 	const (
 		base      = "# Webhook retries\n\nDecision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits.\n"
 		decision  = "Decision: webhook redelivery uses `retryExponential()`.\nReason: provider rate limits."
