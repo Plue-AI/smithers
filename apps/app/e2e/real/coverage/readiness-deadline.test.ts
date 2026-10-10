@@ -108,7 +108,7 @@ describe("mode readiness deadline", () => {
   test("the deadline covers the selfhost health request after a good bootstrap", async () => {
     const server = loopback({
       "/api/bootstrap": { apiVersion: 1, host: "local", version: "test", buildSha: revision,
-        capabilities: localCapabilities({ identity: true, cloud: true, agent: true }), authFlow: "credentials", sandbox: null },
+        capabilities: localCapabilities({ identity: true, cloud: true, agent: true }), authFlow: "redirect", sandbox: null },
       "/api/health": "hang"
     })
     const config = parseMatrixConfig({ revision, modes: [{

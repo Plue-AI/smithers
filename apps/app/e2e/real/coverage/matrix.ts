@@ -341,8 +341,9 @@ export const probeMode = async (
     if (!bootstrap.ok) reasons.push(`bootstrap returned HTTP ${bootstrap.status}`)
     else {
       const body: unknown = await bounded(bootstrap.json())
-      if (config.auth.kind === "owner-session" && (!isObject(body) || body.authFlow !== "credentials")) {
-        reasons.push(`bootstrap authFlow ${isObject(body) ? String(body.authFlow) : "unknown"} does not advertise owner credentials`)
+      // A self-host signs its owner in through GitHub (#3443); the owner session is that sign-in's result.
+      if (config.auth.kind === "owner-session" && (!isObject(body) || body.authFlow !== "redirect")) {
+        reasons.push(`bootstrap authFlow ${isObject(body) ? String(body.authFlow) : "unknown"} does not advertise owner sign-in`)
       }
       const parsed = AppBootstrapSchema.safeParse(body)
       if (!parsed.success) reasons.push(`bootstrap contract is invalid: ${parsed.error.message}`)

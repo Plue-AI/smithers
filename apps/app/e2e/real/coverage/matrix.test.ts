@@ -222,7 +222,7 @@ describe("deployment mode matrix", () => {
           capabilities: mode === "web-plue"
             ? cloudCapabilities({ identity: true, cloud: true, agent: true, checkout: false, terminal: true, ...(recommend === undefined ? {} : { recommend }) })
             : localCapabilities({ identity: true, cloud: true, agent: true, ...(recommend === undefined ? {} : { recommend }) }),
-          authFlow: mode === "web-plue" ? "native-handoff" : "credentials", sandbox: null
+          authFlow: mode === "web-plue" ? "native-handoff" : "redirect", sandbox: null
         }
         // Controlled HTTP responses qualify the local contract, not a deployed provider.
         const origin = recordingOrigin(bootstrap, 200)
@@ -377,7 +377,7 @@ describe("deployment mode matrix", () => {
     expect(result.reasons).toEqual([`bootstrap host local does not match ${mode} provider plue`])
   })
 
-  test("an owner session cannot enter readiness without an owner-credentials bootstrap contract", async () => {
+  test("an owner session enters readiness only on a host that signs its owner in through GitHub", async () => {
     const root = mkdtempSync(join(tmpdir(), "smithers-mode-matrix-"))
     roots.push(root)
     const path = join(root, "receipt.json")
@@ -385,13 +385,17 @@ describe("deployment mode matrix", () => {
     const config = parseMatrixConfig({ revision, modes: [{
       mode: "local-own", origin: "https://example.test", endpoint: "https://example.test", auth: { kind: "owner-session", environment: "OWNER" }, executionReceipt: path
     }] }).modes[0]!
-    const fetcher = (async () => Response.json({
-      apiVersion: 1, host: "local", version: "test", buildSha: revision,
-      capabilities: [], authFlow: "none", sandbox: null
-    }))
-    const result = await probeMode(config, revision, { OWNER: "configured" }, fetcher)
-    expect(result.status).toBe("failed")
-    expect(result.reasons).toContain("bootstrap authFlow none does not advertise owner credentials")
+    // Password sign-in is gone (#3443): a self-host advertises the GitHub redirect.
+    const probe = (authFlow: string) => probeMode(config, revision, { OWNER: "configured" }, (async (url: URL | RequestInfo) =>
+      new URL(String(url)).pathname === "/api/health" ? new Response("ok") : Response.json({
+        apiVersion: 1, host: "cloud", version: "test", buildSha: revision, capabilities: ["identity"], authFlow, sandbox: null
+      })) as typeof fetch)
+    const refused = await probe("none")
+    expect(refused.status).toBe("failed")
+    expect(refused.reasons).toContain("bootstrap authFlow none does not advertise owner sign-in")
+    const ready = await probe("redirect")
+    expect(ready.reasons).toEqual([])
+    expect(ready.status).toBe("passed")
   })
 
   test("rejects invented launcher roles", () => {
@@ -522,7 +526,7 @@ describe("deployment mode matrix", () => {
     }] }).modes[0]!
     const bootstrap = (buildSha: string) => ({
       apiVersion: 1, host: "local", version: "test", buildSha,
-      capabilities: localCapabilities({ identity: true, cloud: true, agent: true }), authFlow: "credentials", sandbox: null
+      capabilities: localCapabilities({ identity: true, cloud: true, agent: true }), authFlow: "redirect", sandbox: null
     })
     const healthy = recordingOrigin(bootstrap(revision), 200)
     expect(await probeMode(config, revision, { OWNER: "configured" }, healthy.fetcher)).toMatchObject({ status: "passed", buildSha: revision, reasons: [] })
@@ -542,7 +546,7 @@ describe("deployment mode matrix", () => {
     // The shared Go backend's self-hosted response: cloud is the API surface, not its deployment provider.
     const bootstrap = {
       apiVersion: 1, host: "cloud", version: "test", buildSha: revision,
-      capabilities: ["identity", "cloud", "cloud.terminal"], authFlow: "credentials",
+      capabilities: ["identity", "cloud", "cloud.terminal"], authFlow: "redirect",
       sandbox: { platform: "linux", mode: "trusted-only" }
     }
     const origin = recordingOrigin(bootstrap, 200)

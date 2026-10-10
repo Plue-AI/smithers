@@ -42,7 +42,7 @@ const document = (html = `<!doctype html><meta name="smithers-build-sha" content
 describe("web-plue launcher", () => {
   test("a current backend cannot certify an old renderer", async () => {
     const web = origin({ "/api/bootstrap": bootstrap, [appEntryPath("production")]: document(`<!doctype html><meta name="smithers-build-sha" content="${"c".repeat(40)}"><div id="root"></div>`) })
-    await expect(startWebPlue(web.outputDir, web.url, "PLUE_TOKEN", web.url)).rejects.toThrow("web renderer and backend revisions differ")
+    await expect(startWebPlue(web.outputDir, web.url, "PLUE_TOKEN", web.url)).rejects.toThrow(`web renderer and backend revisions differ: renderer ${"c".repeat(40)}, backend ${deployed}`)
   })
   test("records the API endpoint separately and verifies both origins serve the same backend build", async () => {
     const backend = origin({ "/api/bootstrap": bootstrap })
@@ -56,7 +56,7 @@ describe("web-plue launcher", () => {
   test("refuses a web origin that proxies a different backend revision", async () => {
     const backend = origin({ "/api/bootstrap": () => Response.json({ host: "cloud", buildSha: "c".repeat(40) }) })
     const web = origin({ "/api/bootstrap": bootstrap, [appEntryPath("production")]: document() })
-    await expect(startWebPlue(web.outputDir, web.url, "PLUE_TOKEN", backend.url)).rejects.toThrow("web and API backend revisions differ")
+    await expect(startWebPlue(web.outputDir, web.url, "PLUE_TOKEN", backend.url)).rejects.toThrow(`web and API backend revisions differ: web ${deployed}, API ${"c".repeat(40)}`)
   })
 
   test("records the deployed build it observed on the Worker, never the checkout, and never asks for /api/health", async () => {

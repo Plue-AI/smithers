@@ -60,9 +60,11 @@ export const startWebPlue = async (outputDir: string, target: string, tokenEnvir
   const origin = plueOrigin(target)
   const endpoint = plueOrigin(apiTarget)
   const buildSha = await observeDeployment(origin)
-  if (await observeDeployment(endpoint) !== buildSha) throw new Error("web and API backend revisions differ")
-  if (buildShaFromHtml(await observeDocument(origin, appEntryPath("production"))) !== buildSha) {
-    throw new Error("web renderer and backend revisions differ")
+  const apiSha = await observeDeployment(endpoint)
+  if (apiSha !== buildSha) throw new Error(`web and API backend revisions differ: web ${buildSha}, API ${apiSha}`)
+  const rendererSha = buildShaFromHtml(await observeDocument(origin, appEntryPath("production")))
+  if (rendererSha !== buildSha) {
+    throw new Error(`web renderer and backend revisions differ: renderer ${rendererSha ?? "unstamped"}, backend ${buildSha}`)
   }
   return {
     modeConfig: writeReceipt(outputDir, {
