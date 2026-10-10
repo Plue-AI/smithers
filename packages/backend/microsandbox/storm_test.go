@@ -107,6 +107,14 @@ func TestStormDialStartBound(t *testing.T) {
 	ws.daemonAttemptMu.Lock()
 	require.False(t, ws.daemonReconnect)
 	ws.daemonAttemptMu.Unlock()
+	// A failed dial reads the daemon's report in the background. It runs msb
+	// in this test's directory, so wait for it: a report still running when
+	// the test returns writes into a directory being removed, and its fork can
+	// hold the next test's new msb open (text file busy).
+	require.Eventually(t, func() bool {
+		body, err := os.ReadFile(log)
+		return err == nil && strings.Contains(string(body), "daemon-log")
+	}, 15*time.Second, 10*time.Millisecond)
 }
 
 func TestStormTermBeforeKillGrace(t *testing.T) {
