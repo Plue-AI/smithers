@@ -26,6 +26,7 @@ import (
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/stretchr/testify/require"
 )
 
@@ -507,6 +508,9 @@ func TestLiveCodeDocumentDaemonKillPoints(t *testing.T) {
 						t.Fatal("did not reach " + point)
 					}
 				}
+				// The fault is in: the armed daemon exited 73 at its point, or
+				// the guest was stopped after the browser saw saved.
+				fmt.Println(faultprocess.Marker + point)
 				f.resume(t)
 				b, a := f.browser(t, "ben-cookie"), f.browser(t, "alice-cookie")
 				b.subClient(t, f.topic, bc)
@@ -631,6 +635,7 @@ func liveCodeDocumentEpochRecovery(t *testing.T, corrupt bool) {
 					} else {
 						require.NoError(t, os.Remove(record))
 					}
+					fmt.Println(faultprocess.Marker + "K7e")
 					f.resume(t)
 					restarts++
 					_, err = io.WriteString(input, "RESTARTED\n")

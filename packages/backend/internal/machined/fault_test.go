@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"testing"
@@ -20,6 +21,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/smithersai/smithers/packages/backend/hostexec"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -73,6 +75,10 @@ func TestFaultK4HostCommitBeforeAck(t *testing.T) {
 			var exit *exec.ExitError
 			require.ErrorAs(t, err, &exit, "%s", output)
 			require.Equal(t, 73, exit.ExitCode(), "%s", output)
+			// The child names the point it exits at; only the exact token qualifies
+			// this leaf, and the fault matrix requires it in the leaf's own output.
+			require.True(t, reachedK4(string(output)), "child exited without the exact %sK4 marker: %s", faultprocess.Marker, output)
+			fmt.Println(faultprocess.Marker + "K4")
 			// Inspect before replay: process exit must have left a complete transaction.
 			counts := func() {
 				for table, want := range map[string]int{"product_job_events": 1, "burst_files": 20, "machine_event_receipts": 1} {
@@ -129,7 +135,7 @@ func runK4Dispatch(t *testing.T, pool *pgxpool.Pool, branch, store string, event
 		return json.RawMessage(`{"id":"outside","kind":"outside"}`), nil
 	}}
 	if kill {
-		ingest.ObserveCommitted = func() { os.Exit(73) }
+		ingest.ObserveCommitted = func() { fmt.Println(faultprocess.Marker + "K4"); os.Exit(73) }
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
@@ -137,6 +143,15 @@ func runK4Dispatch(t *testing.T, pool *pgxpool.Pool, branch, store string, event
 	defer func() { cancel(); require.ErrorIs(t, <-done, context.Canceled) }()
 	sendConsumerEvent(t, peer, event)
 	readConsumerAck(t, peer, event.Seq, AckDuplicate)
+}
+
+func reachedK4(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		if _, ok := faultprocess.LineFields(strings.TrimSuffix(line, "\r"), faultprocess.Marker+"K4"); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func TestFaultK4HostChild(t *testing.T) {
@@ -216,6 +231,8 @@ func testFaultK4bHostConnectionCut(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("dispatcher did not notice connection cut")
 	}
+	// The cut reached the dispatcher; the fault matrix requires this leaf's marker.
+	fmt.Println(faultprocess.Marker + "K4b")
 	cancel()
 	require.NoError(t, link.Close())
 	cutAt := time.Now()
@@ -290,30 +307,36 @@ func testFaultK4bHostConnectionCut(t *testing.T) {
 // a separate reference-host qualification.
 func TestFaultK7DaemonRecovery(t *testing.T) {
 	selector := "^TestLiveCodeDocumentDaemonKillPoints$"
+	runs := map[string]int{"K7a": 10, "K7b": 10, "K7c": 10, "K7d": 10}
 	if selected := os.Getenv("SMITHERS_K7_CASE"); selected != "" {
 		valid := false
 		for _, point := range []string{"K7a", "K7b", "K7c", "K7d"} {
 			for run := 1; run <= 10; run++ {
 				if selected == fmt.Sprintf("%s/%d", point, run) {
 					selector += fmt.Sprintf("/^%s$/^%d$", point, run)
+					runs = map[string]int{point: 1}
 					valid = true
 				}
 			}
 		}
 		require.True(t, valid, "SMITHERS_K7_CASE must name K7a-d and run 1-10")
 	}
-	runFaultK7ComposedInstall(t, selector)
+	runFaultK7ComposedInstall(t, selector, runs)
 }
 
+// K7e: a lost and a corrupt state record, ten runs each.
 func TestFaultK7NewEpochRecovery(t *testing.T) {
-	runFaultK7ComposedInstall(t, "^TestLiveCodeDocument(NewEpochRecovery|CorruptEpochRecovery)$")
+	runFaultK7ComposedInstall(t, "^TestLiveCodeDocument(NewEpochRecovery|CorruptEpochRecovery)$", map[string]int{"K7e": 20})
 }
 
 func TestFaultK7HostRecovery(t *testing.T) {
-	runFaultK7ComposedInstall(t, "^TestLiveCodeDocumentK7bHostKill$")
+	runFaultK7ComposedInstall(t, "^TestLiveCodeDocumentK7bHostKill$", map[string]int{"K7b": 10})
 }
 
-func runFaultK7ComposedInstall(t *testing.T, selector string) {
+// The install cases print one exact marker per fault they inject. A skipped
+// case or a missing run is no evidence, so both refuse; the reached points are
+// then marked in this test's own output, where the fault matrix requires them.
+func runFaultK7ComposedInstall(t *testing.T, selector string, runs map[string]int) {
 	t.Helper()
 	if testing.Short() || os.Getenv("SMITHERS_REHEARSAL_MACHINED_FAULT_BINARY") == "" {
 		t.Skip("requires the real installed daemon test binary and Linux namespace or reference-host providers")
@@ -329,4 +352,20 @@ func runFaultK7ComposedInstall(t *testing.T, selector string) {
 	output, err := command.CombinedOutput()
 	t.Logf("production composed install driver:\n%s", output)
 	require.NoError(t, err, "K7 qualification failed through the real /api/live install router")
+	require.NotContains(t, string(output), "--- SKIP", "a skipped install case is not K7 evidence")
+	points := make([]string, 0, len(runs))
+	for point, want := range runs {
+		reached := 0
+		for _, line := range strings.Split(string(output), "\n") {
+			if _, ok := faultprocess.LineFields(strings.TrimSuffix(line, "\r"), faultprocess.Marker+point); ok {
+				reached++
+			}
+		}
+		require.Equal(t, want, reached, "install runs that reached %s", point)
+		points = append(points, point)
+	}
+	sort.Strings(points)
+	for _, point := range points {
+		fmt.Println(faultprocess.Marker + point)
+	}
 }

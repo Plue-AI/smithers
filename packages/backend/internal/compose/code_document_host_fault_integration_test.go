@@ -22,12 +22,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/smithersai/smithers/packages/backend/flowhost"
 	"github.com/smithersai/smithers/packages/backend/internal/machined"
 	"github.com/smithersai/smithers/packages/backend/internal/machined/wire"
 	"github.com/smithersai/smithers/packages/backend/internal/repohost"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostffi"
 	"github.com/smithersai/smithers/packages/backend/internal/repohostserver"
 	processruntime "github.com/smithersai/smithers/packages/backend/process"
+	"github.com/smithersai/smithers/packages/backend/testkit/faultprocess"
 	"github.com/smithersai/smithers/packages/backend/testkit/postgresfixture"
 	"github.com/stretchr/testify/require"
 )
@@ -130,6 +132,7 @@ func TestLiveCodeDocumentK7bHostKill(t *testing.T) {
 			case <-time.After(5 * time.Second):
 				t.Fatal("owned host did not die")
 			}
+			fmt.Println(faultprocess.Marker + "K7b")
 			require.Equal(t, want, f.diskBytes(t))
 			config.Initial = false
 			launch() // same live guest, protected boot, DB and immutable host store
@@ -196,7 +199,11 @@ func TestLiveCodeDocumentHostProcessChild(t *testing.T) {
 	runtime, err := processruntime.New(processruntime.Config{Root: t.TempDir(), MaxConcurrent: 2, OutputLimit: 1 << 20})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
-	handler, _ := startCodeDocumentProcess(t, Options{Repository: client, ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: rehearsalBranchMachines(pool), Machined: registry, LiveCodeDocuments: true, FlowHostProductAPIURL: config.Origin})
+	// The replacement host composes the parent's install, including its
+	// test-only trusted-process allowance: machine admission refuses a trusted
+	// process runtime without it (1b4f32941e), and the host never got ready.
+	handler, _ := startCodeDocumentProcess(t, Options{Repository: client, ChatHost: unusedChatHost{}, Workspace: runtime, BranchMachines: rehearsalBranchMachines(pool), Machined: registry, LiveCodeDocuments: true, FlowHostProductAPIURL: config.Origin,
+		FlowHostConfig: flowhost.WorkspaceLauncherConfig{AllowTrustedProcessForTests: true}})
 	stream, err := net.DialTimeout("tcp", config.Endpoint, 5*time.Second)
 	require.NoError(t, err)
 	require.NoError(t, stream.SetReadDeadline(time.Now().Add(30*time.Second)))
