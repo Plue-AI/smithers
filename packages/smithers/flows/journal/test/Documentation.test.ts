@@ -14,19 +14,24 @@ describe("journal documentation contracts", () => {
     })
   }
 
+  // Troubleshooting is the package's one home for each code's cause and fix.
   it("distinguishes compaction refusals from compacted read recovery", () => {
-    const reference = read("../../../../../apps/site/src/content/docs/docs/reference/errors.mdx")
-    const row = (code: string): Array<string> =>
-      reference.split("\n").find((line) => line.startsWith(`| \`${code}\` |`))!.split("|").map((cell) => cell.trim())
-    const reader = row("reader_behind")
-    expect(reader[2]).toBe("`compact`")
-    expect(reader[4]).toMatch(/catch up.*clos.*retry/i)
-    expect(reader[4]).not.toContain("checkpointSeq")
-    const checkpoint = row("checkpoint_invalid")
-    expect(checkpoint[3]).toMatch(/missing or invalid checkpoint or sequence/i)
-    expect(checkpoint[3]).toMatch(/`checkpointSeq` is optional/)
-    expect(checkpoint[4]).not.toMatch(/resume/i)
-    expect(row("compacted")[4]).toMatch(/latestCheckpoint.*state.*afterSequence/)
+    const page = read("../docs/troubleshooting.md")
+    const entry = (code: string): { readonly happened: string; readonly change: string } => {
+      const section = page.split(`\n## ${code}\n`)[1]!.split("\n## ")[0]!.replace(/\s+/g, " ")
+      const happened = section.split("**What happened.**")[1]!.split("**What to change.**")[0]!
+      return { happened, change: section.split("**What to change.**")[1]! }
+    }
+    const reader = entry("reader_behind")
+    expect(reader.happened).toMatch(/^ `compact` refused/)
+    expect(reader.change).toMatch(/catch up.*(?:drop|clos).*(?:again|retry)/i)
+    expect(reader.change).not.toContain("checkpointSeq")
+    const checkpoint = entry("checkpoint_invalid")
+    expect(checkpoint.happened).toMatch(/`checkpoint` was given a `seq` that names no committed entry/)
+    expect(checkpoint.happened).toMatch(/`compact` found no checkpoint/)
+    expect(checkpoint.happened).toMatch(/In the second case the failure carries the floor in `checkpointSeq`/)
+    expect(checkpoint.change).not.toMatch(/resume/i)
+    expect(entry("compacted").change).toMatch(/latestCheckpoint.*state.*afterSequence/)
   })
 
   it("lists every Service operation, including optional members", () => {
