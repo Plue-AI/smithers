@@ -5,9 +5,10 @@
  */
 
 import * as KernelHttpClient from "@smthrs/kernel/HttpClient"
+import type { Model } from "@smthrs/model/Model"
 import * as RequestExecutor from "@smthrs/model/RequestExecutor"
 import { hostModelCredentials, modelCredentialEnvName, planModelBinding } from "@smthrs/rpc/ConfiguredModel"
-import type { ModelCredentialEnv } from "@smthrs/rpc/ConfiguredModel"
+import type { ModelCredentialEnv, ModelPlan } from "@smthrs/rpc/ConfiguredModel"
 import { Effect, Layer, Redacted } from "effect"
 import * as FetchHttpClient from "effect/unstable/http/FetchHttpClient"
 import { toModel } from "./ConfiguredModelRoute.ts"
@@ -87,15 +88,15 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
       (http) => RequestExecutor.makeWith(RequestExecutor.fixed(http), { maxRetries: 0, responseStartMs: 9000 })
     )
   )
-  const executorFor = (plan: import("@smthrs/rpc/ConfiguredModel").ModelPlan) =>
+  const executorFor = (plan: ModelPlan) =>
     plan.credential === "SMITHERS_FAST_PROXY" ? fastExecutor : RequestExecutor.layer
   return toModel(planned.plan, Redacted.make(credential)).pipe(
     Effect.provide(executorFor(planned.plan).pipe(Layer.provide(transport))),
     Effect.flatMap((model) =>
       Effect.gen(function*() {
         const withFallback = (
-          primary: import("@smthrs/model/Model").Model,
-          plan: import("@smthrs/rpc/ConfiguredModel").ModelPlan
+          primary: Model,
+          plan: ModelPlan
         ) =>
           Effect.gen(function*() {
             if (plan.credential !== "SMITHERS_FAST_PROXY") return primary
@@ -109,7 +110,7 @@ export const environmentModelResolver = (options: EnvironmentModelResolverOption
               return yield* Effect.fail(new ResolveFailed({ message: "fast-model fallback unavailable" }))
             }
             const sources: Array<
-              { model: import("@smthrs/model/Model").Model; modelId: string; outputTokenLimitSupported?: boolean }
+              { model: Model; modelId: string; outputTokenLimitSupported?: boolean }
             > = [{ model: primary, modelId: plan.modelId }]
             for (const binding of bindings) {
               const fallback = planModelBinding(binding, credentials, { kind: "generation" })

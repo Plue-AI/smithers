@@ -2671,7 +2671,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
       )
       // Engine bookkeeping stays in the Engine row. Its dependency edges still
       // order the visible steps, including across several hidden boundaries.
-      const visibleDeps = (id: string, seen: ReadonlySet<string>): string[] => {
+      const visibleDeps = (id: string, seen: ReadonlySet<string>): Array<string> => {
         const node = hidden.get(id)
         if (node === undefined) return [prefix + encodeURIComponent(id)]
         if (seen.has(id)) return []
@@ -2754,7 +2754,7 @@ export const monitorFromJournal = (run: TraceRun, records: ReadonlyArray<Journal
             : row.status === "waiting"
             ? "waiting" as const
             : "current" as const,
-          deps: [] as string[]
+          deps: [] as Array<string>
         }))
     }],
     waits: [

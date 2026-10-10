@@ -13,7 +13,8 @@
  */
 
 import * as Digest from "@smthrs/core/Digest"
-import * as Flow from "@smthrs/core/Flow"
+import type * as Effects from "@smthrs/core/Effects"
+import type * as Flow from "@smthrs/core/Flow"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Json from "./internal/json.ts"
@@ -97,7 +98,7 @@ export type MakeOptions<E = never> =
     readonly name?: string | undefined
     readonly description?: string | undefined
     readonly capabilities?: ReadonlyArray<string> | undefined
-    readonly effects?: import("@smthrs/core/Effects").Declaration | undefined
+    readonly effects?: Effects.Declaration | undefined
     readonly error?: typeof Schema.Never | undefined
   }
   & {

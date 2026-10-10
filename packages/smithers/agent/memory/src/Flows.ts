@@ -10,7 +10,7 @@
  */
 
 import * as Effects from "@smthrs/core/Effects"
-import * as Flow from "@smthrs/core/Flow"
+import type * as Flow from "@smthrs/core/Flow"
 import type * as DurableFlow from "@smthrs/flow/Flow"
 import * as Pattern from "@smthrs/patterns/Pattern"
 import * as Effect from "effect/Effect"

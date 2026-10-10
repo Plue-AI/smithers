@@ -49,7 +49,7 @@ class Capture {
   // PTYs can emit both UTF-8 and raw ECMA-48 C1 bytes. Normalize only
   // standalone C1 controls; a continuation byte inside valid UTF-8 is data.
   private ansiBytes(bytes: Uint8Array): Uint8Array {
-    const normalized: number[] = []
+    const normalized: Array<number> = []
     for (const byte of bytes) {
       const continuation = this.utf8Remaining > 0 && byte >= this.utf8Min && byte <= this.utf8Max
       if (continuation) {

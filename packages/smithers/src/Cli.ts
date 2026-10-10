@@ -453,7 +453,7 @@ export const makeCli = (
     "host backup",
     "host restore"
   ]
-  const project = (source: Map<string, any>, target: Map<string, any>, prefix: string[] = [], allowed = doors) => {
+  const project = (source: Map<string, any>, target: Map<string, any>, prefix: Array<string> = [], allowed = doors) => {
     for (const [name, entry] of source) {
       const path = [...prefix, name], key = path.join(" ")
       if (!allowed.some((door) => door === key || door.startsWith(key + " "))) continue

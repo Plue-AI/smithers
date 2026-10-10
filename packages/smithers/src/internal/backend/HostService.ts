@@ -4,6 +4,7 @@
  * @since 1.0.0
  */
 
+import * as Environment from "@smthrs/integrations/Environment"
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
@@ -95,7 +96,10 @@ export interface ServiceOptions {
  * @since 1.0.0
  * @private
  */
-export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEnv = process.env): string =>
+export const hostPlist = (
+  options: ServiceOptions,
+  environment: Readonly<Record<string, string | undefined>> = Environment.ambientEnvironment()
+): string =>
   plist({
     Label: label,
     ProgramArguments: [
@@ -119,7 +123,7 @@ export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEn
         "all_proxy",
         "SSL_CERT_FILE",
         "SSL_CERT_DIR"
-      ].flatMap((name) => environment[name] ? [[name, environment[name]!]] : [])),
+      ].flatMap((name) => environment[name] ? [[name, environment[name]]] : [])),
       HOME: options.home,
       PATH: `${options.bundle}/bin:/usr/bin:/bin:/usr/sbin:/sbin`
     },
@@ -479,7 +483,7 @@ export const waitReady = async (probe: () => Promise<boolean | string> = ready, 
  */
 export const setupURLs = (
   stateDir: string
-): Promise<{ code: string; setup_urls?: string[]; message?: string; exitCode: number }> =>
+): Promise<{ code: string; setup_urls?: Array<string>; message?: string; exitCode: number }> =>
   new Promise((done, reject) => {
     const socketPath = join(stateDir, "run/host.sock")
     const info = lstatSync(socketPath)
@@ -522,7 +526,8 @@ export const setupURLs = (
               if (typeof value !== "string") return true
               const url = new URL(value)
               return !["http:", "https:"].includes(url.protocol) || url.pathname !== "/setup" ||
-                !url.searchParams.get("token") || url.username || url.password || /[\r\n\x1b]/.test(value)
+                !url.searchParams.get("token") || url.username || url.password || /[\r\n]/.test(value) ||
+                value.includes("\x1b")
             })
           ) {
             throw new Refused({
