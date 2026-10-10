@@ -134,6 +134,20 @@ func (launcher *workspaceLauncher) StopFlowHost(ctx context.Context, binding Bin
 	return err
 }
 
+// ReleaseFailedFlowHostMachine stops the host and then its machine, keeping
+// the disk. The runtime's confirmed stop releases the machine's admission
+// slot as its idle stop does.
+func (launcher *workspaceLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding Binding) error {
+	if err := launcher.StopFlowHost(ctx, binding); err != nil {
+		return err
+	}
+	err := launcher.runtime.StopWorkspace(hostOperation(ctx, binding.UserID, binding.ID, "release", binding.OwnerGeneration), binding.WorkspaceID)
+	if errors.Is(err, workspaceapi.ErrWorkspaceNotFound) || errors.Is(err, workspaceapi.ErrWorkspaceStopped) {
+		return nil
+	}
+	return err
+}
+
 func hostOperation(ctx context.Context, userID int64, id, action string, generation int64) context.Context {
 	// Match WorkspaceService's common owner/requester identity. Product Flow
 	// target tenant strings (repository:N) are not execution tenant identities.

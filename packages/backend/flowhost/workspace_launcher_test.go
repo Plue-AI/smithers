@@ -170,6 +170,17 @@ func TestWorkspaceLauncherUsesRealManagedProcessSourceAndRetirement(t *testing.T
 	data, err = os.ReadFile(filepath.Join(receipt["state"], "journal"))
 	require.NoError(t, err)
 	require.Equal(t, "persisted", string(data))
+	// A host that exhausted its starts releases its machine: the host, then
+	// the machine stops, keeping its disk, and a replay finds it stopped. A
+	// review machine without this held the only slot forever (#3783).
+	require.NoError(t, launcher.ReleaseFailedFlowHostMachine(ctx, launch.Binding))
+	released, err := runtime.InspectWorkspace(ctx, workspace.ID)
+	require.NoError(t, err)
+	require.Equal(t, workspaceapi.WorkspaceStopped, released.State)
+	data, err = os.ReadFile(filepath.Join(receipt["state"], "journal"))
+	require.NoError(t, err)
+	require.Equal(t, "persisted", string(data), "the release keeps the disk")
+	require.NoError(t, launcher.ReleaseFailedFlowHostMachine(ctx, launch.Binding))
 	require.NoError(t, runtime.DeleteWorkspace(ctx, workspace.ID))
 	require.NoError(t, launcher.(RetirementStopper).StopFlowHost(ctx, launch.Binding))
 	for _, operation := range observed.operations {

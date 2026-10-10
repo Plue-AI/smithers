@@ -272,6 +272,9 @@ func (l *trustedMainLaunchTransport) InspectFlowHost(context.Context, flowhost.H
 func (l *trustedMainLaunchTransport) ResolveFlowHostSource(context.Context, flowhost.Authority) (string, error) {
 	return l.revision, nil
 }
+func (l *trustedMainLaunchTransport) ReleaseFailedFlowHostMachine(context.Context, flowhost.Binding) error {
+	return nil
+}
 func (l *trustedMainLaunchTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	l.starts++
 	l.environment = launch.Environment

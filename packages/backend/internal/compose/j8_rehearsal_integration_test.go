@@ -42,6 +42,14 @@ func (r bindingProcessRuntime) CancelFailedAdmission(holder, actor string) {
 
 var _ reviewMachineAdmission = bindingProcessRuntime{}
 
+// InstallWorkspaceSourceExporter completes the microVM runtime's contract.
+// Every host this stand-in starts already runs the current native helper
+// (StartManagedHost), so there is nothing to plant.
+func (r bindingProcessRuntime) InstallWorkspaceSourceExporter(ctx context.Context, id string) error {
+	_, err := r.InspectWorkspace(ctx, id)
+	return err
+}
+
 // j8ProcessRuntime keeps branch daemon admission intact while satisfying the
 // learning allocator's pre-registration source read. The ephemeral workspace
 // must be the exact learning workspace for its item, with no publishing token.
@@ -87,6 +95,12 @@ func (r j8ProcessRuntime) StartManagedHost(ctx context.Context, id string, spec 
 		return r.reader.StartManagedHost(ctx, id, spec)
 	}
 	return r.bindingProcessRuntime.StartManagedHost(ctx, id, spec)
+}
+
+// Learning machines start their host through the review adapter, which
+// holds the planted exporters.
+func (r j8ProcessRuntime) InstallWorkspaceSourceExporter(ctx context.Context, id string) error {
+	return r.reader.InstallWorkspaceSourceExporter(ctx, id)
 }
 
 func (r j8ProcessRuntime) DeleteWorkspace(ctx context.Context, id string) error {

@@ -244,6 +244,13 @@ func (launcher *memoryLauncher) StopFlowHost(_ context.Context, binding Binding)
 	return nil
 }
 
+func (launcher *memoryLauncher) ReleaseFailedFlowHostMachine(context.Context, Binding) error {
+	launcher.mu.Lock()
+	defer launcher.mu.Unlock()
+	launcher.calls = append(launcher.calls, "release")
+	return nil
+}
+
 func (launcher *memoryLauncher) connection(binding Binding, credential string) Connection {
 	launcher.transport.identity = flowruntime.Identity{Protocol: flowruntime.Protocol,
 		RuntimeArtifactDigest: binding.RuntimeArtifactDigest, SourceRevision: binding.SourceRevision,
@@ -953,6 +960,9 @@ func (l unreportedLauncher) InspectFlowHost(ctx context.Context, launch HostLaun
 }
 func (l unreportedLauncher) StartFlowHost(ctx context.Context, launch HostLaunch) (Connection, error) {
 	return l.delegate.StartFlowHost(ctx, launch)
+}
+func (l unreportedLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding Binding) error {
+	return l.delegate.ReleaseFailedFlowHostMachine(ctx, binding)
 }
 
 func TestResolverTrustedProcessRequiresExplicitTestConfiguration(t *testing.T) {

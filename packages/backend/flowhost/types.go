@@ -222,9 +222,16 @@ type Connection struct {
 // Launcher is the deployment adapter facet owned by the workspace runtime.
 // Inspect must return ErrHostNotRunning when no live process owns the binding;
 // it must not claim readiness from a stale product row or a bare TCP listener.
+//
+// ReleaseFailedFlowHostMachine confirms a disk-preserving stop of the machine
+// whose host exhausted its starts, before the resolver returns the terminal
+// failure; the stop frees the machine's admission slot. A failed stop stays
+// retryable on the same row. Every launcher can release: without it run 15's
+// review machine held the only slot forever (#3783).
 type Launcher interface {
 	InspectFlowHost(context.Context, HostLaunch) (Connection, error)
 	StartFlowHost(context.Context, HostLaunch) (Connection, error)
+	ReleaseFailedFlowHostMachine(context.Context, Binding) error
 }
 
 // LaunchConfigurer supplies trusted per-attempt data before inspection and

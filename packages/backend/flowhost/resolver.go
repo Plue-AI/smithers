@@ -597,20 +597,10 @@ func sourceMismatchCode(code string) bool {
 	return code == "source_revision_mismatch" || code == "runtime_source_revision_mismatch"
 }
 
-// FailedMachineReleaser confirms a disk-preserving machine stop before a
-// terminal failure is returned. Failed stops remain retryable on the same row.
-type FailedMachineReleaser interface {
-	ReleaseFailedFlowHostMachine(context.Context, Binding) error
-}
-
 func (resolver *Resolver) releaseFailedMachine(ctx context.Context, binding Binding) error {
-	releaser, ok := resolver.launcher.(FailedMachineReleaser)
-	if !ok {
-		return failure{code: "runtime_failed_machine_release_unavailable", retryable: true}
-	}
 	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
 	defer cancel()
-	if err := releaser.ReleaseFailedFlowHostMachine(cleanup, binding); err != nil {
+	if err := resolver.launcher.ReleaseFailedFlowHostMachine(cleanup, binding); err != nil {
 		result := failure{code: "runtime_failed_machine_release_failed", retryable: true, cause: err}
 		logFailure(ctx, result, err, binding)
 		return result

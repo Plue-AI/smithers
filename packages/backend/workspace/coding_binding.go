@@ -24,6 +24,14 @@ type WorkspaceCodingBindingInstaller interface {
 	InstallWorkspaceCodingBinding(context.Context, string, WorkspaceCodingBinding) error
 }
 
+// WorkspaceSourceExporterInstaller plants the packaged source exporter, the
+// helper a coding host exports immutable source trees with, in a running
+// workspace. It installs no binding and no credential, so a machine that loads
+// a local pinned source (review, learning) can export it.
+type WorkspaceSourceExporterInstaller interface {
+	InstallWorkspaceSourceExporter(context.Context, string) error
+}
+
 func (binding WorkspaceCodingBinding) Validate() error {
 	owner, repository, ok := strings.Cut(binding.RepositorySlug, "/")
 	if binding.ActorID <= 0 || binding.RepositoryID <= 0 || !ok || !codingSlugPart(owner) || !codingSlugPart(repository) {

@@ -47,9 +47,10 @@ func TestLearningSourceRestoresPinnedMerge(t *testing.T) {
 
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	runtime, err := process.New(process.Config{Root: root, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
+	machine, err := process.New(process.Config{Root: root, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	t.Cleanup(func() { require.NoError(t, machine.Close()) })
+	runtime := &exporterMachine{Runtime: machine}
 	var cloned []string
 	source := &LearningSource{q: q, runtime: runtime, clone: func(owner, repository string) (string, error) {
 		cloned = append(cloned, owner+"/"+repository)
@@ -64,6 +65,7 @@ func TestLearningSourceRestoresPinnedMerge(t *testing.T) {
 		}{
 			"no runtime":   {&LearningSource{q: q, clone: source.clone}, pin, "learning_source_unavailable"},
 			"no endpoint":  {&LearningSource{q: q, runtime: runtime}, pin, "learning_source_unavailable"},
+			"no exporter":  {&LearningSource{q: q, runtime: machine, clone: source.clone}, pin, "learning_source_unavailable"},
 			"review pin":   {source, flowruntime.Pin{Flow: "review", SourceCommit: merge, ExecutionDigest: pin.ExecutionDigest}, "learning_binding_unavailable"},
 			"invalid pin":  {source, flowruntime.Pin{Flow: "learning", SourceCommit: "main", ExecutionDigest: pin.ExecutionDigest}, "learning_binding_unavailable"},
 			"absent pin":   {source, flowruntime.Pin{}, "learning_binding_unavailable"},
@@ -106,6 +108,10 @@ func TestLearningSourceRestoresPinnedMerge(t *testing.T) {
 	require.Contains(t, string(receipt), `"source_revision":"`+merge+`"`)
 	require.False(t, completedWorkspaceReceipt(receipt, workspaceID, repo.ID+1), "the receipt names its own repository")
 	require.Equal(t, []string{"learning-source-owner/app", "learning-source-owner/app"}, cloned)
+	// The coding host exports the pinned merge with the exporter, so Restore
+	// plants it before the receipt; a refused restore plants nothing (#3783).
+	require.Equal(t, []string{workspaceID}, runtime.planted)
+	require.Equal(t, []bool{false}, runtime.receiptFirst, "the exporter is planted before the receipt")
 	revision, err := workspaceapi.ResolveSourceRevision(ctx, runtime, workspaceID)
 	require.NoError(t, err)
 	require.Equal(t, merge, revision, "the machine's recorded revision is the pinned merge")

@@ -34,23 +34,8 @@ func (r *Runtime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID
 	if err != nil {
 		return err
 	}
-	helper, err := r.codingHelperBytes()
-	if err != nil {
+	if err := r.plantSourceExporter(ctx, ws.Machine); err != nil {
 		return err
-	}
-	// The guest re-hashes the bytes it receives against the same digest.
-	current, err := r.guest(ctx, ws.Machine, nil, "coding-helper-check", r.codingHelper.digest)
-	if err != nil {
-		return err
-	}
-	switch strings.TrimSpace(string(current)) {
-	case "current":
-	case "replace":
-		if _, err := r.guest(ctx, ws.Machine, helper, "coding-helper", r.codingHelper.digest); err != nil {
-			return err
-		}
-	default:
-		return errors.New("guest coding helper check returned an invalid result")
 	}
 	config := struct {
 		workspaceapi.WorkspaceCodingBinding
@@ -66,6 +51,46 @@ func (r *Runtime) InstallWorkspaceCodingBinding(ctx context.Context, workspaceID
 	}
 	_, err = r.guest(ctx, ws.Machine, data, "coding-binding")
 	return err
+}
+
+// InstallWorkspaceSourceExporter plants only the packaged source exporter,
+// /usr/local/bin/smithers-jj-export, with no coding binding: a review or
+// learning machine exports its pinned commit and publishes nothing.
+func (r *Runtime) InstallWorkspaceSourceExporter(ctx context.Context, workspaceID string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if workspaceID == "" {
+		return errors.New("workspace source exporter workspace is required")
+	}
+	ws, err := r.runningWorkspace(workspaceID)
+	if err != nil {
+		return err
+	}
+	return r.plantSourceExporter(ctx, ws.Machine)
+}
+
+// plantSourceExporter writes the bundle's exporter into machine, replacing
+// drifted bytes. The guest re-hashes the bytes it receives against the same
+// digest.
+func (r *Runtime) plantSourceExporter(ctx context.Context, machine string) error {
+	helper, err := r.codingHelperBytes()
+	if err != nil {
+		return err
+	}
+	current, err := r.guest(ctx, machine, nil, "coding-helper-check", r.codingHelper.digest)
+	if err != nil {
+		return err
+	}
+	switch strings.TrimSpace(string(current)) {
+	case "current":
+		return nil
+	case "replace":
+		_, err := r.guest(ctx, machine, helper, "coding-helper", r.codingHelper.digest)
+		return err
+	default:
+		return errors.New("guest coding helper check returned an invalid result")
+	}
 }
 
 // codingHelperBundlePath is the packaged Linux arm64 source-publication
@@ -151,3 +176,4 @@ func (r *Runtime) installGuestJJ(ctx context.Context, machine string) error {
 }
 
 var _ workspaceapi.WorkspaceCodingBindingInstaller = (*Runtime)(nil)
+var _ workspaceapi.WorkspaceSourceExporterInstaller = (*Runtime)(nil)

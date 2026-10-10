@@ -65,6 +65,7 @@ type todoControlHostTransport struct {
 	launch   flowhost.HostLaunch
 	endpoint string
 	receiver flowruntime.Runtime
+	released []string
 }
 
 func (*todoControlHostTransport) Isolation() workspaceapi.IsolationLevel {
@@ -77,6 +78,16 @@ func (h *todoControlHostTransport) InspectFlowHost(context.Context, flowhost.Hos
 		return flowhost.Connection{}, flowhost.ErrHostNotRunning
 	}
 	return flowhost.Connection{Endpoint: h.endpoint}, nil
+}
+
+// ReleaseFailedFlowHostMachine records the machine an exhausted host
+// released; that machine's host is no longer running.
+func (h *todoControlHostTransport) ReleaseFailedFlowHostMachine(_ context.Context, binding flowhost.Binding) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.released = append(h.released, binding.WorkspaceID)
+	h.launch = flowhost.HostLaunch{}
+	return nil
 }
 func (h *todoControlHostTransport) StartFlowHost(_ context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	h.mu.Lock()

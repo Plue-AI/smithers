@@ -25,6 +25,23 @@ type rehearsalReviewRuntime struct {
 	tools, bubblewrap, node, helper, host, evidence, daemon string
 	daemons                                                 *machined.Registry
 	stops                                                   sync.Map
+	// exporters holds the machines the source exporter was planted in. As in
+	// a microVM, only those hosts can run it (#3783).
+	exporters sync.Map
+}
+
+// InstallWorkspaceSourceExporter plants the exporter, as the microVM runtime
+// does, in a running machine.
+func (r *rehearsalReviewRuntime) InstallWorkspaceSourceExporter(ctx context.Context, id string) error {
+	current, err := r.InspectWorkspace(ctx, id)
+	if err != nil {
+		return err
+	}
+	if current.State != workspaceapi.WorkspaceRunning {
+		return workspaceapi.ErrWorkspaceStopped
+	}
+	r.exporters.Store(id, true)
+	return nil
 }
 
 func newRehearsalReviewRuntime(t *testing.T, runtime *rehearsalAdmissionRuntime, node, helper, host, evidence, daemon string, daemons *machined.Registry) *rehearsalReviewRuntime {
@@ -115,12 +132,15 @@ func (r *rehearsalReviewRuntime) StartManagedHost(ctx context.Context, id string
 		if err != nil {
 			return command, err
 		}
-		// The Linux namespace has the same provisioned helper as coding;
-		// the fixed guest install path does not exist in this fixture.
+		// The fixed guest install path does not exist in this fixture. A
+		// machine with the exporter planted runs the same provisioned helper
+		// as coding; any other finds none at that path, as a microVM does.
 		if command.Environment == nil {
 			command.Environment = map[string]string{}
 		}
-		command.Environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = r.helper
+		if _, planted := r.exporters.Load(id); planted {
+			command.Environment["SMITHERS_WORKSPACE_JJ_EXPORT_BINARY"] = r.helper
+		}
 		return r.confined(placement.Workspace, command), nil
 	})
 	connection, err := r.Runtime.StartManagedHost(ctx, id, spec)
@@ -256,5 +276,6 @@ func (r *rehearsalReviewRuntime) DeleteWorkspace(ctx context.Context, id string)
 	if stop, found := r.stops.LoadAndDelete(id); found {
 		stop.(func())()
 	}
+	r.exporters.Delete(id)
 	return r.Runtime.DeleteWorkspace(ctx, id)
 }

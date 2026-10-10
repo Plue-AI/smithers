@@ -55,6 +55,9 @@ func (s *ReviewSource) Prepare(ctx context.Context, a ReviewAdmission) error {
 	if s == nil || s.q == nil || s.runtime == nil || s.retention == nil {
 		return reviewUnavailable("review_source_unavailable")
 	}
+	if _, ok := s.runtime.(workspaceapi.WorkspaceSourceExporterInstaller); !ok {
+		return reviewUnavailable("review_source_unavailable")
+	}
 	if !a.Pin.Valid() || a.Pin.Flow != "review" || !flowCommitPattern.MatchString(a.Head) || !flowCommitPattern.MatchString(a.Base) {
 		return reviewUnavailable("review_binding_unavailable")
 	}
@@ -118,6 +121,9 @@ func (s *ReviewSource) Restore(ctx context.Context, workspaceID string, a Review
 		}
 	}
 	if err := s.run(ctx, workspaceID, nil, "jj", "edit", a.Head); err != nil {
+		return err
+	}
+	if err := plantSourceExporter(ctx, s.runtime, workspaceID, reviewUnavailable("review_source_unavailable")); err != nil {
 		return err
 	}
 	// Restore is this machine's whole setup. Its last step is the receipt a

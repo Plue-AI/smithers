@@ -101,14 +101,16 @@ func (l *admittedFlowLauncher) AbandonFlowHostStart(ctx context.Context, binding
 type boxHostPreparer interface {
 	PrepareBoxHost(ctx context.Context, hostID, workspaceID string, repositoryID, userID int64) (map[string]string, error)
 	RetireBoxHostCredential(ctx context.Context, hostID string, userID int64)
+	ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error
 	KeepBoxAwake(ctx context.Context, workspaceID string)
 	RestartLostBox(ctx context.Context, workspaceID string, repositoryID, userID int64) error
 }
 
 // boxHostLauncher gives the box's coding host what the box's own services
 // need before it starts (#2198): the source publisher, the landing binding
-// and a landing credential minted for this start. Every stop, replacement and
-// failed start revokes the credential.
+// and a landing credential minted for this start, only for a host kind that
+// may land (flowHostMayLand). Every stop, replacement and failed start
+// revokes the credential.
 type boxHostLauncher struct {
 	flowhost.Launcher
 	flowhost.SourceResolver
@@ -246,6 +248,25 @@ func (staleRoleSource) Error() string {
 func (staleRoleSource) FlowRuntimeCode() string    { return "runtime_source_revision_mismatch" }
 func (staleRoleSource) FlowRuntimeRetryable() bool { return false }
 
+// landingFlowHostKinds are the flow host kinds that publish their box's
+// source, so their host gets the box's landing credential (PrepareBoxHost).
+// The list is default deny. Learning and review load a local pinned source,
+// and their guest refuses any landing binding (#3783). A kind added later
+// gets no credential until it is named here.
+var landingFlowHostKinds = map[string]bool{
+	flowdispatch.StackBindingKind: true, "mythical-wiki": true, "flow-load": true,
+	"browser-flow": true, flowdispatch.DraftBindingKind: true, services.InstallRunFlowBinding: true,
+	"agent-session": true, "repository-job-dispatch": true, "repository-setup": true, "workflow-invoke": true,
+}
+
+// flowHostMayLand reports whether a host start may carry a landing
+// credential. Both the authorized target and the durable binding, whose kind
+// selects the host's source mode (flowhost.BuildProcessSpec), must be landing
+// kinds.
+func flowHostMayLand(launch flowhost.HostLaunch) bool {
+	return landingFlowHostKinds[launch.Authority.Target.BindingKind] && landingFlowHostKinds[launch.Binding.BindingKind]
+}
+
 func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.HostLaunch) (flowhost.Connection, error) {
 	if launch.Authority.Target.BindingKind == flowdispatch.StackBindingKind {
 		waker, ok := l.boxes.(interface {
@@ -272,15 +293,13 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 	if err != nil {
 		return flowhost.Connection{}, err
 	}
-	// Learning reads its authenticated pinned source without a publisher or
-	// landing credential. Its workspace launcher enforces the local pin.
+	// Learning reads its authenticated pinned source. Its workspace launcher
+	// enforces the local pin.
 	if launch.Authority.Target.BindingKind == "learning" || launch.Binding.BindingKind == "learning" {
 		pin := launch.Authority.ExecutionPin
 		if launch.Authority.Target.BindingKind != "learning" || launch.Binding.BindingKind != "learning" || pin == nil || !pin.Valid() || pin.Flow != "learning" || pin.SourceCommit != launch.Binding.SourceRevision || launch.Authority.SourceRevision != launch.Binding.SourceRevision {
 			return flowhost.Connection{}, errors.New("learning host requires its authenticated pinned source")
 		}
-		launch.Environment = nil
-		return l.Launcher.StartFlowHost(ctx, launch)
 	}
 	var targetEnvironment map[string]string
 	if l.targets != nil {
@@ -288,7 +307,7 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			return flowhost.Connection{}, err
 		}
 	}
-	// Ephemeral main runs receive no landing/publisher credential.
+	mayLand := flowHostMayLand(launch)
 	if background, ok := l.targets.(interface {
 		IsBackgroundFlowHost(context.Context, string) (bool, error)
 	}); ok {
@@ -301,9 +320,13 @@ func (l *boxHostLauncher) StartFlowHost(ctx context.Context, launch flowhost.Hos
 			if err != nil || revision != launch.Authority.SourceRevision {
 				return flowhost.Connection{}, errors.New("manual main source changed before launch")
 			}
-			launch.Environment = targetEnvironment
-			return l.Launcher.StartFlowHost(ctx, launch)
+			// Ephemeral main runs receive no landing/publisher credential.
+			mayLand = false
 		}
+	}
+	if !mayLand {
+		launch.Environment = targetEnvironment
+		return l.Launcher.StartFlowHost(ctx, launch)
 	}
 	environment, err := l.boxes.PrepareBoxHost(ctx, launch.Binding.ID, launch.Authority.WorkspaceID, launch.Authority.RepositoryID, launch.Authority.UserID)
 	if err != nil {
@@ -341,20 +364,11 @@ func (l *boxHostLauncher) AbandonFlowHostStart(ctx context.Context, binding flow
 	l.boxes.RetireBoxHostCredential(ctx, binding.ID, binding.UserID)
 }
 
-func (l *admittedFlowLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error {
-	releaser, ok := l.Launcher.(flowhost.FailedMachineReleaser)
-	if !ok {
-		return errors.New("failed machine release unavailable")
-	}
-	return releaser.ReleaseFailedFlowHostMachine(ctx, binding)
-}
+// ReleaseFailedFlowHostMachine revokes the host's credential and stops it,
+// then the box: the workspace service records the box stopped.
 func (l *boxHostLauncher) ReleaseFailedFlowHostMachine(ctx context.Context, binding flowhost.Binding) error {
-	releaser, ok := l.boxes.(flowhost.FailedMachineReleaser)
-	if !ok {
-		return errors.New("failed machine release unavailable")
-	}
 	if err := l.StopFlowHost(ctx, binding); err != nil {
 		return err
 	}
-	return releaser.ReleaseFailedFlowHostMachine(ctx, binding)
+	return l.boxes.ReleaseFailedFlowHostMachine(ctx, binding)
 }

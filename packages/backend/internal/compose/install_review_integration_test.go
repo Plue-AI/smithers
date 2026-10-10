@@ -707,6 +707,38 @@ func testInstallReviewHTTPAdmission(t *testing.T, successfulTerminal bool) {
 				require.NoError(t, err)
 			})
 		}
+		// Run 15's review host exhausted its starts and the review retried
+		// forever, holding the only machine slot (#3783). An exhausted start
+		// settles the review failed and retires its machine once.
+		t.Run("an exhausted host start settles failed", func(t *testing.T) {
+			exhausted := &reviewMachineFixture{runs: map[string]string{}, startErr: exhaustedHostStart{}}
+			exhaustedBackground, err := services.NewReviewBackground(pool, service, exhausted, &reviewDeliveryFixture{})
+			require.NoError(t, err)
+			service.SetReviewBackground(exhaustedBackground)
+			defer service.SetReviewBackground(background)
+			answer := call(body, "exhausted-host-start")
+			require.Equal(t, 202, answer.Code, answer.Body.String())
+			var pending services.ReviewAdmission
+			require.NoError(t, json.Unmarshal(answer.Body.Bytes(), &pending))
+			workerCtx, cancel := context.WithCancel(ctx)
+			done := make(chan error, 1)
+			go func() {
+				done <- exhaustedBackground.RunWorker(workerCtx, jobs.WorkerConfig{WorkerID: "review-exhausted", Capacity: 1, Lease: time.Second, PollInterval: time.Millisecond, RetryDelay: time.Millisecond})
+			}()
+			require.Eventually(t, func() bool {
+				op, e := store.Get(ctx, scope, pending.OperationID)
+				return e == nil && op.State == jobs.StateFailed
+			}, 5*time.Second, 10*time.Millisecond)
+			cancel()
+			require.NoError(t, <-done)
+			op, err := store.Get(ctx, scope, pending.OperationID)
+			require.NoError(t, err)
+			require.JSONEq(t, `{"state":"failed","error":"runtime_start_exhausted"}`, string(op.TerminalReceipt))
+			exhausted.mu.Lock()
+			defer exhausted.mu.Unlock()
+			require.Equal(t, 1, exhausted.starts, "an exhausted start never boots the machine again")
+			require.True(t, exhausted.retiredOperations[pending.OperationID], "the review's machine is retired")
+		})
 		for _, table := range []string{"workspaces", "mythical_items", "mythical_stacks"} {
 			require.NoError(t, pool.QueryRow(ctx, "SELECT count(*) FROM "+table).Scan(&count))
 			require.Zero(t, count, table)
@@ -734,7 +766,17 @@ type reviewMachineFixture struct {
 	retireGate                 <-chan struct{}
 	retireEntered              chan<- struct{}
 	retired                    int
+	startErr                   error
+	starts                     int
 }
+
+// exhaustedHostStart is the resolver's refusal after a host exhausted its
+// starts and its machine was released.
+type exhaustedHostStart struct{}
+
+func (exhaustedHostStart) Error() string              { return "flow host: runtime_start_exhausted" }
+func (exhaustedHostStart) FlowRuntimeCode() string    { return "runtime_start_exhausted" }
+func (exhaustedHostStart) FlowRuntimeRetryable() bool { return false }
 
 func (*reviewMachineFixture) Isolation() workspace.IsolationLevel {
 	return workspace.IsolationSandboxed
@@ -749,6 +791,10 @@ func (m *reviewMachineFixture) Start(_ context.Context, id string, a services.Re
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.selected = a
+	m.starts++
+	if m.startErr != nil {
+		return "", m.startErr
+	}
 	if m.runs[id] == "" {
 		m.runs[id] = "review-run"
 	}

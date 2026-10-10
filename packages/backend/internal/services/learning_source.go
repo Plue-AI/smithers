@@ -46,6 +46,9 @@ func (s *LearningSource) Prepare(_ context.Context, _ int64, pin flowruntime.Pin
 	if s == nil || s.q == nil || s.runtime == nil || s.clone == nil {
 		return learningUnavailable("learning_source_unavailable")
 	}
+	if _, ok := s.runtime.(workspaceapi.WorkspaceSourceExporterInstaller); !ok {
+		return learningUnavailable("learning_source_unavailable")
+	}
 	if !pin.Valid() || pin.Flow != "learning" {
 		return learningUnavailable("learning_binding_unavailable")
 	}
@@ -87,6 +90,9 @@ func (s *LearningSource) Restore(ctx context.Context, workspaceID string, reposi
 		}
 	}
 	if err := run(nil, "jj", "edit", pin.SourceCommit); err != nil {
+		return err
+	}
+	if err := plantSourceExporter(ctx, s.runtime, workspaceID, refusal); err != nil {
 		return err
 	}
 	// Restore is this machine's whole setup. Its last step is the receipt a

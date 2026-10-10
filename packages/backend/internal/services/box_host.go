@@ -487,6 +487,17 @@ func writeSetupReceipt(ctx context.Context, runtime any, workspaceID string, rep
 	return writer.WriteRepositoryReceipt(ctx, workspaceID, append(receipt, '\n'))
 }
 
+// plantSourceExporter gives a pinned-source machine (review, learning) the
+// exporter its coding host exports the pinned commit with, and no binding or
+// credential (#3783). Each source's Prepare refuses a runtime without it.
+func plantSourceExporter(ctx context.Context, runtime any, workspaceID string, unavailable error) error {
+	installer, ok := runtime.(workspaceapi.WorkspaceSourceExporterInstaller)
+	if !ok {
+		return unavailable
+	}
+	return installer.InstallWorkspaceSourceExporter(ctx, workspaceID)
+}
+
 type workspaceInitializing struct{}
 
 func (workspaceInitializing) Error() string              { return flowhost.WorkspaceInitializingCode }

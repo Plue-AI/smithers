@@ -203,7 +203,12 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
 	runtime.transport = transport.todoControlHostTransport
-	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: consumer, Launcher: transport, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
+	// The install starts every main-resolver host through the box launcher
+	// (flow_composition.go). Its preparer mints a landing credential the way
+	// PrepareBoxHost does, so a learning start that asks for one carries it.
+	boxes := &recordingBoxes{env: map[string]string{"SMITHERS_JJHUB_TOKEN": "landing", "SMITHERS_JJHUB_API_URL": server.URL + "/api", "SMITHERS_CACHE_TOKEN": "cache"}}
+	launcher := newBoxHostLauncher(guestBoxTransport{reviewHostTransport: transport, source: item.PRMergeCommit}, boxes, nil)
+	resolver, err := flowhost.New(flowhost.Config{Store: bindings, Targets: consumer, Launcher: launcher, Catalogs: []flowhost.Catalog{{Key: flowhost.CatalogCoding, Family: flowhost.CatalogCoding, Executable: "/installed/coding-host", ArtifactDigest: strings.Repeat("a", 64), ServiceName: "coding-host", SystemFlows: services.SystemFlows}}})
 	require.NoError(t, err)
 	var failedReceipt atomic.Bool
 	dispatcher, err := flowdispatch.New(flowdispatch.Config{Store: store, Resolver: installFlowResolver{resolver}, Projector: flowdispatch.ProjectorFunc(func(ctx context.Context, update flowdispatch.ProjectionUpdate) error {
@@ -340,6 +345,20 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	// The row names the VM the daemon boots, so agent admission accepts the
 	// coding host spawn (real install run 14 refused it as unauthorized).
 	require.Equal(t, []string{"admitted"}, transport.spawns)
+	// The guest serves a local pinned source only without a landing binding or
+	// TODO pin (flows/coding/serve-host.ts). Real install run 15 exited three
+	// times on a learning start that carried the box's landing credential.
+	require.Empty(t, boxes.prepared, "a learning host never mints a landing credential")
+	transport.mu.Lock()
+	started := transport.launch
+	transport.mu.Unlock()
+	spec, err := flowhost.BuildProcessSpec(started, flowhost.WorkspacePaths{Root: "/workspace", StateDir: "/var/lib/smithers/flow-host"}, 4100)
+	require.NoError(t, err)
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_PINNED"])
+	require.Equal(t, "1", spec.Environment["SMITHERS_FLOW_SOURCE_LOCAL"])
+	for _, name := range []string{"SMITHERS_JJHUB_TOKEN", "SMITHERS_JJHUB_API_URL", "SMITHERS_CACHE_TOKEN", "SMITHERS_TODO_EXECUTION_DIGEST"} {
+		require.NotContains(t, spec.Environment, name)
+	}
 	require.Equal(t, learningCounts{creates: 1, restores: 1, deletes: 2}, guest.counts())
 	require.Zero(t, queue.InUse())
 	require.Equal(t, item.PRMergeCommit, source.restored.SourceCommit)
@@ -469,3 +488,17 @@ func (r *learningCompletionExtraction) Observe(ctx context.Context, _, _ string,
 	}
 	return flowruntime.Observation{Run: flowruntime.Run{RunID: r.run, FlowID: "learning", Status: "completed", FinalOutput: &r.output}, Terminal: true}, nil
 }
+
+// guestBoxTransport gives the guest transport the source and retirement
+// authority the box launcher requires of the workspace runtime. The guest's
+// working copy is the restored pinned merge.
+type guestBoxTransport struct {
+	*reviewHostTransport
+	source string
+}
+
+func (g guestBoxTransport) ResolveFlowHostSource(context.Context, flowhost.Authority) (string, error) {
+	return g.source, nil
+}
+
+func (guestBoxTransport) StopFlowHost(context.Context, flowhost.Binding) error { return nil }

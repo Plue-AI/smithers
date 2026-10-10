@@ -334,3 +334,30 @@ func TestTodoRootCodingBinding(t *testing.T) {
 		}
 	})
 }
+
+// A review or learning machine gets the exporter its coding host exports the
+// pinned source with, and no binding it could publish through (#3783: run 15's
+// review host exited with spawn /usr/local/bin/smithers-jj-export ENOENT).
+func TestMicroVMSourceExporterPlantsOnlyTheExporter(t *testing.T) {
+	runtime, argv, _ := egressFakeMSB(t, nil)
+	_, digest := codingHelperFixture(t, runtime)
+	egressWorkspace(t, runtime, "review-machine", "running", 0)
+	require.NoError(t, runtime.InstallWorkspaceSourceExporter(context.Background(), "review-machine"))
+	args, err := os.ReadFile(argv)
+	require.NoError(t, err)
+	require.Contains(t, string(args), " coding-helper-check "+digest+"\n")
+	require.Contains(t, string(args), " coding-helper "+digest+"\n")
+	require.NotContains(t, string(args), "coding-binding", "no source-publication binding")
+	require.NotContains(t, string(args), "sh -c")
+
+	for _, refused := range []struct{ name, state, id string }{{"stopped", "stopped", "stopped-machine"}, {"unnamed", "running", ""}} {
+		t.Run(refused.name, func(t *testing.T) {
+			runtime, argv, _ := egressFakeMSB(t, nil)
+			codingHelperFixture(t, runtime)
+			egressWorkspace(t, runtime, "stopped-machine", refused.state, 0)
+			require.Error(t, runtime.InstallWorkspaceSourceExporter(context.Background(), refused.id))
+			_, err := os.Stat(argv)
+			require.ErrorIs(t, err, os.ErrNotExist, "refusal starts no guest process")
+		})
+	}
+}

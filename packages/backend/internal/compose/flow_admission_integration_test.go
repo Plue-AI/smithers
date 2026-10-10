@@ -37,6 +37,9 @@ func (refusingHostTransport) Isolation() workspaceapi.IsolationLevel {
 func (refusingHostTransport) InspectFlowHost(context.Context, flowhost.HostLaunch) (flowhost.Connection, error) {
 	return flowhost.Connection{}, flowhost.ErrHostNotRunning
 }
+func (refusingHostTransport) ReleaseFailedFlowHostMachine(context.Context, flowhost.Binding) error {
+	return nil
+}
 func (r refusingHostTransport) StartFlowHost(ctx context.Context, _ flowhost.HostLaunch) (flowhost.Connection, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.url, nil)
 	if err != nil {
@@ -103,11 +106,18 @@ func TestFlowWorkerRechecksMeteredAdmissionBeforeHostLaunch(t *testing.T) {
 		require.NoError(t, err)
 		return receipt
 	}
+	// A refused start is recorded as the dispatch's retryable error. The third
+	// failed start on the host exhausts it: its machine is released and the
+	// dispatch fails terminally (#3783).
 	waitRefused := func(receipt jobs.RequestReceipt) {
 		require.Eventually(t, func() bool {
 			var failure string
 			err := pool.QueryRow(ctx, `SELECT last_error FROM product_job_dispatches WHERE operation_id=$1`, receipt.OperationID).Scan(&failure)
-			return err == nil && failure != ""
+			if err == nil && failure != "" {
+				return true
+			}
+			operation, err := store.Get(ctx, scope, receipt.OperationID)
+			return err == nil && operation.State == jobs.StateFailed && strings.Contains(string(operation.TerminalReceipt), "runtime_start_exhausted")
 		}, 8*time.Second, 10*time.Millisecond)
 	}
 	exhausted := dispatch("exhausted")

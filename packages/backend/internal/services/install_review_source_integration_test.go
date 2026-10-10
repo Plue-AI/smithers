@@ -51,6 +51,21 @@ func reviewPin(source, digest string) flowruntime.Pin {
 	return flowruntime.Pin{Flow: "review", SourceCommit: source, ExecutionDigest: digest}
 }
 
+// exporterMachine is a process machine that records each source exporter
+// plant, and whether the setup receipt a host start waits for already existed.
+type exporterMachine struct {
+	*process.Runtime
+	planted      []string
+	receiptFirst []bool
+}
+
+func (m *exporterMachine) InstallWorkspaceSourceExporter(ctx context.Context, id string) error {
+	_, err := m.ReadFile(ctx, id, workspaceRepositoryReceiptPath)
+	m.planted = append(m.planted, id)
+	m.receiptFirst = append(m.receiptFirst, err == nil)
+	return nil
+}
+
 func reviewGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -100,9 +115,10 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
-	runtime, err := process.New(process.Config{Root: root, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
+	machine, err := process.New(process.Config{Root: root, Environment: map[string]string{"PATH": os.Getenv("PATH")}})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, runtime.Close()) })
+	t.Cleanup(func() { require.NoError(t, machine.Close()) })
+	runtime := &exporterMachine{Runtime: machine}
 	host := &reviewRetentionHost{t: t, bare: bare}
 	source := &ReviewSource{q: q, runtime: runtime, retention: host, refs: host}
 	admission := ReviewAdmission{RepositoryID: repo.ID, RequesterID: owner.ID, Number: 50, Head: head, Base: base,
@@ -116,6 +132,7 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 		}{
 			"no retention":      {&ReviewSource{q: q, runtime: runtime}, nil, "review_source_unavailable"},
 			"no runtime":        {&ReviewSource{q: q, retention: host}, nil, "review_source_unavailable"},
+			"no exporter":       {&ReviewSource{q: q, runtime: machine, retention: host}, nil, "review_source_unavailable"},
 			"unmeasured digest": {source, func(a *ReviewAdmission) { a.Pin.ExecutionDigest = strings.Repeat("d", 64) }, "review_source_unavailable"},
 			"other source":      {source, func(a *ReviewAdmission) { a.Pin.SourceCommit = base }, "review_digest_mismatch"},
 			"todo pin":          {source, func(a *ReviewAdmission) { a.Pin.Flow = "todo" }, "review_binding_unavailable"},
@@ -181,6 +198,11 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 	require.True(t, completedWorkspaceReceipt(receipt, workspaceID, admission.RepositoryID), string(receipt))
 	require.Contains(t, string(receipt), `"source_revision":"`+head+`"`)
 	require.False(t, completedWorkspaceReceipt(receipt, workspaceID, admission.RepositoryID+1), "the receipt names its own repository")
+	// The coding host exports the pinned commit with the exporter, so Restore
+	// plants it before the receipt (#3783: run 15's review host failed with
+	// spawn /usr/local/bin/smithers-jj-export ENOENT).
+	require.Equal(t, []string{workspaceID}, runtime.planted)
+	require.Equal(t, []bool{false}, runtime.receiptFirst, "the exporter is planted before the receipt")
 	require.Equal(t, "export const capacity = 2 + 1\n", read("cache.ts"))
 	show := func(object string) string {
 		result, err := runtime.ExecuteCommand(ctx, workspaceID, workspaceapi.Command{Args: []string{"git", "show", object}})
@@ -202,6 +224,7 @@ func TestReviewSourceRestoresHeadBesidePinnedSource(t *testing.T) {
 	host.refusal = sourceRetentionError("source_changed")
 	require.NoError(t, source.Restore(ctx, workspaceID, admission))
 	require.Len(t, host.calls, 1)
+	require.Equal(t, []string{workspaceID, workspaceID}, runtime.planted, "a replay plants the exporter again")
 	revision, err = workspaceapi.ResolveSourceRevision(ctx, runtime, workspaceID)
 	require.NoError(t, err)
 	require.Equal(t, head, revision)

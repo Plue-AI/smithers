@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/smithersai/smithers/packages/backend/flowruntime"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
 	"github.com/smithersai/smithers/packages/backend/internal/middleware"
 	"github.com/smithersai/smithers/packages/backend/jobs"
@@ -224,7 +225,8 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 		}
 		return err
 	}
-	if checkpoint.Run == "" {
+	// A settled start (Result without Run) replays to retirement, never Start.
+	if checkpoint.Run == "" && checkpoint.Result == nil {
 		if err := b.machine.Prepare(ctx, admission); err != nil {
 			return err
 		}
@@ -237,13 +239,19 @@ func (b *ReviewBackground) handle(ctx context.Context, lease *jobs.Lease) error 
 			return err
 		}
 		run, err := b.machine.Start(ctx, claim.OperationID, admission)
-		if err != nil {
+		var terminal flowruntime.Failure
+		switch {
+		case errors.As(err, &terminal) && !terminal.FlowRuntimeRetryable():
+			// A host that exhausted its starts has released its machine.
+			// Settle failed rather than boot the machine again on every retry.
+			checkpoint.Result = &ReviewObservation{State: jobs.StateFailed, Error: terminal.FlowRuntimeCode()}
+		case err != nil:
 			return err
-		}
-		if run == "" {
+		case run == "":
 			return errors.New("review machine returned no run")
+		default:
+			checkpoint.Run = run
 		}
-		checkpoint.Run = run
 		raw, _ := json.Marshal(checkpoint)
 		if _, err := lease.Checkpoint(ctx, raw); err != nil {
 			return err
