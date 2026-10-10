@@ -2,8 +2,11 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
+	"path"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smithersai/smithers/packages/backend/internal/db"
+	pkgerrors "github.com/smithersai/smithers/packages/backend/internal/pkg/errors"
 	"github.com/smithersai/smithers/packages/backend/sandbox"
 	workspaceapi "github.com/smithersai/smithers/packages/backend/workspace"
 )
@@ -28,6 +32,10 @@ var errAuthoritySideEffect = errors.New("workspace mutation reached the runtime"
 type authorityRuntime struct {
 	workspaceapi.WorkspaceRuntime
 	loopback bool
+	// repositoryID and cloneURL are the product repository the guest's
+	// checkout was initialized from.
+	repositoryID int64
+	cloneURL     string
 
 	mu      sync.Mutex
 	state   workspaceapi.WorkspaceState
@@ -77,10 +85,35 @@ func (*authorityRuntime) Isolation() workspaceapi.IsolationLevel {
 	return workspaceapi.IsolationSandboxed
 }
 
+// InspectWorkspace reports the guest's checkout and home, which a runtime
+// guest's commands need since 2c17084d96.
 func (r *authorityRuntime) InspectWorkspace(_ context.Context, id string) (workspaceapi.Workspace, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return workspaceapi.Workspace{ID: id, State: r.state}, nil
+	return workspaceapi.Workspace{ID: id, Root: "/workspace", Home: "/home/agent", State: r.state}, nil
+}
+
+// guestAccountProbe is the read a runtime guest's command layout makes first;
+// it answers the guest's unprivileged account and is no side effect.
+var guestAccountProbe = []string{"/bin/sh", "-c", "id -u && id -un"}
+
+// ExecuteCommand answers the reads that verify an initialized checkout (its
+// account, origin and source pin) and records any other command.
+func (r *authorityRuntime) ExecuteCommand(_ context.Context, _ string, command workspaceapi.Command) (workspaceapi.CommandResult, error) {
+	switch {
+	case slices.Equal(command.Args, guestAccountProbe):
+		return workspaceapi.CommandResult{Stdout: "1000\nagent\n"}, nil
+	case slices.Equal(command.Args, []string{"git", "remote", "get-url", "origin"}):
+		return workspaceapi.CommandResult{Stdout: r.cloneURL + "\n"}, nil
+	case len(command.Args) == 4 && command.Args[0] == "git" && command.Args[1] == "cat-file":
+		return workspaceapi.CommandResult{}, nil
+	}
+	return workspaceapi.CommandResult{}, r.effect("exec")
+}
+
+// CompareWriteFiles is the only file writer since 12bccbbc3a (#3560).
+func (r *authorityRuntime) CompareWriteFiles(context.Context, string, []workspaceapi.FileMutation) (*workspaceapi.FileWriteResult, error) {
+	return nil, r.effect("write")
 }
 
 func (r *authorityRuntime) CreateWorkspace(context.Context, workspaceapi.WorkspaceSpec) (workspaceapi.Workspace, error) {
@@ -111,11 +144,22 @@ func (*authorityRuntime) PreviewTarget(context.Context, string, uint16) (workspa
 	return workspaceapi.PreviewTarget{URL: "http://127.0.0.1:3000"}, nil
 }
 
-func (*authorityRuntime) ListFiles(context.Context, string, string) ([]workspaceapi.FileEntry, error) {
-	return []workspaceapi.FileEntry{{Name: "README.md", Mode: fs.FileMode(0o644), Size: 3}}, nil
+// ListFiles is an initialized checkout: its working copy, Git metadata with
+// the initialization receipt, and the Jujutsu working copy.
+func (*authorityRuntime) ListFiles(_ context.Context, _ string, dir string) ([]workspaceapi.FileEntry, error) {
+	if dir == ".git" {
+		return []workspaceapi.FileEntry{{Name: path.Base(workspaceRepositoryReceiptPath)}}, nil
+	}
+	return []workspaceapi.FileEntry{{Name: "README.md", Mode: fs.FileMode(0o644), Size: 3},
+		{Name: ".git", IsDir: true}, {Name: ".jj", IsDir: true}}, nil
 }
 
-func (*authorityRuntime) ReadFile(context.Context, string, string) ([]byte, error) {
+func (r *authorityRuntime) ReadFile(_ context.Context, id, file string) ([]byte, error) {
+	if file == workspaceRepositoryReceiptPath {
+		return json.Marshal(workspaceRepositoryReceipt{Version: workspaceRepositoryReceiptVersion, WorkspaceID: id,
+			RepositoryID: r.repositoryID, CloneURL: r.cloneURL, SourceBookmark: "main",
+			SourceRevision: strings.Repeat("a", 40), InitializedAt: time.Now().UTC()})
+	}
 	return []byte("hi\n"), nil
 }
 
@@ -123,20 +167,42 @@ func (*authorityRuntime) ListServices(context.Context, string) ([]workspaceapi.S
 	return nil, nil
 }
 
+func (r *authorityRuntime) StopWorkspace(context.Context, string) error {
+	return r.effect("stop")
+}
+
+func (r *authorityRuntime) OpenWorkspaceTerminal(context.Context, string, workspaceapi.Command) (workspaceapi.Terminal, error) {
+	return nil, r.effect("terminal")
+}
+
+// StopService and StartService serve the product's own head reporter, which
+// every running branch installs best-effort; it never starts here, and that
+// is no member side effect. Any other started service is one.
+func (*authorityRuntime) StopService(context.Context, string, string) error { return nil }
+
+func (r *authorityRuntime) StartService(_ context.Context, _ string, spec workspaceapi.ServiceSpec) (workspaceapi.Service, error) {
+	if spec.Name == workspaceHeadReporterService {
+		return workspaceapi.Service{}, errors.New("head reporter unavailable in this fixture")
+	}
+	return workspaceapi.Service{}, r.effect("start-service")
+}
+
 func (r *authorityRuntime) ManageService(context.Context, string, string, string) (workspaceapi.ServiceObservation, error) {
 	return workspaceapi.ServiceObservation{}, r.effect("manage-service")
 }
 
 type authorityFixture struct {
-	pool          *pgxpool.Pool
-	store         *db.Queries
-	repoID        int64
-	owner         int64
-	writer        int64
-	reader        int64
-	revoked       int64
-	workspaceID   string
-	sessionID     string
+	pool        *pgxpool.Pool
+	store       *db.Queries
+	repoID      int64
+	owner       int64
+	writer      int64
+	reader      int64
+	revoked     int64
+	workspaceID string
+	// sessions is each actor's own session in the owner's workspace: a
+	// terminal belongs to its member (2893dd3602, #3578).
+	sessions      map[int64]string
 	runtime       *authorityRuntime
 	service       *WorkspaceService
 	sandboxClient *mockWorkspaceSandboxVMClient
@@ -157,8 +223,13 @@ func newAuthorityFixture(t *testing.T, status string, state workspaceapi.Workspa
 	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspaces (repository_id, user_id, name, kind, status, vm_id)
 		VALUES ($1, $2, $3, 'container', $4, 'vm-authority') RETURNING id`,
 		fx.repoID, fx.owner, "authority-"+uuid.NewString()[:8], status).Scan(&fx.workspaceID))
-	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, status)
-		VALUES ($1, $2, $3, 'running') RETURNING id`, fx.workspaceID, fx.repoID, fx.owner).Scan(&fx.sessionID))
+	fx.sessions = map[int64]string{}
+	for _, user := range []int64{fx.owner, fx.writer, fx.reader, fx.revoked} {
+		var session string
+		require.NoError(t, pool.QueryRow(ctx, `INSERT INTO workspace_sessions (workspace_id, repository_id, user_id, status)
+		VALUES ($1, $2, $3, 'running') RETURNING id`, fx.workspaceID, fx.repoID, user).Scan(&session))
+		fx.sessions[user] = session
+	}
 	for grantee, level := range map[int64]string{fx.writer: "write", fx.reader: "read", fx.revoked: "write"} {
 		_, err := fx.store.UpsertWorkspaceShare(ctx, db.UpsertWorkspaceShareParams{
 			WorkspaceID: fx.workspaceID, OwnerUserID: fx.owner, GranteeUserID: grantee, Level: level,
@@ -168,9 +239,38 @@ func newAuthorityFixture(t *testing.T, status string, state workspaceapi.Workspa
 	require.NoError(t, fx.store.DeleteWorkspaceShare(ctx, db.DeleteWorkspaceShareParams{WorkspaceID: fx.workspaceID, GranteeUserID: fx.revoked}))
 	fx.runtime = newAuthorityRuntime(state)
 	fx.runtime.loopback = loopback
-	fx.sandboxClient = &mockWorkspaceSandboxVMClient{}
+	slug, err := fx.store.GetRepoOwnerSlugAndNameByID(ctx, fx.repoID)
+	require.NoError(t, err)
+	fx.runtime.repositoryID = fx.repoID
+	fx.runtime.cloneURL = testWorkspaceGitBaseURL + "/" + slug.OwnerSlug + "/" + slug.RepoName + ".git"
+	// The guest is bootstrapped: its tool readiness probe answers ready.
+	fx.sandboxClient = &mockWorkspaceSandboxVMClient{execAwaitFn: func(_ context.Context, _ string, req sandbox.ExecRequest) (sandbox.ExecResult, error) {
+		ok := int32(0)
+		if strings.Contains(req.Command, "bootstrap.done") {
+			return sandbox.ExecResult{StatusCode: &ok, Stdout: "ready"}, nil
+		}
+		return sandbox.ExecResult{StatusCode: &ok}, nil
+	}}
+	// An SSH connection's side effect is the provider's access grant.
+	fx.sandboxClient.grantVMPermissionFn = func(context.Context, string, string, sandbox.GrantAccessRequest) (sandbox.AccessGrant, error) {
+		return sandbox.AccessGrant{}, fx.runtime.effect("ssh-grant")
+	}
 	fx.service = fx.newService(fx.runtime)
 	return fx
+}
+
+// darkForkWriter is a revision writer that is not available: it answers 503
+// and reaches nothing.
+func darkForkWriter(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error) {
+	return WorkspaceResponse{}, pkgerrors.New(pkgerrors.CodeServiceUnavailable, "revision writer unavailable")
+}
+
+// composeForkWriter gives svc the activation providers and a revision writer.
+// ForkWorkspace refuses every caller before reading the source without them
+// (f6e8615156, #3525), so authority over a fork is checked only once they exist.
+func composeForkWriter(svc *WorkspaceService, writer func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error)) {
+	svc.branchMachineProviders = branchMachineTestProviders()
+	svc.revisionFork = writer
 }
 
 func (fx *authorityFixture) newService(runtime workspaceapi.WorkspaceRuntime) *WorkspaceService {
@@ -213,7 +313,7 @@ var workspaceMutationCases = []workspaceMutationCase{
 		return err
 	}},
 	{name: "open terminal", call: func(ctx context.Context, fx *authorityFixture, svc *WorkspaceService, userID int64) error {
-		_, err := svc.OpenWorkspaceTerminal(ctx, fx.sessionID, fx.repoID, userID, 80, 24)
+		_, err := svc.OpenWorkspaceTerminal(ctx, fx.sessions[userID], fx.repoID, userID, 80, 24)
 		return err
 	}},
 	{name: "ssh connection", call: func(ctx context.Context, fx *authorityFixture, svc *WorkspaceService, userID int64) error {
@@ -274,6 +374,9 @@ func TestWorkspaceMutationsRequireWriteAuthority(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			fx := newAuthorityFixture(t, "suspended", workspaceapi.WorkspaceStopped, false)
+			if tc.name == "fork" {
+				composeForkWriter(fx.service, darkForkWriter)
+			}
 			for _, actor := range []struct {
 				name    string
 				userID  int64
@@ -326,6 +429,11 @@ func TestWorkspaceMutationsHoldAuthorityAcrossTheirSideEffect(t *testing.T) {
 				ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 				defer cancel()
 				fx := newAuthorityFixture(t, "running", workspaceapi.WorkspaceRunning, false)
+				if tc.name == "fork" {
+					composeForkWriter(fx.service, func(context.Context, db.Workspace, ForkWorkspaceInput) (WorkspaceResponse, error) {
+						return WorkspaceResponse{}, fx.runtime.effect("fork")
+					})
+				}
 				fx.runtime.park = true
 				released := false
 				defer func() {
@@ -363,7 +471,9 @@ func TestWorkspaceMutationsHoldAuthorityAcrossTheirSideEffect(t *testing.T) {
 
 				close(fx.runtime.release)
 				released = true
-				require.ErrorContains(t, <-mutation, errAuthoritySideEffect.Error())
+				// The mutation fails at its side effect; a file write or service
+				// action answers its own typed error rather than the runtime's text.
+				require.Error(t, <-mutation)
 				require.NoError(t, <-changed)
 
 				fx.runtime.mu.Lock()
@@ -390,7 +500,7 @@ func TestWorkspaceReaderSeesRunningWorkspaceWithoutMutating(t *testing.T) {
 		require.True(t, access.Proxy)
 		files, err := fx.service.ListWorkspaceFiles(ctx, fx.workspaceID, fx.repoID, fx.reader, "")
 		require.NoError(t, err)
-		require.Len(t, files, 1)
+		require.True(t, slices.ContainsFunc(files, func(file WorkspaceFileEntry) bool { return file.Path == "README.md" }), "%v", files)
 		content, err := fx.service.ReadWorkspaceFile(ctx, fx.workspaceID, fx.repoID, fx.reader, "README.md")
 		require.NoError(t, err)
 		require.Equal(t, "README.md", content.Path)
@@ -439,6 +549,7 @@ func TestSandboxWorkspaceReaderNeverResumesOrPublishes(t *testing.T) {
 	}
 	svc := NewWorkspaceService(fx.store, WithWorkspaceTransactions(fx.pool), WithWorkspaceSandboxClient(fx.sandboxClient),
 		WithWorkspaceGitBaseURL(testWorkspaceGitBaseURL))
+	composeForkWriter(svc, darkForkWriter)
 
 	for _, reader := range []int64{fx.reader, fx.revoked} {
 		_, err := svc.ResolveWorkspacePreview(ctx, fx.workspaceID, fx.repoID, reader, 3000, "")
