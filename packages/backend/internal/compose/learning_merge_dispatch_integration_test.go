@@ -70,6 +70,11 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 		}
 	}()
 	q := db.New(pool)
+	// Install setup grants the owner admin on the bound repository
+	// (install_setup_session.go). Agent admission requires that member row
+	// before it spawns the learning run's coding host.
+	_, err := pool.Exec(ctx, `INSERT INTO collaborators(repository_id,user_id,permission) SELECT $1,user_id,'admin' FROM self_host_owners ON CONFLICT(repository_id,user_id) WHERE user_id IS NOT NULL DO UPDATE SET permission='admin'`, item.RepositoryID)
+	require.NoError(t, err)
 	store, err := jobs.NewStore(pool)
 	require.NoError(t, err)
 	var count int
@@ -193,7 +198,7 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)
-	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool}
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool, machine: learningMachineName}
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
@@ -332,6 +337,9 @@ func proveLearningMergedDispatch(t *testing.T, pool *pgxpool.Pool, service *serv
 	require.EqualValues(t, 1, runtime.starts.Load())
 	require.EqualValues(t, 1, transport.starts.Load())
 	require.Equal(t, []string{item.PRMergeCommit}, transport.seeds, "the learning machine's branch head seed is the pinned merge")
+	// The row names the VM the daemon boots, so agent admission accepts the
+	// coding host spawn (real install run 14 refused it as unauthorized).
+	require.Equal(t, []string{"admitted"}, transport.spawns)
 	require.Equal(t, learningCounts{creates: 1, restores: 1, deletes: 2}, guest.counts())
 	require.Zero(t, queue.InUse())
 	require.Equal(t, item.PRMergeCommit, source.restored.SourceCommit)

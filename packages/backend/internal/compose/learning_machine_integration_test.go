@@ -90,12 +90,20 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 			workspace.WorkspaceLifecycle
 			workspace.WorkspaceSourceRevisionResolver
 		}{&learningRuntimeContract{}, &learningRuntimeContract{}}
+		// Without the runtime's VM name the row cannot name the machine the
+		// daemon boots, and every coding host spawn is refused.
+		sandboxedNoIdentity := struct {
+			workspace.WorkspaceLifecycle
+			workspace.WorkspaceSourceRevisionResolver
+			reviewMachineAdmission
+		}{&learningRuntimeContract{}, &learningRuntimeContract{}, &learningRuntimeContract{}}
 		hosted := testConfigAllFlagsOn()
 		hosted.Auth.Mode = "oauth"
 		for name, bind := range map[string]func() bool{
 			"no runtime":           func() bool { return bindLearningMachines(service, cfg, pool, nil, source) },
 			"trusted process":      func() bool { return bindLearningMachines(service, cfg, pool, trusted, source) },
 			"no admission queue":   func() bool { return bindLearningMachines(service, cfg, pool, sandboxedNoQueue, source) },
+			"no machine identity":  func() bool { return bindLearningMachines(service, cfg, pool, sandboxedNoIdentity, source) },
 			"not a single install": func() bool { return bindLearningMachines(service, hosted, pool, &learningRuntimeContract{}, source) },
 		} {
 			require.False(t, bind(), name)
@@ -183,7 +191,10 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 	workspaceID := learningWorkspaceID(item)
 	var status, vm string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT status, vm_id FROM workspaces WHERE id=$1 AND repository_id=$2 AND user_id=$3`, workspaceID, repository, owner.ID).Scan(&status, &vm))
-	require.Equal(t, []string{"running", workspaceID}, []string{status, vm})
+	// Agent admission and actor references match vm_id with the VM name the
+	// daemon boots under. The workspace ID refused every coding host spawn as
+	// unauthorized (real install run 14).
+	require.Equal(t, []string{"running", learningMachineName}, []string{status, vm})
 	// The Flow host start seeds the machine's branch head from the row
 	// (machineBranchHead); a row without the pinned merge refuses not_ready
 	// three times and exhausts the start (real install run 13, Stop 1).
@@ -238,6 +249,10 @@ func TestLearningMachineComposedInstall(t *testing.T) {
 
 type learningCounts struct{ creates, restores, deletes int }
 
+// learningMachineName is the VM name the runtime boots the learning machine
+// under, distinct from its workspace ID as microsandbox names are.
+const learningMachineName = "smthrs-ws-1ea41a1c-0123456789abcdef0123"
+
 type learningSourceContract struct {
 	runtime  *learningRuntimeContract
 	restored flowruntime.Pin
@@ -282,7 +297,7 @@ func (r *learningRuntimeContract) InspectWorkspace(context.Context, string) (wor
 func (r *learningRuntimeContract) CreateWorkspace(_ context.Context, s workspace.WorkspaceSpec) (workspace.Workspace, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, "learning-vm"); err != nil {
+	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, learningMachineName); err != nil {
 		return workspace.Workspace{}, err
 	}
 	r.creates++
@@ -296,6 +311,14 @@ func (r *learningRuntimeContract) DeleteWorkspace(context.Context, string) error
 	r.exists = false
 	r.queue.ConfirmAdmissionStop("workspace:"+r.id, false)
 	return nil
+}
+func (r *learningRuntimeContract) WorkspaceMachineIdentity(context.Context, string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.exists {
+		return "", workspace.ErrWorkspaceNotFound
+	}
+	return learningMachineName, nil
 }
 func (r *learningRuntimeContract) ResolveWorkspaceSourceRevision(context.Context, string) (string, error) {
 	r.mu.Lock()

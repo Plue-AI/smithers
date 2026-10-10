@@ -256,13 +256,23 @@ func TestPresenceAgentSessionResolvesAdmittedBranch(t *testing.T) {
 // bridge, PostgreSQL authorization and the install live route are production.
 func presenceTestLink(t *testing.T, registry *machined.Registry, branch string, bootOut ...*[16]byte) (*machined.Link, net.Conn) {
 	t.Helper()
-	authority, err := registry.MintBoot(branch, "machine")
+	link, guest, boot, closeLink, err := machineTestLink(t.Context(), registry, branch, "machine")
 	require.NoError(t, err)
 	for _, output := range bootOut {
-		*output = authority.ID
+		*output = boot
+	}
+	t.Cleanup(closeLink)
+	return link, guest
+}
+
+// machineTestLink authenticates a guest daemon link for branch under the VM
+// name the runtime boots it with. Only the guest end of the stream is simulated.
+func machineTestLink(ctx context.Context, registry *machined.Registry, branch, machine string) (*machined.Link, net.Conn, [16]byte, func(), error) {
+	authority, err := registry.MintBoot(branch, machine)
+	if err != nil {
+		return nil, nil, [16]byte{}, nil, err
 	}
 	host, guest := net.Pipe()
-	t.Cleanup(func() { host.Close(); guest.Close() })
 	done := make(chan error, 1)
 	go func() {
 		nonce := make([]byte, 32)
@@ -293,9 +303,20 @@ func presenceTestLink(t *testing.T, registry *machined.Registry, branch string, 
 		_, err = wire.Read(guest)
 		done <- err
 	}()
-	link, err := registry.Connect(t.Context(), branch, host)
-	require.NoError(t, err)
-	require.NoError(t, <-done)
-	t.Cleanup(func() { link.Close() })
-	return link, guest
+	link, err := registry.Connect(ctx, branch, host)
+	if err == nil {
+		err = <-done
+	}
+	closeLink := func() {
+		if link != nil {
+			link.Close()
+		}
+		host.Close()
+		guest.Close()
+	}
+	if err != nil {
+		closeLink()
+		return nil, nil, [16]byte{}, nil, err
+	}
+	return link, guest, authority.ID, closeLink, nil
 }

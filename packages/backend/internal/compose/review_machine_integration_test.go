@@ -112,7 +112,7 @@ esac
 	require.NoError(t, err)
 	bindings, err := flowhost.NewStore(pool, codec)
 	require.NoError(t, err)
-	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool}
+	transport := &reviewHostTransport{todoControlHostTransport: &todoControlHostTransport{receiver: runtime}, pool: pool, machine: reviewMachineName}
 	guestServer := httptest.NewServer(transport)
 	t.Cleanup(guestServer.Close)
 	transport.endpoint = guestServer.URL
@@ -428,6 +428,9 @@ esac
 	// A row without the restored head refuses EnsureMachined step "head"
 	// not_ready until the start exhausts (real install run 13, Stop 1).
 	require.Equal(t, []string{admission.Head}, transport.seeds, "the review machine's branch head seed is the restored PR head")
+	// The row names the VM the daemon boots, so agent admission accepts the
+	// coding host spawn (real install run 14 refused it as unauthorized).
+	require.Equal(t, []string{"admitted"}, transport.spawns)
 	require.GreaterOrEqual(t, source.restores, 2)
 	require.Equal(t, admission.Head, source.selected.Head)
 	var count int
@@ -477,6 +480,10 @@ type reviewHostTransport struct {
 	*todoControlHostTransport
 	pool  *pgxpool.Pool
 	seeds []string
+	// machine is the VM name the runtime boots the machine under. When set,
+	// each start admits the coding host spawn as the production broker does.
+	machine string
+	spawns  []string
 }
 
 // StartFlowHost records the branch head seed the production machine broker
@@ -492,7 +499,38 @@ func (h *reviewHostTransport) StartFlowHost(ctx context.Context, launch flowhost
 	h.mu.Lock()
 	h.seeds = append(h.seeds, seed)
 	h.mu.Unlock()
+	if h.machine != "" {
+		err := h.admitCodingHost(ctx, launch)
+		outcome := "admitted"
+		if err != nil {
+			outcome = err.Error()
+		}
+		h.mu.Lock()
+		h.spawns = append(h.spawns, outcome)
+		h.mu.Unlock()
+		if err != nil {
+			return flowhost.Connection{}, err
+		}
+	}
 	return h.todoControlHostTransport.StartFlowHost(ctx, launch)
+}
+
+// admitCodingHost runs the production broker's checks before it spawns the
+// coding host (microsandbox native_host.go): commit the run's actor under the
+// daemon link's VM name, then admit the spawn. Both match workspaces.vm_id.
+func (h *reviewHostTransport) admitCodingHost(ctx context.Context, launch flowhost.HostLaunch) error {
+	branch := launch.Binding.WorkspaceID
+	host := newMachineHost(h.pool, nil)
+	host.registry = new(machined.Registry)
+	link, _, _, closeLink, err := machineTestLink(ctx, host.registry, branch, h.machine)
+	if err != nil {
+		return err
+	}
+	defer closeLink()
+	if _, err = host.commitAgentActor(ctx, branch, link.Machine(), launch.Binding.ID); err != nil {
+		return err
+	}
+	return host.admitAgent(ctx, branch, launch.Binding.ID, func(context.Context) error { return nil })
 }
 
 func (h *reviewHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -553,6 +591,10 @@ func (h *reviewHostTransport) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(map[string]any{"protocol": flowruntime.Protocol, "ok": true, "value": value})
 }
 
+// reviewMachineName is the VM name the runtime boots the review machine
+// under, distinct from its workspace ID as microsandbox names are.
+const reviewMachineName = "smthrs-ws-2eb1e3a1-0123456789abcdef0123"
+
 type reviewRuntimeContract struct {
 	heldOnFailedDelete int
 	queue              *microsandbox.Runtime
@@ -581,7 +623,7 @@ func (r *reviewRuntimeContract) InspectWorkspace(context.Context, string) (works
 func (r *reviewRuntimeContract) CreateWorkspace(_ context.Context, s workspace.WorkspaceSpec) (workspace.Workspace, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, "review-vm"); err != nil {
+	if err := r.queue.BindAdmissionMachine("workspace:"+s.ID, reviewMachineName); err != nil {
 		return workspace.Workspace{}, err
 	}
 	r.creates++
@@ -601,6 +643,14 @@ func (r *reviewRuntimeContract) DeleteWorkspace(context.Context, string) error {
 	r.exists = false
 	r.queue.ConfirmAdmissionStop("workspace:"+r.id, false)
 	return nil
+}
+func (r *reviewRuntimeContract) WorkspaceMachineIdentity(context.Context, string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.exists {
+		return "", workspace.ErrWorkspaceNotFound
+	}
+	return reviewMachineName, nil
 }
 func (r *reviewRuntimeContract) ResolveWorkspaceSourceRevision(context.Context, string) (string, error) {
 	return r.head, nil

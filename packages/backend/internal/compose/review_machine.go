@@ -32,6 +32,14 @@ type reviewMachineAdmission interface {
 	AdmissionSnapshot() []microsandbox.AdmissionRequest
 }
 
+// machineIdentityRuntime names a workspace's VM as the runtime boots it. The
+// daemon registry links under that name, and agent admission and actor
+// references match workspaces.vm_id with it. A row holding the workspace ID
+// refuses every coding host spawn as unauthorized.
+type machineIdentityRuntime interface {
+	WorkspaceMachineIdentity(context.Context, string) (string, error)
+}
+
 // reviewSource is the shared pinned-loader/read-credential boundary, not a
 // second loader. Prepare verifies availability, digest, and the qualified root
 // boundary without allocating. Restore installs the pinned closure separately
@@ -87,6 +95,9 @@ func (m *reviewMachine) Prepare(ctx context.Context, a services.ReviewAdmission)
 	}
 	if _, ok := m.workspace.(reviewMachineAdmission); !ok {
 		return reviewRefusal("review_admission_unavailable")
+	}
+	if _, ok := m.workspace.(machineIdentityRuntime); !ok {
+		return reviewRefusal("review_machine_unavailable")
 	}
 	return nil
 }
@@ -211,9 +222,16 @@ func (m *reviewMachine) Start(ctx context.Context, operation string, a services.
 	if head != a.Head {
 		return "", reviewRefusal("review_head_mismatch")
 	}
+	machine, err := m.workspace.(machineIdentityRuntime).WorkspaceMachineIdentity(ctx, target.WorkspaceID) // Prepare checked the runtime.
+	if err != nil {
+		return "", err
+	}
+	if machine == "" {
+		return "", reviewRefusal("review_machine_unavailable")
+	}
 	// The Flow host start seeds the machine's branch head from source_commit
 	// (machineBranchHead): the restored PR head, retained on the host.
-	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$4,source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID, current.ID, a.Head); err != nil {
+	if _, err = m.pool.Exec(ctx, `UPDATE workspaces SET status='running',vm_id=$4,source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3`, target.WorkspaceID, a.RepositoryID, a.RequesterID, machine, a.Head); err != nil {
 		return "", err
 	}
 	host, err := m.resolver.ResolveFlowRuntime(ctx, target)

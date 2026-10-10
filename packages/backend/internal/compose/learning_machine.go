@@ -50,6 +50,9 @@ func bindLearningMachines(service *services.MythicalService, cfg *config.Config,
 	if _, ok := runtime.(workspace.WorkspaceSourceRevisionResolver); !ok {
 		return false
 	}
+	if _, ok := runtime.(machineIdentityRuntime); !ok {
+		return false
+	}
 	service.SetLearningMachines(&learningMachine{pool: pool, workspace: runtime, source: source})
 	return true
 }
@@ -78,6 +81,9 @@ func (m *learningMachine) prepare(ctx context.Context, repository int64, pin flo
 	}
 	if _, ok := m.workspace.(workspace.WorkspaceSourceRevisionResolver); !ok || m.source == nil {
 		return nil, learningRefusal("learning_source_unavailable")
+	}
+	if _, ok := m.workspace.(machineIdentityRuntime); !ok {
+		return nil, learningRefusal("learning_machine_unavailable")
 	}
 	return queue, m.source.Prepare(ctx, repository, pin)
 }
@@ -164,10 +170,17 @@ func (m *learningMachine) EnsureLearningMachine(ctx context.Context, repository,
 	if head != pin.SourceCommit {
 		return flowruntime.Target{}, learningRefusal("learning_source_mismatch")
 	}
+	machine, err := m.workspace.(machineIdentityRuntime).WorkspaceMachineIdentity(ctx, target.WorkspaceID) // prepare checked the runtime.
+	if err != nil {
+		return flowruntime.Target{}, err
+	}
+	if machine == "" {
+		return flowruntime.Target{}, learningRefusal("learning_machine_unavailable")
+	}
 	// The learning target resolver requires a running row bound to its VM.
 	// The Flow host start seeds the machine's branch head from source_commit
 	// (machineBranchHead); without it EnsureMachined refuses step "head".
-	if _, err := m.pool.Exec(ctx, `UPDATE workspaces SET status='running', vm_id=$4, source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3 AND deleted_at IS NULL`, target.WorkspaceID, repository, actor, current.ID, pin.SourceCommit); err != nil {
+	if _, err := m.pool.Exec(ctx, `UPDATE workspaces SET status='running', vm_id=$4, source_commit=$5 WHERE id=$1 AND repository_id=$2 AND user_id=$3 AND deleted_at IS NULL`, target.WorkspaceID, repository, actor, machine, pin.SourceCommit); err != nil {
 		return flowruntime.Target{}, err
 	}
 	return target, nil
