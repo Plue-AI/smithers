@@ -3,7 +3,7 @@
  *
  * Governing designs: `docs/concepts/ownership-and-fencing.md`,
  * `docs/concepts/attempts-and-replay.md`, and
- * `apps/site/src/content/docs/docs/concepts/flows-actions-plans.mdx`.
+ * `packages/smithers/flows/flow/docs/concepts/flows-and-actions.md`.
  *
  * @since 0.1.0
  */

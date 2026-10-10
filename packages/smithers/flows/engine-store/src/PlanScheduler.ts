@@ -495,7 +495,7 @@ export const make = (options: Options): Service => {
   )
 
   // Every scheduler record addresses the run's root lineage, so a frame can
-  // reach it (`apps/site/src/content/docs/docs/concepts/time-travel.mdx`).
+  // reach it (`packages/smithers/flows/time-travel/docs/concepts/frames-and-lineage.md`).
   const lineageId = FlowEngine.Lineage.root(options.runId)
   const source = (suffix: string) => ({ runId: options.runId, sourceId: `${options.sourceId}/${suffix}`, lineageId })
 

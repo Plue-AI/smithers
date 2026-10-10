@@ -14,7 +14,7 @@
  * The core default is strict so an invariant violation cannot pass silently.
  *
  * Governing designs: `docs/concepts/attempts-and-replay.md` and
- * `apps/site/src/content/docs/docs/concepts/flows-actions-plans.mdx`.
+ * `docs/concepts/cache-admission.md`.
  *
  * @since 0.1.0
  */

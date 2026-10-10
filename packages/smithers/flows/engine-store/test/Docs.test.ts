@@ -96,7 +96,9 @@ describe("documentation contracts", () => {
     host.readFile = (path) => path === filename ? source : readFile(path)
     host.fileExists = (path) => path === filename || fileExists(path)
     const program = ts.createProgram([filename], options, host)
-    const diagnostics = ts.getPreEmitDiagnostics(program)
+    // The quickstart's own diagnostics: checking every dependency's source as well
+    // repeats their typecheck targets and took over a minute on a CI runner.
+    const diagnostics = ts.getPreEmitDiagnostics(program, program.getSourceFile(filename))
     expect(
       diagnostics.map((diagnostic) =>
         ts.formatDiagnosticsWithColorAndContext([diagnostic], {
