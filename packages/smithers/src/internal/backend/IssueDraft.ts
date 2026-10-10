@@ -1,8 +1,19 @@
+/**
+ * Drafts a TODO from an install issue on this machine, for maintainers only.
+ *
+ * @since 1.0.0
+ */
+
 import { Refused, UsageError } from "../../CliError.ts"
 import { type IssueDraftSource, issueTodoDraftRequest, readIssueTodoDraft } from "../../IssueTodoDraft.ts"
-import { Client, object } from "./Client.ts"
+import { type Client, object } from "./Client.ts"
 
-/** Draft locally from the install's reader-bound snapshot; never create a TODO here. */
+/**
+ * Draft locally from the install's reader-bound snapshot; never create a TODO here.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const draftFromIssue = async (client: Client, payload: Record<string, unknown>, signal?: AbortSignal) => {
   const number = payload.number
   if (typeof number !== "number" || !Number.isSafeInteger(number) || number <= 0) {

@@ -1,4 +1,8 @@
-/** Frozen signature projection for Markdown lowering and metadata combinators. */
+/**
+ * Frozen signature projection for Markdown lowering and metadata combinators.
+ *
+ * @since 1.0.0
+ */
 
 import { Action, Flow as Durable } from "@smthrs/flow"
 import type * as Context from "effect/Context"
@@ -9,7 +13,7 @@ import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import type * as Types from "effect/Types"
 import * as Annotations from "../Annotations.ts"
-import * as Effects from "../Effects.ts"
+import type * as Effects from "../Effects.ts"
 import * as Node from "../Node.ts"
 import type * as Placement from "../Placement.ts"
 
@@ -251,6 +255,14 @@ const payloadOf = <I extends Schema.Top>(input: I): Payload<I> =>
  */
 const tierOf = (effects: Effects.Declaration | undefined): Action.Tier => effects?.tier ?? "irreversible"
 
+/**
+ * Builds a signature from Markdown-lowered options: annotated capabilities and
+ * effects override the declared ones, and a signature without a body becomes the
+ * action a host implements later.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const build = <
   I extends Schema.Top,
   O extends Schema.Top,

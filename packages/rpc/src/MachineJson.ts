@@ -1,4 +1,12 @@
 /**
+ * Proposals that add Debian packages to the repository's `.smithers/machine.json`
+ * image file. Each proposal preserves package order, touches only that file, and
+ * is refused with {@link MachineJsonRejected} before any diff exists.
+ *
+ * @since 1.0.0
+ */
+
+/**
  * An invalid image package proposal refused before producing a diff.
  * @since 1.0.0
  * @category errors

@@ -1,6 +1,11 @@
-/** Shared document-returning CLI launch Effects. @since 1.0.0 */
-import { Control as ControlService, ControlSchema } from "@smthrs/control"
-import { BudgetOnExceeded, deadlineMillis } from "@smthrs/registry/Descriptor"
+/**
+ * Shared document-returning CLI launch Effects.
+ *
+ * @since 1.0.0
+ */
+
+import { Control as ControlService, type ControlSchema } from "@smthrs/control"
+import { type BudgetOnExceeded, deadlineMillis } from "@smthrs/registry/Descriptor"
 import { Effect, Option } from "effect"
 import { resolve } from "node:path"
 import * as CliError from "../CliError.ts"

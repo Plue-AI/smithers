@@ -1,7 +1,11 @@
-/** Host-only adapter of the existing branch protocol and lease roster.
+/**
+ * Host-only adapter of the existing branch protocol and lease roster.
  * The Go authorizer resolves branch, actor and socket session before forwarding.
  * The runtime bearer is required on every RPC; participant IDs confer no rights.
+ *
+ * @since 1.0.0
  */
+
 import * as BranchPresence from "@smthrs/sync/BranchPresence"
 import type { Announcement, LeaveRequest, RosterRequest } from "@smthrs/sync/BranchProtocol"
 import { BranchRpcs } from "@smthrs/sync/BranchRpcs"

@@ -1,3 +1,12 @@
+/**
+ * Scripted byte replay of the live document channel for tests: no CRDT,
+ * persistence, transport or production fallback. The consumer supplies checked-in
+ * literal fixtures rather than an encoder, and every frame is validated against
+ * the wire contract as it is replayed.
+ *
+ * @since 1.0.0
+ */
+
 import { decodeLiveDocBinary, LiveDocAwareness, LiveDocReply } from "../LiveDoc.ts"
 
 /**
@@ -7,8 +16,6 @@ import { decodeLiveDocBinary, LiveDocAwareness, LiveDocReply } from "../LiveDoc.
  */
 export type LiveDocGoldenFrame = string | readonly number[]
 
-// Scripted byte replay only: no CRDT, persistence, transport or production fallback.
-// The consumer supplies checked-in literal fixtures, rather than an encoder.
 /**
  * Replays checked-in document frames and restarts them on reconnect.
  * @since 1.0.0

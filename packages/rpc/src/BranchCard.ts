@@ -1,4 +1,10 @@
-/** Props-only Branch contract; HTTP/storage decoding belongs to T-APP-10. */
+/**
+ * Props-only Branch card contract: the facts, presence, terminals and actions a
+ * Branch view renders. HTTP and storage decoding belong to T-APP-10.
+ *
+ * @since 1.0.0
+ */
+
 import { z } from "zod"
 import type { Action, CardCallbacks, CardProps } from "./CardAction.ts"
 import { ActorSchema } from "./CardPrimitives.ts"
@@ -108,7 +114,12 @@ export const BranchParticipant = z.strictObject({
   session_id: z.string().min(1).optional(),
   via: z.enum(["app", "ssh", "terminal", "tool"])
 })
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link BranchParticipant}: who acted on a branch, for whom, and through which door.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type BranchParticipant = z.infer<typeof BranchParticipant>
 
 /** Branch subscription names on the shared live channel.
@@ -137,5 +148,10 @@ export const BranchActivityEntry = z.strictObject({
   versions: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/).optional(),
   text: z.string().optional()
 })
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link BranchActivityEntry}: one durable change on a branch and the files it touched.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type BranchActivityEntry = z.infer<typeof BranchActivityEntry>

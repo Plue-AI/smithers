@@ -1,7 +1,19 @@
+/**
+ * Chooses where a CLI command runs: the configured install or the local project.
+ *
+ * @since 1.0.0
+ */
+
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import { Session } from "./Session.ts"
 
-// Explicit local scope wins over both a destination flag and saved install settings.
+/**
+ * Whether a command targets the configured install rather than local state.
+ * Explicit local scope wins over both a destination flag and saved install settings.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const targetsInstall = (
   context: { args: Record<string, unknown>; options: Record<string, unknown> },
   runtime: Runtime

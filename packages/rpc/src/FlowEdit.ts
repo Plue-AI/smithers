@@ -1,5 +1,14 @@
 /**
- * Shared flow-edit prompt data. Proposed diffs are never executable input.
+ * Shared flow-edit prompt data: the title, prompt and TODO input that turn a
+ * request to change a flow into a TODO. Proposed diffs are never executable input.
+ *
+ * @since 1.0.0
+ */
+
+/**
+ * The display title of a flow: `todo` is "TODO flow", `merge` is "Merge flow",
+ * and any other name is shown as "<name> flow".
+ *
  * @since 1.0.0
  * @category constructors
  */

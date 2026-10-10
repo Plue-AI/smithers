@@ -1,4 +1,10 @@
-/** Debug API browser projection shared by its View and Container. */
+/**
+ * Debug API browser projection shared by its View and Container: the operations
+ * offered, the request being composed, and the last exchange.
+ *
+ * @since 1.0.0
+ */
+
 import type { CardCallbacks, CardProps } from "./CardAction.ts"
 
 /**

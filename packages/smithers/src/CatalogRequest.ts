@@ -1,6 +1,14 @@
 /**
+ * The product command catalog's shared HTTP encoding for CLI and host callers.
+ * Payload validation and actor authorization belong to the invoking boundary.
+ *
+ * @since 1.0.0
+ */
+
+/**
  * Catalog encoding failures.
  * @since 1.0.0
+ * @category errors
  */
 export class CatalogRequestError extends Error {
   readonly _tag = "CatalogRequestError"
@@ -11,13 +19,6 @@ export class CatalogRequestError extends Error {
     this.code = code
   }
 }
-
-/**
- * The product command catalog's shared HTTP encoding for CLI and host callers.
- * Payload validation and actor authorization belong to the invoking boundary.
- *
- * @since 1.0.0
- */
 
 /**
  * The HTTP binding emitted from an operation descriptor.

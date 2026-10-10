@@ -1,8 +1,15 @@
+/**
+ * The live document channel wire contract (Working-together I2): topics, replies,
+ * awareness, write refusals and the binary frame codec a browser uses to co-edit
+ * a document. Durability belongs to the document host.
+ *
+ * @since 1.0.0
+ */
+
 import { z } from "zod"
 import { BranchParticipant } from "./BranchCard.ts"
 import { ActorSchema } from "./CardPrimitives.ts"
 
-// Working-together I2: browser wire contract; durability belongs to the document host.
 /**
  * The maximum document frame size accepted for transmission.
  * @since 1.0.0
@@ -61,7 +68,13 @@ export const LiveDocRelativePosition = z.strictObject({
   item: z.strictObject({ client: z.number().int().nonnegative(), clock: z.number().int().nonnegative() }).optional(),
   assoc: z.number().int().optional()
 })
-/** @since 1.0.0 @category schemas */
+/**
+ * Host-stamped awareness for one participant in a document: who they are, their
+ * colour, their line, and an optional selection as Yjs relative positions.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const LiveDocAwareness = z.strictObject({
   actor: BranchParticipant,
   colour: z.string().min(1),
@@ -69,9 +82,19 @@ export const LiveDocAwareness = z.strictObject({
   anchor: LiveDocRelativePosition.optional(),
   head: LiveDocRelativePosition.optional()
 })
-/** @since 1.0.0 @category schemas */
+/**
+ * An outside write to the document file: the new version and who made it.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const LiveDocOutside = z.strictObject({ version: z.string().min(1), by: BranchParticipant })
-/** @since 1.0.0 @category schemas */
+/**
+ * The document went away: deleted, or renamed to a new path, and by whom.
+ *
+ * @since 1.0.0
+ * @category schemas
+ */
 export const LiveDocGone = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("deleted"), by: BranchParticipant }),
   z.strictObject({ kind: z.literal("renamed"), by: BranchParticipant, to: path })
@@ -180,14 +203,34 @@ export function encodeLiveDocBinary(frame: LiveDocBinary): Uint8Array {
   return bytes
 }
 
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link LiveDocAwareness} value.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type LiveDocAwareness = z.infer<typeof LiveDocAwareness>
 
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link LiveDocOutside} value.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type LiveDocOutside = z.infer<typeof LiveDocOutside>
 
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link LiveDocGone} value.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type LiveDocGone = z.infer<typeof LiveDocGone>
 
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link LiveDocRelativePosition} value.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type LiveDocRelativePosition = z.infer<typeof LiveDocRelativePosition>

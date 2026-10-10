@@ -1,4 +1,10 @@
-/** Terminal metadata only; T-APP-12 validates the live socket boundary. */
+/**
+ * Terminal card metadata and viewer permissions only. T-APP-12 validates the
+ * live socket boundary.
+ *
+ * @since 1.0.0
+ */
+
 import type { Actor } from "./CardPrimitives.ts"
 
 /**

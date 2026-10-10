@@ -372,6 +372,7 @@ const warningsOf = (events: ReadonlyArray<ControlSchema.ControlEvent>): Readonly
 
 /** Stable exact execution evidence for CLI readers.
  * @since 1.0.0
+ * @category models
  */
 export type PublicExecutionSnapshot = {
   readonly executionId: string
@@ -386,6 +387,7 @@ export type PublicExecutionSnapshot = {
 
 /** Project storage observations to the public CLI contract.
  * @since 1.0.0
+ * @category conversions
  */
 export const publicExecutionSnapshots = (
   batches: ReadonlyArray<ControlSchema.ExecutionBatch>

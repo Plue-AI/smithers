@@ -99,6 +99,13 @@ export interface BindingRecord {
   readonly flows?: ReadonlyArray<string | Declared> | undefined
 }
 
+/**
+ * Anything a memory policy can attach to and inherit through: a `@smthrs/core`
+ * signature, a `@smthrs/flow` {@link DurableDeclaration}, or a {@link BindingRecord}.
+ *
+ * @category models
+ * @since 1.0.0
+ */
 export type Declared = Flow.Any | DurableDeclaration | BindingRecord
 
 /**
@@ -231,7 +238,7 @@ export function withMemory<F extends Declared>(flow: F, policy: Policy): F
 export function withMemory(flow: Declared, policy: Policy): Declared {
   const attached = snapshot(policy)
   if (Flow.isFlow(flow)) return attach(flow, attached)
-  if (DurableFlow.isFlow(flow)) return (flow as DurableDeclaration).annotate(MemoryPolicy, attached)
+  if (DurableFlow.isFlow(flow)) return flow.annotate(MemoryPolicy, attached)
   return {
     ...flow,
     annotations: Context.add(flow.annotations ?? Context.empty(), MemoryPolicy, attached),

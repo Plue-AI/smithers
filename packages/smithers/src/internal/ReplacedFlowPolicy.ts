@@ -1,10 +1,21 @@
-/** Product entry points replaced by the pinned TODO composition (E-19).
+/**
+ * Product entry points replaced by the pinned TODO composition (E-19).
  * Verify and review remain ordinary engine launches. Existing journals and
  * recovery codecs remain readable; this fence applies only to registration.
+ *
+ * @since 1.0.0
  */
+
 import { FlowRuntime } from "@smthrs/flow"
 import { Effect, Layer } from "effect"
 
+/**
+ * Wraps `FlowRuntime` so registering `coding/Request` or `coding/Vibe` dies with
+ * `replaced: <tag>`; every other flow registers unchanged.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const layer = Layer.effect(FlowRuntime.FlowRuntime)(Effect.map(FlowRuntime.FlowRuntime, (runtime) => ({
   ...runtime,
   register: ((flow, handler, options) =>

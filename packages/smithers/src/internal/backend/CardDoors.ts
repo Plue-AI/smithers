@@ -1,4 +1,9 @@
-/** Person card doors open the configured install in the person's browser. */
+/**
+ * Person card doors open the configured install in the person's browser.
+ *
+ * @since 1.0.0
+ */
+
 import { Cli } from "incur"
 import type { Runtime } from "../../cli/ControlBridge.ts"
 import * as Presentation from "../../cli/Presentation.ts"
@@ -7,6 +12,13 @@ import catalog from "./catalog.mvp.json" with { type: "json" }
 import { run } from "./Process.ts"
 import { Session } from "./Session.ts"
 
+/**
+ * Mounts the `settings`, `members` and `secrets` card doors on the CLI. Each
+ * opens the configured install in the browser and is refused over MCP.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const mountCardDoors = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime) => {
   const commands = Cli.toCommands.get(cli as never)!
   for (const name of ["settings", "members", "secrets"]) {

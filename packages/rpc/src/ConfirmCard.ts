@@ -91,7 +91,13 @@ export const MemberConfirmationSchema = z.object({
   })
 })
 
-/** @since 1.0.0 @category models */
+/**
+ * A decoded {@link MemberConfirmationSchema} value: one private approval and its single effect.
+ * It must never enter model context.
+ *
+ * @since 1.0.0
+ * @category models
+ */
 export type MemberConfirmation = z.infer<typeof MemberConfirmationSchema>
 
 /**

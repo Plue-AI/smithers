@@ -810,8 +810,6 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
 /**
  * The program a confined run execs, made reachable inside its empty root.
  *
- * @internal
- *
  * Bubblewrap resolves a bare program name with `execvp` against `PATH` inside
  * the new root, and that root holds only the runtime paths and the declared
  * sets. A package manager installed outside them — pnpm under the
@@ -828,6 +826,9 @@ const credentialPaths = (hostFacts: Host): ReadonlyArray<string> => {
  * is bound read-only, because a script like `pnpm.cjs` loads its siblings.
  * With no package directory only the real file is bound. A name that resolves
  * nowhere is left for `execvp` to report.
+ *
+ * @since 1.0.0
+ * @private
  */
 export const launcher = (
   program: string,

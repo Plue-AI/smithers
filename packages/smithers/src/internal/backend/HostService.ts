@@ -1,4 +1,9 @@
-/** Per-user launchd adapter restored from organization/setup/service.ts. */
+/**
+ * Per-user launchd adapter restored from organization/setup/service.ts.
+ *
+ * @since 1.0.0
+ */
+
 import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
@@ -19,7 +24,19 @@ import { homedir } from "node:os"
 import { dirname, isAbsolute, join, resolve } from "node:path"
 import { Refused } from "../../CliError.ts"
 
+/**
+ * The launchd label of the per-user host agent.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const label = "sh.smithers.host"
+/**
+ * The host's state root: ~/Library/Application Support/Smithers under `home`.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const stateDirectory = (home = homedir()) => join(home, "Library", "Application Support", "Smithers")
 type PlistValue = string | number | boolean | ReadonlyArray<string> | { readonly [key: string]: PlistValue }
 
@@ -43,7 +60,12 @@ const render = (value: PlistValue, indent: string): string => {
   ].join("\n")
 }
 
-/** An XML property list document. */
+/**
+ * An XML property list document.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const plist = (value: { readonly [key: string]: PlistValue }): string =>
   [
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>",
@@ -54,6 +76,12 @@ export const plist = (value: { readonly [key: string]: PlistValue }): string =>
     ""
   ].join("\n")
 
+/**
+ * What the host agent's property list is rendered from.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export interface ServiceOptions {
   readonly bundle: string
   readonly stateDir: string
@@ -61,6 +89,12 @@ export interface ServiceOptions {
   readonly bind?: string
   readonly origins?: ReadonlyArray<string>
 }
+/**
+ * Renders the host agent's launchd property list.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEnv = process.env): string =>
   plist({
     Label: label,
@@ -98,14 +132,32 @@ export const hostPlist = (options: ServiceOptions, environment: NodeJS.ProcessEn
     StandardErrorPath: join(options.stateDir, "logs/host.log")
   })
 
+/**
+ * Runs one launchctl command.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export interface Launchctl {
   (args: ReadonlyArray<string>): { readonly status: number | null; readonly stdout: string; readonly stderr: string }
 }
+/**
+ * The launchd domain, agents directory and launchctl the adapter drives.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export interface Launchd {
   readonly agentsDir: string
   readonly domain: string
   readonly launchctl: Launchctl
 }
+/**
+ * The current user's launchd domain and LaunchAgents directory.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const launchd = (): Launchd => {
   if (process.platform !== "darwin" || !process.getuid || process.getuid() === 0) {
     throw new Refused({
@@ -127,10 +179,27 @@ export const launchd = (): Launchd => {
     }
   }
 }
+/**
+ * Whether the host agent is loaded in the domain.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const loaded = (system: Launchd) => system.launchctl(["print", `${system.domain}/${label}`]).status === 0
+/**
+ * The host agent's property list path.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const plistFile = (system: Launchd) => join(system.agentsDir, `${label}.plist`)
 
-/** Verify every bundle byte before changing launchd state. No PATH lookup or shell. */
+/**
+ * Verify every bundle byte before changing launchd state. No PATH lookup or shell.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const verifyBundle = (input: string): { bundle: string; version: string } => {
   const bundle = realpathSync(resolve(input))
   const manifest = JSON.parse(readFileSync(join(bundle, "manifest.json"), "utf8"))
@@ -191,6 +260,12 @@ export const verifyBundle = (input: string): { bundle: string; version: string }
   }
   return { bundle, version: manifest.revision }
 }
+/**
+ * Resolves the bundle to install: the given path, or the Homebrew keg bundle.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const resolveBundle = (input?: string): string => {
   if (input) return resolve(input)
   const keg = "/opt/homebrew/opt/smithers/libexec"
@@ -224,7 +299,12 @@ const waitStopped = async (system: Launchd, output: string): Promise<void> => {
   }
 }
 
-/** Writes and loads one agent; unchanged loaded agents retain their backend token. */
+/**
+ * Writes and loads one agent; unchanged loaded agents retain their backend token.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const install = async (
   options: ServiceOptions,
   system: Launchd
@@ -261,6 +341,13 @@ export const install = async (
   }
   return isLoaded ? "reloaded" : "installed"
 }
+/**
+ * Unloads the host agent, waits for it and its backend to stop, and removes its
+ * property list.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const stop = async (system: Launchd): Promise<{ state: "stopped" }> => {
   const job = system.launchctl(["print", `${system.domain}/${label}`])
   if (job.status === 0) {
@@ -273,6 +360,12 @@ export const stop = async (system: Launchd): Promise<{ state: "stopped" }> => {
   rmSync(plistFile(system), { force: true })
   return { state: "stopped" }
 }
+/**
+ * The bundle directory named by the installed property list's program path.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const installedBundle = (system: Launchd): string => {
   const text = readFileSync(plistFile(system), "utf8")
   const executable = text.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/)?.[1]
@@ -292,6 +385,9 @@ export const installedBundle = (system: Launchd): string => {
 
 /** Maintenance runs only the verified installed backend, with an inert environment.
  * It must not borrow a repository executable, login token or shell hook.
+ *
+ * @since 1.0.0
+ * @private
  */
 export const maintenance = (
   operation: "backup" | "upgrade" | "restore",
@@ -331,6 +427,9 @@ export const maintenance = (
  * true when the host is ready; while it starts, the starting page's step
  * (503 `{"status":"starting","phase","applied","total"}`, the backend's
  * native.startingPage); otherwise false.
+ *
+ * @since 1.0.0
+ * @private
  */
 export const ready = async (): Promise<boolean | string> => {
   try {
@@ -350,6 +449,9 @@ export const ready = async (): Promise<boolean | string> => {
  * Waits for readiness, allowing `timeout` without progress: each new
  * starting step restarts it, so a first boot's migrations on a loaded Mac
  * finish instead of failing `smthrs host start`.
+ *
+ * @since 1.0.0
+ * @private
  */
 export const waitReady = async (probe: () => Promise<boolean | string> = ready, timeout = 60_000): Promise<void> => {
   let deadline = Date.now() + timeout
@@ -369,7 +471,12 @@ export const waitReady = async (probe: () => Promise<boolean | string> = ready, 
     message: "Host readiness failed at http://127.0.0.1:4000/readyz"
   })
 }
-/** The private backend socket is the sole authority; missing output never means claimed. */
+/**
+ * The private backend socket is the sole authority; missing output never means claimed.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const setupURLs = (
   stateDir: string
 ): Promise<{ code: string; setup_urls?: string[]; message?: string; exitCode: number }> =>
@@ -448,7 +555,12 @@ export const setupURLs = (
     )
     req.end()
   })
-/** Durable backend refusal also survives a stopped or unloaded job. */
+/**
+ * Durable backend refusal also survives a stopped or unloaded job.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const startRefusal = (stateDir: string): Refused | undefined => {
   const file = join(stateDir, "start-refusal.json")
   if (!existsSync(file)) return undefined
@@ -456,6 +568,10 @@ export const startRefusal = (stateDir: string): Refused | undefined => {
   if (row.code !== "host_capacity_zero" || typeof row.message !== "string") return undefined
   return new Refused({ fault: "infra", class: "capacity", code: row.code, message: `${row.code}: ${row.message}` })
 }
+/**
+ * @since 1.0.0
+ * @private
+ */
 export const start = async (
   input?: string,
   address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> } = {}
@@ -465,6 +581,10 @@ export const start = async (
   const bundle = realpathSync(resolveBundle(input))
   return startInstalled({ bundle, stateDir, home: homedir(), ...address }, system)
 }
+/**
+ * @since 1.0.0
+ * @private
+ */
 export const startInstalled = async (
   options: ServiceOptions,
   system: Launchd,
@@ -493,7 +613,12 @@ export const startInstalled = async (
   const result = await handoff(stateDir)
   return bind && !origins?.length ? { ...result, warning: "LAN browsers need --origin" } : result
 }
-/** One terminal rendering for the registered CLI and the bundled host door. */
+/**
+ * One terminal rendering for the registered CLI and the bundled host door.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const startText = (value: unknown): string => {
   const row = value && typeof value === "object" ? value as Record<string, unknown> : {}
   return Array.isArray(row.setup_urls)
@@ -501,6 +626,10 @@ export const startText = (value: unknown): string => {
     : String(row.message ?? "")
 }
 
+/**
+ * @since 1.0.0
+ * @private
+ */
 export const status = async (system: Launchd = launchd(), stateDir = stateDirectory()) => {
   const refusal = startRefusal(stateDir)
   if (refusal) throw refusal
@@ -522,7 +651,12 @@ export const status = async (system: Launchd = launchd(), stateDir = stateDirect
   }
 }
 
-/** Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb. */
+/**
+ * Read-only bundled diagnostics need the same state root as the running service; the backend runs only its own bundle's msb.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const doctor = (bundle: string, stateDir: string, run = spawnSync): void => {
   const result = run(join(bundle, "bin/smithers-backend"), ["microvm", "doctor"], {
     encoding: "utf8",
@@ -538,7 +672,12 @@ export const doctor = (bundle: string, stateDir: string, run = spawnSync): void 
   }
 }
 
-/** Validate local serving flags before changing launchd or opening a listener. */
+/**
+ * Validate local serving flags before changing launchd or opening a listener.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export function validateAddress(address: { readonly bind?: string; readonly origins?: ReadonlyArray<string> }): void {
   if (address.bind !== undefined && address.bind !== "") {
     const bind = address.bind
@@ -574,7 +713,12 @@ export function validateAddress(address: { readonly bind?: string; readonly orig
   }
 }
 
-/** Optional install telemetry. Never copy setup URLs or credentials into status. */
+/**
+ * Optional install telemetry. Never copy setup URLs or credentials into status.
+ *
+ * @since 1.0.0
+ * @private
+ */
 export const installTelemetry = async (endpoint = "http://127.0.0.1:4000/api/install", credential?: string) => {
   try {
     const response = await fetch(endpoint, {

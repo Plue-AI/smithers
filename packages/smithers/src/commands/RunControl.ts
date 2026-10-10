@@ -1,4 +1,9 @@
-/** Shared document-returning CLI control Effects. @since 1.0.0 */
+/**
+ * Shared document-returning CLI control Effects.
+ *
+ * @since 1.0.0
+ */
+
 import * as Canonical from "@smthrs/canonical/Canonical"
 import { Control as ControlService, ControlSchema } from "@smthrs/control"
 import * as Sha256 from "@smthrs/crypto/Sha256"

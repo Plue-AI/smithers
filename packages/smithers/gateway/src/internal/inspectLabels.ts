@@ -1,3 +1,9 @@
+/**
+ * Inspect labels for recorded actions, read from the generated Appendix C table.
+ *
+ * @since 1.0.0
+ */
+
 import { ACTION_RENDERINGS } from "./actionRenderings.ts"
 
 /**

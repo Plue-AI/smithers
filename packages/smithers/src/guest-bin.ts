@@ -1,4 +1,10 @@
-// A bundled process door over the existing install command mount.
+/**
+ * A bundled process door over the existing install command mount: the `smthrs`
+ * entry point a guest runs, with the install error envelope around each call.
+ *
+ * @since 1.0.0
+ */
+
 import { Cli } from "incur"
 import * as Presentation from "./cli/Presentation.ts"
 import { mount } from "./internal/backend/Commands.ts"

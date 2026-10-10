@@ -220,7 +220,13 @@ export const MODEL_DEFAULT_PATH = "/api/model/default"
  * @category constants
  */
 export const MODEL_TEST_PATH = "/api/model/test"
-/** Durable owner probe receipt. @since 1.0.0 @category constants */
+/**
+ * The receipt route for one model test: read it with the probe's `requestId`
+ * until the probe is terminal.
+ *
+ * @since 1.0.0
+ * @category constants
+ */
 export const MODEL_TEST_RECEIPT_PATH = "/api/model/test/receipt"
 
 /*

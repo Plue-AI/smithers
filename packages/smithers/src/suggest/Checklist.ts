@@ -177,6 +177,15 @@ const runnerFiles: ReadonlyArray<readonly [file: string, runner: string]> = [
   ["go.mod", "go test"]
 ]
 
+/**
+ * The machine a repository needs, read from its standard files as data: the
+ * pinned tool versions and the file each came from, the package manager, the
+ * test checks, and the install commands with the files they read and the
+ * directories they write.
+ *
+ * @category models
+ * @since 1.0.0
+ */
 export interface MachineRecipe {
   readonly detectorVersion: string
   readonly tools: Record<string, { version: string; file: string }>
@@ -187,6 +196,13 @@ export interface MachineRecipe {
   >
 }
 
+/**
+ * A repository file that cannot be read into a {@link MachineRecipe}: invalid
+ * JSON or TOML, or a malformed version. `fix` names the file to change.
+ *
+ * @category errors
+ * @since 1.0.0
+ */
 export class MachineRecipeError extends Error {
   readonly code = "invalid_machine_recipe"
   readonly class = "user"
@@ -197,7 +213,12 @@ export class MachineRecipeError extends Error {
   }
 }
 
-/** Standard repository files, interpreted as data; never load repository code. */
+/**
+ * Standard repository files, interpreted as data; never load repository code.
+ *
+ * @category constants
+ * @since 1.0.0
+ */
 export const machineFiles = [
   ".node-version",
   ".nvmrc",
@@ -396,7 +417,9 @@ const machineEvidence = (repository: Repository): MachineRecipe => {
     }
   }
   const project = parse("pyproject.toml", true) as { project?: { "requires-python"?: string } }
-  const requirements = repository.list("").filter((name) => /^requirements[^/\\\x00]*\.txt$/.test(name) && has(name))
+  const requirements = repository.list("").filter((name) =>
+    /^requirements[^/\\]*\.txt$/.test(name) && !name.includes("\0") && has(name)
+  )
     .sort()
   if (has("pyproject.toml") || has(".python-version") || has("uv.lock") || requirements.length > 0) {
     let python = project.project?.["requires-python"] ?? "", pythonFile = "pyproject.toml"

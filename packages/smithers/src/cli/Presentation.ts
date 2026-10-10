@@ -28,6 +28,14 @@ const sessions = new AsyncLocalStorage<Session>()
 // Incur's formatter retains code/message only. Preserve the install envelope
 // around a single CLI invocation; server/MCP transports own their own errors.
 const errorEnvelopes = new AsyncLocalStorage<{ code?: string; category?: string }>()
+/**
+ * Runs one CLI invocation with an install error envelope. When the invocation
+ * fails with a classified `Refused`, the JSON error document written for that
+ * code gains its `class`; human output and streams are written unchanged.
+ *
+ * @category constructors
+ * @since 1.0.0
+ */
 export const withErrorEnvelope = <A>(
   write: (text: string) => unknown,
   run: (output: (text: string) => void) => Promise<A>
