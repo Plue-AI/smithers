@@ -3,11 +3,10 @@ import { afterEach, expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const pong = join(app, "test", "fixtures", "pong.jsonl")
-const drawn = (screen: string) => /↑\S+ ↓\S+/.test(screen)
 let tui: Tui | undefined
 afterEach(async () => {
   await tui?.stop()

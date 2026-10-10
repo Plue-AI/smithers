@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 let tui: Tui | undefined
@@ -36,7 +36,7 @@ it("an invalid agent effort fails before execution, exposes its refusal, and ret
       SMITHERS_TUI_REPLAY_SPEED: "100"
     }
   })
-  await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+  await tui.until(drawn, 20_000, "first draw")
   const submit = async (text: string) => {
     await tui!.type(text)
     await tui!.press(key.escape)

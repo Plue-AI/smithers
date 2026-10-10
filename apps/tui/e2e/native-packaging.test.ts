@@ -17,7 +17,7 @@ import { createRequire } from "node:module"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const cli = resolve(app, "../../packages/smithers")
@@ -174,7 +174,7 @@ it("compiled shipped TUI embeds one corrected library and preserves selected Uni
         SMITHERS_TUI_SESSION_DIR: sessions
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "compiled first draw")
+    await tui.until(drawn, 20_000, "compiled first draw")
     await tui.press("?😀e\u0301x\x1b[D\x1b[1;2Da\u0308")
     await tui.until(
       (screen) => screen.normalize("NFC").includes("?😀a\u0308x".normalize("NFC")),

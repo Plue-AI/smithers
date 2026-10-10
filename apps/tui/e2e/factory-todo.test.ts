@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const item = (id: string, number: number, state: string) => ({
@@ -54,7 +54,7 @@ it("TODO failures use safe status copy and retain diagnostics and request identi
         SMITHERS_REPO: "o/r"
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 25_000, "production first draw")
+    await tui.until(drawn, 25_000, "production first draw")
     const send = async () => {
       await tui!.type("/todo Same TODO")
       await tui!.press(key.enter)
@@ -79,7 +79,7 @@ it("TODO failures use safe status copy and retain diagnostics and request identi
       )
       expect(tui.screen().replace(/[┃\s]/g, "")).toContain("Details:/conversation")
       expect(tui.screen()).toContain("Ask Smithers")
-      expect(tui.screen()).toMatch(/↑\S+ ↓\S+/)
+      expect(tui.screen()).toSatisfy(drawn)
       for (const raw of [`HTTP ${status}`, "HTTP 403", "/api/repos/", "private backend diagnostic"]) {
         expect(tui.screen()).not.toContain(raw)
       }

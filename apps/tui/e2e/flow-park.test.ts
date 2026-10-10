@@ -4,7 +4,7 @@ import { expect, it } from "bun:test"
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 it("shows a real durable park and question without claiming the run is still executing", async () => {
@@ -27,7 +27,7 @@ it("shows a real durable park and question without claiming the run is still exe
         TUI_FLOW_CELL: "ctx.park(\"waiting-input\", \"Which branch?\")"
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.until(drawn, 20_000, "first draw")
     await tui.type("/flow ask")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("⏸ ask"), 30_000, "paused flow tab")

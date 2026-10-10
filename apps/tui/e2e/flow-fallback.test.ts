@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 it("runs the next declared model after context overflow", async () => {
   const root = mkdtempSync(join(tmpdir(), "tui-fallback-"))
@@ -29,7 +29,7 @@ it("runs the next declared model after context overflow", async () => {
         TUI_REFUSAL: "overflow"
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.until(drawn, 20_000, "first draw")
     await tui.type("/flow fallback")
     await tui.press(key.enter)
     // The run's chat card settles with the second model's answer.

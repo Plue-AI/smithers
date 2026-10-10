@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 let tui: Tui | undefined
@@ -12,7 +12,6 @@ afterEach(async () => {
   await tui?.stop()
   tui = undefined
 })
-const drawn = (screen: string) => /↑\S+ ↓\S+/.test(screen)
 const setup = () => {
   const root = mkdtempSync(join(tmpdir(), "tui-commands-"))
   const cwd = join(root, "project"),

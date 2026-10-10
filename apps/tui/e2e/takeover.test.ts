@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { key, Tui, workerTab } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 
@@ -25,7 +25,7 @@ it("takes over a worker with t, drives a frame from the composer, and releases i
     await tui.press("\x1b[1;5C") // ctrl+right: Summary
     await tui.press("\x1b[1;5C") // the worker
     await tui.until(
-      (screen) => screen.includes("Subagent · implement/session") && screen.includes("t Take over"),
+      (screen) => workerTab("implement/session")(screen) && screen.includes("t Take over"),
       5_000,
       "worker tab"
     )

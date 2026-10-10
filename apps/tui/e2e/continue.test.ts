@@ -2,7 +2,7 @@ import { expect, it } from "bun:test"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { key, Tui, workerTab } from "./tmux.ts"
 
 const fixture = join(resolve(import.meta.dir, ".."), "e2e", "continue-fixture.tsx")
 
@@ -27,7 +27,7 @@ for (const status of ["done", "failed", "stopped"] as const) {
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("Review ·"), 5_000, "worker card")
       await tui.click("Review")
-      await tui.until((screen) => screen.includes("Subagent · Review"), 5_000, "worker tab")
+      await tui.until(workerTab("Review"), 5_000, "worker tab")
       if (status === "stopped") {
         await tui.press("x")
         await tui.until((screen) => screen.includes("Stopped"), 5_000, "worker stopped")
@@ -46,7 +46,7 @@ for (const status of ["done", "failed", "stopped"] as const) {
         5_000,
         "same worker continued"
       )
-      expect(continued).toContain("Subagent · Review")
+      expect(continued).toSatisfy(workerTab("Review"))
       expect(continued).not.toContain("Chat handled: check another case")
       await tui.type("/chat")
       await tui.press(key.enter)

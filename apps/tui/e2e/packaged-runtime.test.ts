@@ -15,7 +15,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const cli = resolve(app, "../../packages/smithers")
@@ -92,11 +92,11 @@ for (const runtime of ["node", "compiled"] as const) {
           EDITOR: editor
         }
       })
-      await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, `${runtime} first draw`)
+      await tui.until(drawn, 20_000, `${runtime} first draw`)
       await tui.press("\x07")
       if (interactiveEditor) {
         await tui.until(
-          (screen) => screen.includes("prompt.md") && !/↑\S+ ↓\S+/.test(screen),
+          (screen) => screen.includes("prompt.md") && !drawn(screen),
           5_000,
           `${runtime} Vim foreground`
         )
@@ -112,7 +112,7 @@ for (const runtime of ["node", "compiled"] as const) {
         `external editor under ${runtime}`
       )
       if (interactiveEditor) {
-        await tui.until((screen) => /↑\S+ ↓\S+/.test(screen.split("\n")[19] ?? ""), 5_000, `${runtime} editor resize`)
+        await tui.until((screen) => drawn(screen.split("\n")[19] ?? ""), 5_000, `${runtime} editor resize`)
         await tui.resize(110, 40)
       }
       await tui.press(key.enter)

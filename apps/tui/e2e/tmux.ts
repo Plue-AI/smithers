@@ -34,6 +34,17 @@ export const key = {
   backspace: "\x7f"
 } as const
 
+/**
+ * The status line has drawn. Its `? Keys` hint ends the footer in the chat,
+ * working, shell, panel and card contexts, and `Keys.fit` keeps it at any width
+ * it fits; forms, pickers and the overview show their own keys instead.
+ */
+export const drawn = (screen: string): boolean => screen.includes("? Keys")
+
+/** A worker's tab is open: its title heads the screen beside the way back to chat. */
+export const workerTab = (title: string) => (screen: string): boolean =>
+  screen.split("\n").some((line) => line.includes(` ${title} `) && /(Back|Release) \(ctrl\+y\)\s*$/.test(line))
+
 /** A process's exit status, or the signal that killed it. */
 export type Exit = { readonly code: number } | { readonly code: null; readonly signal: number }
 

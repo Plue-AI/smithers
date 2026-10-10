@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 
@@ -33,7 +33,7 @@ const persisted = async (text: string): Promise<string> => {
         SMITHERS_TUI_SESSION_DIR: sessions
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.until(drawn, 20_000, "first draw")
     await tui.press(text)
     await tui.press(key.enter)
     await tui.until(() => prompts().length === 1, 5_000, "question persisted")

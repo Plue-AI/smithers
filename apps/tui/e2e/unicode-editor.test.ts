@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 it("completes after Japanese/emoji and inserts palette mentions before an intact suffix", async () => {
@@ -31,7 +31,7 @@ it("completes after Japanese/emoji and inserts palette mentions before an intact
         SMITHERS_TUI_SESSION_DIR: sessions
       }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.until(drawn, 20_000, "first draw")
     await tui.type("先頭 😀 @日本")
     await tui.until((screen) => screen.includes("日本語") && screen.includes(".txt"), 5_000, "Unicode completion")
     await tui.press(key.tab)

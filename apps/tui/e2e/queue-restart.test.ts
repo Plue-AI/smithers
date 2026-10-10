@@ -9,11 +9,10 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 const fixture = join(app, "test", "fixtures", "fix-add.jsonl")
-const drawn = (screen: string) => /↑\S+ ↓\S+/.test(screen)
 const idle = (screen: string) => drawn(screen) && !screen.includes("esc Interrupt") && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d/.test(screen)
 const altEnter = "\x1b\r"
 const altUp = "\x1b[1;3A"

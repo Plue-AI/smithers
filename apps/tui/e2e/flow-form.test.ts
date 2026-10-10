@@ -3,7 +3,7 @@ import { expect, it } from "bun:test"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui } from "./tmux.ts"
 
 const app = resolve(import.meta.dir, "..")
 for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, true]] as const) {
@@ -40,8 +40,9 @@ for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, tr
           SMITHERS_TUI_SESSION_DIR: join(root, "sessions")
         }
       })
-      const status = (screen: string) => /↑\S+ ↓\S+/.test(screen)
-      await tui.until(status, 20_000, "first draw")
+      // Under a form, the bottom row is the status line with the form's own keys.
+      const status = (screen: string) => (screen.trimEnd().split("\n").at(-1) ?? "").includes("tab Next")
+      await tui.until(drawn, 20_000, "first draw")
       await tui.type("/flow many")
       await tui.press(key.enter)
       await tui.until((screen) => screen.includes("Field1") && status(screen), 15_000, "bounded form")
@@ -71,7 +72,7 @@ for (const [cols, rows, burst] of [[60, 20, false], [40, 12, false], [40, 12, tr
       expect(completed?.run.answer).toBe(Array.from({ length: 12 }, (_, index) => `v${index + 1}`).join(","))
       await tui.type("hello")
       await tui.press(key.enter)
-      await tui.until((screen) => screen.includes("Still here.") && status(screen), 5_000, "chat after form")
+      await tui.until((screen) => screen.includes("Still here.") && drawn(screen), 5_000, "chat after form")
     } finally {
       await tui?.stop()
       rmSync(root, { recursive: true, force: true })
@@ -107,7 +108,7 @@ it("lists a flow waiting for its form under Needs you; enter opens it and a answ
       command: `bun ${join(app, "e2e/real-flows-fixture.tsx")}`,
       env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "", SMITHERS_TUI_SESSION_DIR: join(root, "s") }
     })
-    await tui.until((screen) => /↑\S+ ↓\S+/.test(screen), 20_000, "first draw")
+    await tui.until(drawn, 20_000, "first draw")
     await tui.type("/flow greet")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Name"), 15_000, "form")

@@ -23,7 +23,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import * as Approvals from "../src/approvals.ts"
 import * as Session from "../src/session.ts"
-import { key, Tui } from "./tmux.ts"
+import { drawn, key, Tui, workerTab } from "./tmux.ts"
 
 /** What the screen says when the disk refuses a session record (`Failures` registry). */
 const unsavedSentence = "The conversation is not being saved; check the disk."
@@ -39,8 +39,7 @@ afterEach(() => {
 
 const app = resolve(import.meta.dir, "..")
 const fixture = join(app, "test", "fixtures", "fix-add.jsonl")
-/** The status bar's token counter: present once the first frame is drawn. */
-const drawn = (screen: string) => /↑\S+ ↓\S+/.test(screen)
+/** Drawn, with no turn running. */
 const idle = (screen: string) => drawn(screen) && !screen.includes("esc Interrupt") && !/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] \d/.test(screen)
 
 /**
@@ -729,7 +728,7 @@ describe("esc", () => {
       await tui.resize(110, 40)
       await tui.press(":q!" + key.enter)
       await tui.until(
-        (screen) => drawn(screen) && /↑\S+ ↓\S+/.test(screen.split("\n")[39] ?? ""),
+        (screen) => drawn(screen.split("\n")[39] ?? ""),
         5_000,
         "footer at resized bottom"
       )
@@ -738,7 +737,7 @@ describe("esc", () => {
       await tui.resize(60, 12)
       await tui.press(":q!" + key.enter)
       await tui.until(
-        (screen) => drawn(screen) && /↑\S+ ↓\S+/.test(screen.split("\n")[11] ?? ""),
+        (screen) => drawn(screen.split("\n")[11] ?? ""),
         5_000,
         "footer after shrinking"
       )
@@ -1725,7 +1724,7 @@ console.log("reverted");`,
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Continue Fixer") && screen.includes("Subagent · Fixer"),
+      (screen) => screen.includes("Continue Fixer") && workerTab("Fixer")(screen),
       5_000,
       "worker tab"
     )
@@ -1989,7 +1988,7 @@ it(
     await tui.until((screen) => screen.includes("Search") && /Investigation\s+running/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("x Stop") && screen.includes("Subagent · Investigation"),
+      (screen) => screen.includes("x Stop") && workerTab("Investigation")(screen),
       5_000,
       "inspect running worker"
     )
@@ -2063,7 +2062,7 @@ describe("worker tabs", () => {
       5_000,
       "back with the worker composer"
     )
-    await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "breadcrumb")
+    await tui.until(workerTab("Investigation"), 5_000, "breadcrumb")
     await tui.click("Back (ctrl+y)")
     await tui.until(
       (screen) => /[◐◓◑◒] Investigation ·/.test(screen) && !screen.includes("Back (ctrl+y)"),
@@ -2083,7 +2082,7 @@ describe("worker tabs", () => {
     await tui.press(key.tab)
     await tui.until((screen) => screen.includes("esc Composer") && screen.includes("enter Open"), 5_000, "focused card")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("Subagent · Investigation"), 5_000, "enter opens the worker")
+    await tui.until(workerTab("Investigation"), 5_000, "enter opens the worker")
     await tui.press("\x19")
     await tui.press(key.ctrlS)
     await tui.until(
@@ -2108,7 +2107,7 @@ describe("worker tabs", () => {
     )
     await tui.press(key.ctrlS)
     await tui.until(
-      (screen) => screen.includes("Subagent · Investigation") && screen.includes("esc Chat"),
+      (screen) => workerTab("Investigation")(screen) && screen.includes("esc Chat"),
       5_000,
       "the worker's tab, its panel with the keys"
     )
