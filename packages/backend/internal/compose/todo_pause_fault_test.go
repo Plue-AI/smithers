@@ -190,17 +190,22 @@ func TestTodoStartCrashThroughRoute(t *testing.T) {
 	require.Equal(t, 1, launches)
 	_, err = f.pool.Exec(ctx, `UPDATE workflow_definitions SET digest=$2 WHERE repository_id=$1 AND name='todo'`, f.repo, strings.Repeat("c", 64))
 	require.NoError(t, err)
-	_, err = f.pool.Exec(ctx, `UPDATE mythical_stacks SET lease_expires_at=now()-interval '1 second',next_attempt_at=now(),requested_generation=requested_generation+1 WHERE repository_id=$1`, f.repo)
-	require.NoError(t, err)
+	var restartGeneration int64
+	require.NoError(t, f.pool.QueryRow(ctx, `UPDATE mythical_stacks SET lease_expires_at=now()-interval '1 second',next_attempt_at=now(),requested_generation=requested_generation+1 WHERE repository_id=$1 RETURNING requested_generation`, f.repo).Scan(&restartGeneration))
 	restart := startFaultService(t, f.pool, f.host, false)
 	workerCtx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go func() { defer close(done); restart.Start(workerCtx) }()
 	defer func() { cancel(); <-done }()
+	// Wait for the restarted worker to finish a pass that answers this
+	// request, not for the stack to go idle. The merge fixture's TODO is
+	// written as proposed with no candidate, so the stack marks it Rebase
+	// pending onto main, and a pending rebase keeps the worker due every 3 s
+	// (spec §10.5.2; 1142530f96): this stack never idles.
 	require.Eventually(t, func() bool {
-		var settled bool
-		err := f.pool.QueryRow(ctx, `SELECT NOT running AND processed_generation=requested_generation FROM mythical_stacks WHERE repository_id=$1`, f.repo).Scan(&settled)
-		return err == nil && settled
+		var answered bool
+		err := f.pool.QueryRow(ctx, `SELECT processed_generation >= $2 FROM mythical_stacks WHERE repository_id=$1`, f.repo, restartGeneration).Scan(&answered)
+		return err == nil && answered
 	}, 15*time.Second, 100*time.Millisecond)
 	after, err := f.q.GetMythicalItemByNumber(ctx, f.repo, number)
 	require.NoError(t, err)
