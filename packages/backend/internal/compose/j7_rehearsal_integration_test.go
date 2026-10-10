@@ -276,17 +276,23 @@ func TestJ7Rehearsal(t *testing.T) {
 	r.step("12 Edit on scratch", "PUT /api/repos/{o}/{r}/workspaces/{b}/files/content", "scratch working tree contains src/retry.ts", "T-MCH-08", func() error {
 		return r.editScratch(&scratch)
 	})
-	// The complete capture/adoption install proves this row independently:
-	// adding to this retained stack would block its existing Drop proof until
-	// the folded candidate's native capture/review handoff is available.
+	// The independent install proves adoption and source Drop together.
+	var capturedAndFolded bool
 	r.step("13 Add to stack", "composed install; PUT files/content; POST add-to-stack; GitHub PR", "new TODO after its source captures the source file and editor change", "T-MCH-08", func() error {
-		if !t.Run("Scratch capture and adoption", TestJ7ScratchCaptureRehearsal) {
+		capturedAndFolded = t.Run("Scratch capture and adoption", TestJ7ScratchCaptureRehearsal)
+		if !capturedAndFolded {
 			return fmt.Errorf("scratch capture/adoption install failed; see its receipt")
 		}
 		r.actual = "independent composed install: editor write captured in revision 1; same machine adopted; source and scratch file retained in PR"
 		return nil
 	})
-	r.pending("14 The new TODO keeps T2's work", "Drop source; GitHub PR refresh", "dropping the source preserves the candidate tree and refreshes the PR", "T-MCH-08", "fork-fold-publication")
+	r.step("14 The new TODO keeps T2's work", "composed install; Drop source; GitHub PR refresh", "dropping the source preserves the candidate tree and refreshes the PR", "T-MCH-08", func() error {
+		if !capturedAndFolded {
+			return fmt.Errorf("capture and fold install failed; see its receipt")
+		}
+		r.actual = "independent composed install: source Drop retains the tree, source file and captured editor file in the refreshed PR"
+		return nil
+	})
 	r.step("15 Drop T2", "POST /api/todos/{T2} {op: drop}", "dropped; the PR closed with the comment; the run cancelled", "T-STK-02, T-STK-05", func() error {
 		return r.drop(t2)
 	})

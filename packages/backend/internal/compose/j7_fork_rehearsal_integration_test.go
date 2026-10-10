@@ -370,7 +370,7 @@ func (r *rehearsal) keepsT2(t1, t2 int64, added *j7Added) error {
 		if ca, err = r.candidate(added.n); err != nil {
 			return err
 		}
-		if card.State == "in_review" && ca.Base == c1.Head && ca.Head != "" && card.PR.Head == ca.Head {
+		if card.State == "in_review" && ca.Base == c1.Head && ca.Head != "" && card.PR.Head != "" && !slices.Contains(card.PR.IncludedItems, t2) {
 			break
 		}
 		if card.State == "dropped" || card.State == "merged" || time.Now().After(deadline) {
@@ -450,7 +450,29 @@ func TestJ7ScratchCaptureRehearsal(t *testing.T) {
 	}) {
 		return
 	}
-	r.step("Add to stack", "POST add-to-stack; GET TODO; GitHub PR", "reviewed PR retains the source and captured editor file", "T-MCH-08", func() error {
+	if !r.step("Add to stack", "POST add-to-stack; GET TODO; GitHub PR", "reviewed PR retains the source and captured editor file", "T-MCH-08", func() error {
 		return r.addScratch(0, source, 0, 0, &scratch, &added)
-	})
+	}) {
+		return
+	}
+	if !r.step("Sleep descendant", "POST branch sleep", "reviewed descendant sleeps before source Drop", "T-MCH-08", func() error {
+		if err := r.waitSQL(2*time.Minute, `SELECT count(*) FROM mythical_items WHERE number=$1 AND checks->'review'->>'verdict'='approve'`, added.n); err != nil {
+			return err
+		}
+		var name string
+		err := r.pool.QueryRow(r.ctx, `SELECT target_bookmark FROM workspaces WHERE id::text=$1`, scratch.machine).Scan(&name)
+		if err != nil {
+			return err
+		}
+		if _, err := r.expect("POST", "/api/branches/"+url.PathEscape(name), `{"op":"sleep"}`, 202); err != nil {
+			return err
+		}
+		return r.waitSQL(2*time.Minute, `SELECT count(*) FROM workspaces WHERE id::text=$1 AND status IN ('stopped','suspended')`, scratch.machine)
+	}) {
+		return
+	}
+	if !r.step("Drop source", "POST TODO drop", "source drops", "T-MCH-08", func() error { return r.drop(source) }) {
+		return
+	}
+	r.step("Keep captured tree", "GET TODO; GitHub PR", "dropping source keeps its file and the scratch edit", "T-MCH-08", func() error { return r.keepsT2(0, source, &added) })
 }
