@@ -48,6 +48,17 @@ func (e *GitHubPushProofError) Error() string {
 	return fmt.Sprintf("user %d has no proven push access to github %s/%s: %s", e.UserID, e.Owner, e.Repo, e.Reason)
 }
 
+// githubPushProofRefusal reports a failed push proof to the person. Only
+// GitHub's own answer blames permissions; a GitHub that could not be asked
+// (DNS, connection, outage or rate limit) is unreachable (#3777).
+func githubPushProofRefusal(err error, account, owner, repo string) error {
+	var proof *GitHubPushProofError
+	if stdErrors.As(err, &proof) && proof.Reason == GitHubPushProofUnavailable {
+		return pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub could not be reached to confirm push access to "+owner+"/"+repo).WithCause(err)
+	}
+	return pkgerrors.Forbidden(account + " must have push access to " + owner + "/" + repo).WithCause(err)
+}
+
 // GitHubRepoPushProver proves, with the user's own GitHub credential, that the
 // user can push to a GitHub repository right now. A nil error is a proof.
 type GitHubRepoPushProver interface {

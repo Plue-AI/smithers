@@ -364,6 +364,56 @@ func TestMythicalGitHubTokensNeverCarryWorkflows(t *testing.T) {
 	assert.Equal(t, "ghs_api", gh.Token, "API calls use a token that cannot push")
 }
 
+// Install run 14 (#3777): while DNS for github.com failed, the stack said
+// "The stack's GitHub account must have push access". A GitHub that could not
+// be asked is unreachable; only GitHub's own 403 or 404 blames permissions.
+// The real push prover asks a GitHub that refuses connections, then one that
+// answers.
+func TestGitHubPushProofUnreachableIsNotAPermissionRefusal(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	unreachable := closed.URL
+	closed.Close()
+	for _, tc := range []struct {
+		name, base string
+		status     int
+		code       pkgerrors.Code
+		stack      string
+		landing    string
+	}{
+		{name: "unreachable", base: unreachable, status: http.StatusServiceUnavailable, code: pkgerrors.CodeGitHubUnavailable,
+			stack: "GitHub could not be reached to confirm push access to acme/app", landing: "GitHub could not be reached to confirm push access to acme/app"},
+		{name: "forbidden", status: http.StatusForbidden, code: pkgerrors.CodeForbidden,
+			stack: "The stack's GitHub account must have push access to acme/app", landing: "Your GitHub account must have push access to acme/app"},
+		{name: "not found", status: http.StatusNotFound, code: pkgerrors.CodeForbidden,
+			stack: "The stack's GitHub account must have push access to acme/app", landing: "Your GitHub account must have push access to acme/app"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := tc.base
+			if base == "" {
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(tc.status) }))
+				t.Cleanup(server.Close)
+				base = server.URL
+			}
+			t.Setenv(envGitHubAppAPIBaseURL, base)
+			prover := NewGitHubUserReposService(newFakeGitHubUserReposDB(), fakeOAuthTokenDecrypter{token: "user"})
+			q := &mirrorCredentialStore{fakeGitMirrorSyncStore: newFakeGitMirrorSyncStore(), sources: []db.ListRepositoryGitHubSourcesRow{{GithubOwner: "acme", GithubRepo: "app"}}}
+			tokens := pullTokens(func(context.Context, int64, int64, string, string, map[string]string) (GitHubInstallationToken, error) {
+				t.Error("no installation token is minted without a push proof")
+				return GitHubInstallationToken{}, errors.New("unexpected")
+			})
+			_, err := NewMythicalGitHub(q, tokens, prover, nil).Resolve(context.Background(), landingRepo(nil), "owner", 42)
+			var refusal *pkgerrors.APIError
+			require.ErrorAs(t, err, &refusal)
+			assert.Equal(t, tc.code, refusal.Code)
+			assert.Equal(t, tc.stack, refusal.Message)
+			_, err = NewLandingGitHubPullService(nil, q, tokens, prover, "", nil).remotes(context.Background(), &db.User{ID: 42}, landingRepo(nil), "owner", "app")
+			require.ErrorAs(t, err, &refusal)
+			assert.Equal(t, tc.code, refusal.Code)
+			assert.Equal(t, tc.landing, refusal.Message)
+		})
+	}
+}
+
 type bookmarkedLandingRepoHost struct{ *mockLandingRepoHostClient }
 
 func (bookmarkedLandingRepoHost) ListBookmarks(context.Context, string, string, string, int) ([]repohost.Bookmark, string, error) {

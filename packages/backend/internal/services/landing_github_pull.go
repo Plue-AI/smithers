@@ -163,7 +163,7 @@ func NewLandingGitHubPullService(landings *LandingService, q GitMirrorCredential
 			return landingGitHubRemotes{}, pkgerrors.Forbidden("GitHub push access cannot be proven")
 		}
 		if err := prover.GitHubRepoPushAuthorized(ctx, actor.ID, githubOwner, githubRepo); err != nil {
-			return landingGitHubRemotes{}, pkgerrors.Forbidden("Your GitHub account must have push access to " + githubOwner + "/" + githubRepo).WithCause(err)
+			return landingGitHubRemotes{}, githubPushProofRefusal(err, "Your GitHub account", githubOwner, githubRepo)
 		}
 		installation, err := tokens.CreateGitHubInstallationTokenForRepositoryOwner(ctx, repository.UserID.Int64, repository.OrgID.Int64, githubOwner, githubRepo, landingGitHubPushPermissions)
 		if err != nil {

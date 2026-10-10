@@ -279,7 +279,7 @@ func (g *mythicalGitHubAPI) Resolve(ctx context.Context, repository db.Repositor
 		return mythicalGitHubRepo{}, pkgerrors.Forbidden("GitHub push access cannot be proven")
 	}
 	if err := g.prover.GitHubRepoPushAuthorized(ctx, actorUserID, ghOwner, ghRepo); err != nil {
-		return mythicalGitHubRepo{}, pkgerrors.Forbidden("The stack's GitHub account must have push access to " + ghOwner + "/" + ghRepo).WithCause(err)
+		return mythicalGitHubRepo{}, githubPushProofRefusal(err, "The stack's GitHub account", ghOwner, ghRepo)
 	}
 	// Like landings, neither token carries workflows: the git push holds
 	// contents:write only and the API token cannot push.
