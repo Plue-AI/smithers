@@ -4,7 +4,7 @@ import { join } from "node:path"
 import test from "node:test"
 
 import ts from "typescript"
-import { blankLiteralRanges, dependencySets, packageSourceReachedBy } from "./check-dependency-boundaries.mjs"
+import { blankLiteralRanges, dependencySets, packageNameForSpecifier, packageSourceReachedBy } from "./check-dependency-boundaries.mjs"
 import { repoRoot } from "./workspace-packages.mjs"
 
 /**
@@ -139,4 +139,16 @@ test("runtime imports allow validated private adapters without admitting unrelat
   assert.ok(dev.has("typescript"))
   assert.equal(dependencySets({ manifest: { ...manifest, smthrs: {} } }).runtime.has("@effect/platform-node"), false)
   assert.throws(() => dependencySets({ manifest: { ...manifest, devDependencies: {} } }), /must equal Effect/)
+})
+
+// A colon never appears in an npm package name, so a scheme-prefixed specifier
+// is a host, bundler or runtime module: Vite's `virtual:`, a build plugin's own
+// scheme, `node:`, `bun:`, `astro:`. None is a dependency to declare.
+test("scheme-prefixed specifiers name no package, and bare or scoped names still do", () => {
+  for (const specifier of ["virtual:smithers-openapi", "smithers:docs", "node:fs", "bun:test", "astro:content", "data:text/javascript,0"]) {
+    assert.equal(packageNameForSpecifier(specifier), null, specifier)
+  }
+  assert.equal(packageNameForSpecifier("yaml"), "yaml")
+  assert.equal(packageNameForSpecifier("@smthrs/flow/Flow"), "@smthrs/flow")
+  assert.equal(packageNameForSpecifier("ws"), "ws")
 })

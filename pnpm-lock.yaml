@@ -53,6 +53,9 @@ importers:
       '@effect/platform-node':
         specifier: 4.0.0-rc.115
         version: 4.0.0-rc.115(effect@4.0.0-rc.115)(redis@6.2.1(@opentelemetry/api@1.9.1))
+      '@playwright/test':
+        specifier: 1.62.1
+        version: 1.62.1
       '@smthrs/build-cli':
         specifier: workspace:*
         version: link:packages/smithers/build/build-cli
@@ -149,6 +152,9 @@ importers:
       vite:
         specifier: ^8.2.2
         version: 8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.13)(yaml@2.9.0)
+      ws:
+        specifier: 8.21.3
+        version: 8.21.3
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -360,6 +366,9 @@ importers:
       vite:
         specifier: 8.2.2
         version: 8.2.2(@types/node@26.4.1)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.13)(yaml@2.9.0)
+      yaml:
+        specifier: 2.9.0
+        version: 2.9.0
 
   apps/bug-worker:
     dependencies:
@@ -1717,6 +1726,9 @@ importers:
       '@smthrs/core':
         specifier: workspace:*
         version: link:../../flows/core
+      '@smthrs/flow':
+        specifier: workspace:*
+        version: link:../../flows/flow
       '@smthrs/registry':
         specifier: workspace:*
         version: link:../registry

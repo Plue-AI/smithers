@@ -215,16 +215,16 @@ function filesForPackage(pkg, memberDirs = new Set()) {
 }
 
 /** @param {string} specifier */
-function packageNameForSpecifier(specifier) {
+export function packageNameForSpecifier(specifier) {
   if (
     !specifier ||
     specifier.startsWith(".") ||
     specifier.startsWith("/") ||
     specifier.startsWith("#") ||
     specifier.startsWith("~/") ||
-    specifier.startsWith("node:") ||
-    specifier.startsWith("astro:") ||
-    specifier.startsWith("bun:")
+    // A colon never appears in an npm package name: `node:`, `bun:`, `astro:`,
+    // Vite's `virtual:` and a build plugin's own scheme are host modules.
+    /^[a-z][a-z0-9+.-]*:/i.test(specifier)
   ) {
     return null
   }
