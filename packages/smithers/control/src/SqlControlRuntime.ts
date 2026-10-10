@@ -1396,7 +1396,6 @@ const makeRuntime = (
         const ids = JSON.stringify([...new Set(filters.runIds)])
         conditions.push(
           sql.onDialectOrElse({
-            /* v8 ignore next -- PostgreSQL adapter; covered by //packages/smithers/control:postgresInventory */
             pg: () => sql`runs.run_id IN (SELECT jsonb_array_elements_text(${ids}::jsonb))`,
             orElse: () => sql`runs.run_id IN (SELECT value FROM json_each(${ids}))`
           })
