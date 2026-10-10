@@ -52,7 +52,9 @@ const jobEnv = (contexts) =>
   )
 
 /** The condition every generated and mirrored gate step carries. */
-const gateCondition = "${{ !cancelled() && steps.setup.conclusion == 'success' }}"
+const backendGates = ["Build and test shared backend", "Backend access-control tests"]
+const backendCondition = "${{ !cancelled() && steps.setup.conclusion == 'success' && (matrix.lane == 'backend' || matrix.lane == 'release') }}"
+const gateCondition = "${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}"
 
 const step = (name) => release.jobs.publish.steps.find((candidate) => candidate.name === name)
 
@@ -234,7 +236,7 @@ test("publication tolerates tag checkouts and bounded registry throttling", () =
 const outsideCandidate = "matrix.lane != 'candidate'"
 
 /** What keeps a step that produces or reports gate evidence to the lanes that ran the gates. */
-const afterSetup = "${{ always() && steps.setup.conclusion == 'success' }}"
+const afterSetup = "${{ always() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}"
 
 /** The candidate: everything from the build to the publication report. */
 const candidateSteps = [
@@ -267,7 +269,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
   // exactly as the generated ci.yml renders it (#2071).
   const gates = release.jobs.publish.steps.filter((candidate) => /pnpm exec smthrs /.test(candidate.run ?? ""))
   assert.ok(gates.length > 30)
-  assert.deepEqual(gates.filter((candidate) => candidate.if !== gateCondition).map((candidate) => candidate.name), [])
+  assert.deepEqual(gates.filter((candidate) => candidate.if !== (backendGates.includes(candidate.name) ? backendCondition : gateCondition)).map((candidate) => candidate.name), [])
   // The candidate lane of a prerelease skips setup, and with it every gate.
   assert.deepEqual(release.jobs.publish.steps.filter((candidate) => candidate.id === "setup").map((candidate) => candidate.if), [outsideCandidate])
   const conditional = release.jobs.publish.steps
@@ -309,7 +311,7 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
     "Report the skipped publication"
   ])
   for (const name of ["Require Plue matrix target", "Validate GitHub Actions workflows"]) {
-    assert.equal(step(name).if, outsideCandidate, name)
+    assert.equal(step(name).if, name === "Require Plue matrix target" ? outsideCandidate + " && matrix.lane != 'backend'" : outsideCandidate, name)
   }
   // A gate that is not a build-graph invocation is still a gate: it carries
   // the gate condition, so one red gate never hides the next one's result.
@@ -319,20 +321,20 @@ test("only the re-run guard, the lanes, candidate preparation and publication se
   for (const name of [
     "Upload product deployment mode matrix receipt",
     "Collect ci-test-tier-evidence",
-    "Upload ci-test-tier-evidence",
-    "Upload gate results"
+    "Upload ci-test-tier-evidence"
   ]) {
     assert.equal(step(name).if, afterSetup, name)
   }
+  assert.equal(step("Upload gate results").if, "${{ always() && steps.setup.conclusion == 'success' }}")
   assert.equal(step("Upload the publish receipt").if, "always()")
   assert.equal(step("Upload release runtime smoke evidence").if, "always()")
   // The server gates and the candidate build read the pinned Node after a red gate too.
   assert.equal(step("Select the repository's pinned Node").if, "${{ !cancelled() }}")
   assert.equal(step("Select the repository's pinned Node").with["node-version-file"], ".node-version")
-  for (const name of candidateSteps) assert.match(step(name).if, / && matrix\.lane != 'gates'$|^matrix\.lane != 'gates'$/, name)
+  for (const name of candidateSteps) assert.match(step(name).if, /matrix\.lane != 'gates' && matrix\.lane != 'backend'$/, name)
 })
 
-test("a prerelease runs the candidate and the gates as two lanes, and only the candidate can block", () => {
+test("a prerelease runs the candidate, gates and backend as separate lanes, and only the candidate can block", () => {
   // AGENTS.md, "Doneish first; release continuously": for a suffixed version
   // only what proves it builds, installs and starts may block; every other
   // gate reports. The lanes are selected by the same suffix test that picks
@@ -342,10 +344,10 @@ test("a prerelease runs the candidate and the gates as two lanes, and only the c
   const suffixed = "contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-')"
   assert.deepEqual(job.strategy, {
     "fail-fast": false,
-    matrix: { lane: `\${{ fromJSON(${suffixed} && '["candidate","gates"]' || '["release"]') }}` }
+    matrix: { lane: `\${{ fromJSON(${suffixed} && '["candidate","gates","backend"]' || '["release"]') }}` }
   })
   // The gates lane fails red and the run does not; no other lane is excused.
-  assert.equal(job["continue-on-error"], "${{ matrix.lane == 'gates' }}")
+  assert.equal(job["continue-on-error"], "${{ matrix.lane == 'gates' || matrix.lane == 'backend' }}")
   assert.match(step("Compute the publish plan").run, /case "\$release_version" in \*-\*\) publish_tag="next" ;; esac/)
 
   const runs = (candidate, lane, contexts) => {
@@ -382,8 +384,11 @@ test("a prerelease runs the candidate and the gates as two lanes, and only the c
     candidateSteps.filter((name) => !["Restore and verify archived release candidate", "Publish packages in dependency order"].includes(name))
   )
   // The gates lane runs every gate and nothing of the candidate.
-  assert.deepEqual(reportOnly.filter((name) => !ran("gates").includes(name)), [])
+  assert.deepEqual(reportOnly.filter((name) => !backendGates.includes(name) && !ran("gates").includes(name)), [])
   assert.deepEqual(candidateSteps.filter((name) => ran("gates").includes(name)), [])
+  assert.deepEqual(gates.filter(name => ran("backend").includes(name)), backendGates)
+  assert.deepEqual(candidateSteps.filter(name => ran("backend").includes(name)), [])
+  assert.deepEqual(backendGates.filter(name => ran("gates").includes(name)), [])
   // An unsuffixed release runs one lane with every gate ahead of the candidate.
   assert.deepEqual(
     named.map((candidate) => candidate.name).filter((name) => !ran("release").includes(name)),
@@ -406,8 +411,8 @@ test("a prerelease runs the candidate and the gates as two lanes, and only the c
   // gates block, so they get no budget.
   const budget = step("Start the gates lane time budget")
   const spent = step("Report a spent gates lane time budget")
-  assert.equal(budget.if, "matrix.lane == 'gates'")
-  assert.equal(spent.if, "${{ always() && matrix.lane == 'gates' }}")
+  assert.equal(budget.if, "matrix.lane == 'gates' || matrix.lane == 'backend'")
+  assert.equal(spent.if, "${{ always() && (matrix.lane == 'gates' || matrix.lane == 'backend') }}")
   for (const lane of ["candidate", "release"]) {
     assert.equal(runs(budget, lane, dryRun), false, lane)
     assert.equal(runs(spent, lane, dryRun), false, lane)
@@ -662,7 +667,7 @@ test("CI gates the server's checks and tests in the required repository job", ()
   assert.equal(ci.jobs.repository["continue-on-error"], undefined)
   const server = ci.jobs.repository.steps.find((entry) => entry.name === "Server typecheck and tests")
   assert.equal(server?.run, "pnpm exec smthrs ci '//apps/server/...' --known-red '.github/ci-known-red.json' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose")
-  assert.equal(server?.if, gateCondition)
+  assert.equal(server?.if, gateCondition.replace(" && matrix.lane != 'backend'", ""))
 })
 
 test("ordinary PR CI gates executable examples before workspace checks", () => {
@@ -672,7 +677,7 @@ test("ordinary PR CI gates executable examples before workspace checks", () => {
   assert.equal(Object.hasOwn(ci.on, "pull_request"), true)
   assert.equal(ci.jobs.test["continue-on-error"], undefined)
   assert.equal(examples?.run, "pnpm exec smthrs ci '//examples/...' --known-red '.github/ci-known-red.json' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose")
-  assert.equal(examples?.if, gateCondition)
+  assert.equal(examples?.if, gateCondition.replace(" && matrix.lane != 'backend'", ""))
   assert.ok(steps.indexOf(examples) < steps.indexOf(steps.find((entry) => entry.name === "Workspace targets")))
 })
 
@@ -752,7 +757,7 @@ test("release rebuilds and byte-compares the committed wasm before packing", () 
   for (const ciStep of mirrored) {
     // The release runs without ci.yml's known-red list: every target it
     // mirrors must be green there.
-    const expected = { ...ciStep, run: ciStep.run.replace(/ --known-red '[^']+'/, "") }
+    const expected = { ...ciStep, if: gateCondition, run: ciStep.run.replace(/ --known-red '[^']+'/, "") }
     const actual = step(expected.name)
     assert.deepEqual(actual, expected)
     assert.ok(steps.indexOf(install) < steps.indexOf(actual))

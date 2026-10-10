@@ -129,25 +129,26 @@ jobs:
     #
     #   candidate  builds, packs, smoke-tests the tarballs in installed
     #              consumers, and publishes. No gate runs in it.
-    #   gates      runs every gate and nothing else. A red gate fails this
+    #   backend    runs the two backend gates on a fresh lane budget.
+    #   gates      runs the remaining gates and nothing else. A red gate fails this
     #              lane, the lane is reported on the run, and the run does not
-    #              fail: `continue-on-error` is true for this lane alone.
+    #              fail: `continue-on-error` is true for both reporting lanes.
     #
     # An unsuffixed version runs the single `release` lane: every gate, then
     # the candidate, then publication, and any red gate blocks, as before.
     #
     # The suffix test is the one "Compute the publish plan" uses to choose the
     # `next` dist-tag. Steps select a lane through `matrix.lane`. The gates do
-    # not name a lane: they follow `steps.setup`, which the candidate lane
-    # skips, so their text stays the copy of ci.yml that pack-release.test.mjs
+    # follow `steps.setup` and their gate lane, which the candidate lane
+    # skips, so their commands stay the copy of ci.yml that pack-release.test.mjs
     # compares.
     strategy:
       fail-fast: false
       matrix:
-        lane: ${{ fromJSON(contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-') && '["candidate","gates"]' || '["release"]') }}
-    continue-on-error: ${{ matrix.lane == 'gates' }}
+        lane: ${{ fromJSON(contains(inputs.releaseTag != '' && inputs.releaseTag || github.ref_name, '-') && '["candidate","gates","backend"]' || '["release"]') }}
+    continue-on-error: ${{ matrix.lane == 'gates' || matrix.lane == 'backend' }}
     # npm libraries have their own source, package, and installed-consumer gates.
-    # The gates lane runs the whole roster serially and reports every gate, red
+    # The reporting lanes split the roster and report every gate, red
     # or not, so the bound leaves it room below GitHub's six-hour limit.
     timeout-minutes: 330
     environment: npm-publish
@@ -180,7 +181,7 @@ jobs:
           exit 1
       # The mode matrix is a gate, so its precondition is too.
       - name: Require Plue matrix target
-        if: matrix.lane != 'candidate'
+        if: matrix.lane != 'candidate' && matrix.lane != 'backend'
         env:
           SMITHERS_MODE_MATRIX_PLUE_WEB_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_WEB_URL }}
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
@@ -409,7 +410,7 @@ jobs:
       # unsuffixed release has no budget: its gates block, and one that hangs
       # fails the job at the limit.
       - name: Start the gates lane time budget
-        if: matrix.lane == 'gates'
+        if: matrix.lane == 'gates' || matrix.lane == 'backend'
         env:
           GATES_BUDGET_MINUTES: "290"
         run: |
@@ -440,17 +441,17 @@ jobs:
       # about it. It carries the gate condition so that a stale section is
       # reported beside the other gates instead of skipping them.
       - name: Release changelog section
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: node scripts/generate-changelog.mjs --check --version "$RELEASE_VERSION"
       - name: Examples
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//examples/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Workspace targets
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//packages/...' --jobs 2 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
@@ -459,159 +460,159 @@ jobs:
       # The migration-landing regressions in //scripts:engineeringScriptRegressions
       # regenerate a fixture with the pinned sqlc (scripts/check-sqlc-drift.sh).
       - name: Install pinned sqlc
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: |
           go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.30.0
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Script gates
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//scripts/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flows
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//flows:pack' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Judge egress
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//flows:egress' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flow fixtures
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//flows:repository' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Wiki and release fixtures
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//flows:fixtures' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Repository flows lint
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//flows/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Public export JSDoc
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//:jsdocTree' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Script lint
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//scripts:lint' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: JSDoc rule harness
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//:jsdocRules' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Factory harness
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//:factoryHarness' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Agent eval suite (offline, baseline-gated)"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//evals/agent:test' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Agent eval typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//evals/agent:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Authoring eval dataset (offline)"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//evals/authoring:test' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Authoring eval typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//evals/authoring:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench offline fixtures
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//evals/swebench:offline' --jobs 1 --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench rig typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//evals/swebench:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: SWE-bench rig lint
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//evals/swebench/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//apps/app:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI unit tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//apps/app:unitTests' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: UI conformance lint
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//apps/app:conformance' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: TUI typecheck, lint and tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//apps/tui/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: TUI end-to-end suite
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//apps/tui:e2eTests' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
@@ -622,21 +623,21 @@ jobs:
       # candidate lane.
       # The mode matrix's deterministic tier observes focus in Chromium and WebKit.
       - name: Install Playwright Chromium and WebKit
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm --filter smithers-app exec playwright install --with-deps chromium webkit
       - name: Install the pinned Rust toolchain
         run: rustup toolchain install
       - name: Install PostgreSQL 18 for the owned local mode
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: bash .github/scripts/install-postgres-18.sh
       - name: Real PostgreSQL backup and restore
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: go test -p 1 ./distribution -run 'TestRealBackupRestorePostgreSQL|TestRealFailedUpgradeRecoveryPostgreSQL|TestFailedUpgradeReportsRecovery|TestIncompleteUpgrade' -count=1 -v
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
           SMITHERS_POSTGRES_TEST_MAJOR: "18"
       - name: Distribution release contracts
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: node --test scripts/repo-contract/mac-distribution.test.mjs distribution/fake-coding-provider.test.mjs
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
@@ -644,7 +645,7 @@ jobs:
       # The macOS job gates the native pair. This job gates the web and local
       # pairs with fresh PostgreSQL.
       - name: Product deployment mode matrix
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: bun apps/app/scripts/run-packaged-mode-matrix.ts run --modes web-plue,local-own,local-plue --output-dir "$RUNNER_TEMP/smithers-mode-matrix"
         env:
           SMITHERS_POSTGRES_TEST_BIN: /usr/lib/postgresql/18/bin
@@ -652,7 +653,7 @@ jobs:
           SMITHERS_MODE_MATRIX_PLUE_URL: ${{ vars.SMITHERS_MODE_MATRIX_PLUE_URL }}
           SMITHERS_MODE_MATRIX_PLUE_TOKEN: ${{ secrets.SMITHERS_MODE_MATRIX_PLUE_TOKEN }}
       - name: Upload product deployment mode matrix receipt
-        if: ${{ always() && steps.setup.conclusion == 'success' }}
+        if: ${{ always() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: product-deployment-mode-matrix
@@ -666,98 +667,98 @@ jobs:
         with:
           node-version-file: .node-version
       - name: Server typecheck and tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//apps/server/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Review flow
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//flows/review/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Bug worker
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//apps/bug-worker/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Project copy drift
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//:projectCopy' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Site
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs ci '//apps/site/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Review eval suite (offline, baseline-gated)"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//evals/review-seeded-bugs/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Review eval typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//evals/review-seeded-bugs:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Recommend eval suite (offline, baseline-gated)"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//evals/recommend/...' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Recommend eval typecheck
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//evals/recommend:check' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Generated workflow drift
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//:ci' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Factory projection drift
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//:factoryProjection' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Target index drift
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs lint '//:targetIndex' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: "Package documentation tarballs"
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: "pnpm exec smthrs test '//scripts:packageDocs' --results-file \"$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json\" --verbose"
         env:
           "SMITHERS_CACHE_URL": "${{ secrets.SMITHERS_CACHE_URL }}"
           "SMITHERS_CACHE_READ_TOKEN": "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           "SMITHERS_CACHE_NAMESPACE": "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Native FFI clippy and tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs build '//:nativeFfi' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
@@ -768,7 +769,7 @@ jobs:
       # needs KVM for its user and that image in msb's cache. The step carries
       # the fault matrix's condition, so it runs exactly when the matrix does.
       - name: Prepare the fault matrix microVM
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: |
           if [ "$(uname -s)" = Linux ]; then
             echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
@@ -787,7 +788,7 @@ jobs:
           "$msb" pull docker.io/library/node:26-trixie
       # Ordinary workspace CI omits this exclusive tier; the explicit label opts in.
       - name: Exclusive fault matrix
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//packages/...:faults' --jobs 1 --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
@@ -798,42 +799,42 @@ jobs:
       # package's `ci`, and the version-coherence suite is named here so a
       # rehearsal can run it alone.
       - name: Disaster-recovery script test
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//packages/smithers/flows/engine-store:disasterRecovery' --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Release version coherence
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//scripts:releaseVersion' --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Build-script unit tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//crates/flows-jj:buildScript' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Rebuild and byte-compare flows_jj.wasm
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: pnpm exec smthrs test '//crates/flows-jj:wasmReproducibility' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Build and test shared backend
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && (matrix.lane == 'backend' || matrix.lane == 'release') }}
         run: pnpm exec smthrs test '//:backendGo' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
           SMITHERS_CACHE_READ_TOKEN: "${{ secrets.SMITHERS_CACHE_READ_TOKEN }}"
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       - name: Backend access-control tests
-        if: ${{ !cancelled() && steps.setup.conclusion == 'success' }}
+        if: ${{ !cancelled() && steps.setup.conclusion == 'success' && (matrix.lane == 'backend' || matrix.lane == 'release') }}
         run: pnpm exec smthrs test '//:backendGoAccess' --results-file "$RUNNER_TEMP/smthrs-results/$GITHUB_ACTION.json" --verbose
         env:
           SMITHERS_CACHE_URL: "${{ secrets.SMITHERS_CACHE_URL }}"
@@ -841,16 +842,16 @@ jobs:
           SMITHERS_CACHE_NAMESPACE: "${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || '' }}"
       # The candidate. These steps never run in the gates lane.
       - name: Build all workspaces from clean artifacts
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         run: node scripts/build-release.mjs
       # A gate that needs the build above. A prerelease reports its result
       # without blocking; an unsuffixed release blocks on it.
       - name: Review declaration API drift
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         continue-on-error: ${{ matrix.lane == 'candidate' }}
         run: node scripts/check-api-baseline.mjs
       - name: Retrieve native helpers for npm
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -870,19 +871,19 @@ jobs:
       # selects the repository's pinned release, so reinstall the floor and its
       # certified npm here rather than trust whichever Node ran last.
       - name: Install the supported Node floor
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 26.4.0
           registry-url: https://registry.npmjs.org
       - name: Install certified npm for the Node floor
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         run: |
           npm install --global 'npm@11.16.0' --ignore-scripts --no-audit --no-fund
           test "$(npm --version)" = '11.16.0'
         shell: bash
       - name: Pack and smoke-test release artifacts
-        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID == '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           SMOKE_EVIDENCE_DIR: ${{ runner.temp }}/release-smoke-evidence
@@ -895,7 +896,7 @@ jobs:
           node scripts/smoke-release.mjs "$PACK_DIR"
           cp "$PACK_DIR/smoke-evidence.json" "$SMOKE_EVIDENCE_DIR/node26.json"
       - name: Restore and verify archived release candidate
-        if: env.CANDIDATE_RUN_ID != '' && matrix.lane != 'gates'
+        if: env.CANDIDATE_RUN_ID != '' && matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           GH_TOKEN: ${{ github.token }}
@@ -909,7 +910,7 @@ jobs:
       # The plan is computed on both paths, so a dry run reports the exact set,
       # order, version, and dist-tag a real run would publish.
       - name: Archive tested release artifacts
-        if: matrix.lane != 'gates'
+        if: matrix.lane != 'gates' && matrix.lane != 'backend'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: release-candidate-${{ github.run_id }}
@@ -919,7 +920,7 @@ jobs:
       # Gate evidence, so only a lane that ran the gates collects and uploads
       # it: two lanes of one run cannot both upload one artifact name.
       - name: Collect ci-test-tier-evidence
-        if: ${{ always() && steps.setup.conclusion == 'success' }}
+        if: ${{ always() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         run: |
           mkdir -p "$RUNNER_TEMP/ci-test-tier-evidence"
           for f in '/tmp/smithers-ci-inventory-'*'.json'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
@@ -928,14 +929,14 @@ jobs:
           for f in '/tmp/smithers-runner-'*'.log'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
           for f in '/tmp/smithers-runner-'*'.json'; do if [ -e "$f" ]; then cp -R -- "$f" "$RUNNER_TEMP/ci-test-tier-evidence"; fi; done
       - name: Upload ci-test-tier-evidence
-        if: ${{ always() && steps.setup.conclusion == 'success' }}
+        if: ${{ always() && steps.setup.conclusion == 'success' && matrix.lane != 'backend' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: ci-test-tier-evidence
           path: "${{ runner.temp }}/ci-test-tier-evidence"
           if-no-files-found: ignore
       - name: Report a spent gates lane time budget
-        if: ${{ always() && matrix.lane == 'gates' }}
+        if: ${{ always() && (matrix.lane == 'gates' || matrix.lane == 'backend') }}
         run: |
           if [ -f "$RUNNER_TEMP/gates-budget-spent" ]; then
             echo "::warning::The gates lane spent its time budget at $(cat "$RUNNER_TEMP/gates-budget-spent"). Gates still running or not yet started then were ended and report as failed; they did not finish."
@@ -948,7 +949,7 @@ jobs:
         if: ${{ always() && steps.setup.conclusion == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: release-gate-results-${{ github.run_id }}
+          name: release-gate-results-${{ github.run_id }}-${{ matrix.lane }}
           path: ${{ runner.temp }}/smthrs-results
           if-no-files-found: ignore
           retention-days: 30
@@ -961,7 +962,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Compute the publish plan
-        if: matrix.lane != 'gates'
+        if: matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
@@ -983,7 +984,7 @@ jobs:
           echo "Publish plan for $release_version on the $publish_tag dist-tag:"
           cat "$PUBLISH_ORDER"
       - name: Publish packages in dependency order
-        if: env.DRY_RUN != 'true' && !inputs.sourceRef && matrix.lane != 'gates'
+        if: env.DRY_RUN != 'true' && !inputs.sourceRef && matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           PACK_DIR: ${{ runner.temp }}/release-packs
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
@@ -1008,7 +1009,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
       - name: Report the skipped publication
-        if: env.DRY_RUN == 'true' && matrix.lane != 'gates'
+        if: env.DRY_RUN == 'true' && matrix.lane != 'gates' && matrix.lane != 'backend'
         env:
           PUBLISH_ORDER: ${{ runner.temp }}/publish-order.txt
           LANE: ${{ matrix.lane }}

@@ -298,6 +298,8 @@ test("every gate in ci.yml also runs in release.yml", () => {
   const expected = mirrored.flatMap((job) => jobSteps(ci, job)).filter(isGate)
     .map((step) => step.replace(/ --known-red '[^']+'/g, ""))
   const actual = jobSteps(workflow("release.yml"), "publish").filter(isGate)
+    .map(step => step.replace(" && matrix.lane != 'backend'", "")
+      .replace(" && (matrix.lane == 'backend' || matrix.lane == 'release')", ""))
 
   // The gates the release adds on top of the mirrored jobs, pinned so an
   // extra step is a decision here rather than a silent addition. Faults moved
@@ -363,11 +365,11 @@ test("every toolchain step in ci.yml's required test job also runs in release.ym
   const laneCondition = "matrix.lane != 'candidate'"
   const publishSteps = parse(releaseSource).jobs.publish.steps
   assert.deepEqual(
-    publishSteps.filter((step) => step.if === laneCondition).map((step) => step.name),
+    publishSteps.filter((step) => step.if?.startsWith(laneCondition)).map((step) => step.name),
     ["Require Plue matrix target", "Validate GitHub Actions workflows", "Install PostgreSQL"]
   )
   const releaseSteps = jobSteps(releaseSource, "publish", (step) =>
-    step.if === laneCondition ? Object.fromEntries(Object.entries(step).filter(([key]) => key !== "if")) : step)
+    step.if?.startsWith(laneCondition) ? Object.fromEntries(Object.entries(step).filter(([key]) => key !== "if")) : step)
   const declared = new Set(releaseSteps)
 
   // Two steps the release deliberately extends rather than copies: it checks

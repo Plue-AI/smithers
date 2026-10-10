@@ -38,7 +38,7 @@ A suffixed version such as `1.0.0-rc.1` is a prerelease. It publishes under the 
 | `candidate` | Version check, build, pack, installed-consumer smoke, archive, publication | Fails the run and stops publication |
 | `gates` | Every gate, including the changelog check and the mode matrix | Shows red on the run; the run does not fail |
 
-A rehearsal of a prerelease is green when the `candidate` lane, the native helpers, the server bundle and the four installer jobs pass. Read the `gates` lane for what is red on that commit; each gate's result is also in the `release-gate-results-<run-id>` artifact. Installer signing and the Homebrew bottle do not run for a suffixed version, so a prerelease has no bottle; the darwin-arm64 server bundle is the run's `server-bundle-darwin-arm64` artifact.
+A rehearsal of a prerelease is green when the `candidate` lane, the native helpers, the server bundle and the four installer jobs pass. Read the `gates` and `backend` lanes for what is red on that commit; their results are in `release-gate-results-<run-id>-gates` and `release-gate-results-<run-id>-backend`. The backend lane starts with its own 290-minute budget, independently of the other gates. Installer signing and the Homebrew bottle do not run for a suffixed version, so a prerelease has no bottle; the darwin-arm64 server bundle is the run's `server-bundle-darwin-arm64` artifact.
 
 An unsuffixed version runs one `release` lane: every gate, then the candidate, then publication. Any red gate blocks it, and a stale changelog blocks it before the build.
 
