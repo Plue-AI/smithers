@@ -694,10 +694,14 @@ func liveJobSource(source live.Source, store *jobs.Store, scope jobs.Scope) live
 				// Older facts may retain writer details from before private
 				// Branch reads. Replay public history without that transient field.
 				var fact map[string]json.RawMessage
-				if err := json.Unmarshal(event.Data, &fact); err != nil {
-					return sse.DurablePage{}, err
+				if strings.HasPrefix(strings.TrimSpace(string(event.Data)), "{") {
+					if err := json.Unmarshal(event.Data, &fact); err != nil {
+						return sse.DurablePage{}, err
+					}
 				}
-				if raw, ok := fact["card"]; ok {
+				// Only a single card can carry a rebase writer. The flows
+				// topic's card is the catalog list and replays unchanged.
+				if raw, ok := fact["card"]; ok && strings.HasPrefix(strings.TrimSpace(string(raw)), "{") {
 					var card map[string]json.RawMessage
 					if err := json.Unmarshal(raw, &card); err != nil {
 						return sse.DurablePage{}, err
