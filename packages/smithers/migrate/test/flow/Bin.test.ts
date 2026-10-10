@@ -66,8 +66,12 @@ describe("smithers-migrate", () => {
   it("prints the release version, not a placeholder", () => {
     const result = runBin(["--version"])
 
+    // The release cut moves the version, so read the one this tree ships.
+    const { version } = JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+      readonly version: string
+    }
     expect(result.status).toBe(0)
-    expect(result.stdout.trim()).toContain("1.0.0-rc.1")
+    expect(result.stdout.trim()).toBe(`smithers-migrate v${version}`)
     expect(result.stdout).not.toContain("0.1.0")
   })
 
