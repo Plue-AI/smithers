@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mismatches, readManifests, readVersionedManifests, retarget, retargetSource, sourceMismatches, versionedSources, versionedTemplates } from "./set-release-version.mjs"
+import { changelogMismatches, mismatches, readManifests, readVersionedManifests, releaseChangelog, retarget, retargetSource, sourceMismatches, versionedChangelogs, versionedSources, versionedTemplates } from "./set-release-version.mjs"
 
 const workspaceNames = new Set(["@smthrs/kernel", "@smthrs/flows"])
 
@@ -172,5 +172,91 @@ test("every versioned source agrees with the version its own package declares", 
     const owner = entries.find((entry) => entry.directory === directory)
     assert.ok(owner, `${path} is not inside a workspace package`)
     assert.deepEqual(sourceMismatches(owner.manifest.version), [])
+  }
+})
+
+test("the storage docs quote the release through versioned sources, on the package page and its site copy", () => {
+  // api.md and troubleshooting.md still said 1.0.0-rc.0 at rc.3: the bump never knew the lines.
+  const rows = versionedSources.filter(({ package: owner }) => owner === "packages/smithers/flows/database")
+  assert.deepEqual(rows.map(({ path }) => path).sort(), [
+    "apps/site/src/content/docs/docs/reference/api/database.mdx",
+    "apps/site/src/content/docs/docs/reference/api/database.mdx",
+    "apps/site/src/content/docs/docs/reference/api/database.mdx",
+    "packages/smithers/flows/database/docs/api.md",
+    "packages/smithers/flows/database/docs/api.md",
+    "packages/smithers/flows/database/docs/api.md",
+    "packages/smithers/flows/database/docs/troubleshooting.md",
+    "packages/smithers/flows/database/docs/troubleshooting.md"
+  ])
+  const text = [
+    "ignored: SMITHERS_TEST_PG_URL has no effect in 1.0.0-rc.0 (use SMITHERS_POSTGRES_URL to select PostgreSQL)",
+    "A refusal to open a durable database in 1.0.0-rc.0, raised as a defect rather",
+    "| `<path> is not a Smithers 1.0 database (1.0.0-rc.0 does not load a 0.x smithers.db)` |",
+    "### `1.0.0-rc.0 runs the durable engine on Node.js >=26.4.0 only`"
+  ].join("\n")
+  const rewritten = rows.reduce((current, row) => row.pattern.test(current) ? retargetSource(current, "1.0.0-rc.10", row) : current, text)
+  // "Smithers 1.0 database" names the format, not the release, and stays.
+  assert.equal(rewritten, text.replaceAll("1.0.0-rc.0", "1.0.0-rc.10"))
+})
+
+test("releaseChangelog moves the unreleased entries under a dated heading for the version", () => {
+  const text = [
+    "# Changelog",
+    "",
+    "## [Unreleased]",
+    "",
+    "### Added",
+    "",
+    "- `Rubric`.",
+    "",
+    "## [1.0.0-rc.2] - 2026-10-09",
+    "",
+    "- Earlier.",
+    ""
+  ].join("\n")
+  assert.equal(
+    releaseChangelog(text, "1.0.0-rc.3", "2026-10-10"),
+    [
+      "# Changelog",
+      "",
+      "## [Unreleased]",
+      "",
+      "## [1.0.0-rc.3] - 2026-10-10",
+      "",
+      "### Added",
+      "",
+      "- `Rubric`.",
+      "",
+      "## [1.0.0-rc.2] - 2026-10-09",
+      "",
+      "- Earlier.",
+      ""
+    ].join("\n")
+  )
+})
+
+test("releaseChangelog records an unchanged ride, keeps a released file, and refuses one with nothing to release", () => {
+  const empty = "# Changelog\n\n## [Unreleased]\n\n## [1.0.0-rc.2] - 2026-10-09\n\n- Earlier.\n"
+  const released = releaseChangelog(empty, "1.0.0-rc.3", "2026-10-10")
+  assert.equal(
+    released,
+    "# Changelog\n\n## [Unreleased]\n\n## [1.0.0-rc.3] - 2026-10-10\n\n### Changed\n\n"
+      + "- Released with the workspace package train. No change to this package since the previous release.\n\n"
+      + "## [1.0.0-rc.2] - 2026-10-09\n\n- Earlier.\n"
+  )
+  // A second pass at the same version, or a rerun after a failed cut, changes nothing.
+  assert.equal(releaseChangelog(released, "1.0.0-rc.3", "2026-10-11"), released)
+  // rc.3 is not a prefix match for rc.30.
+  assert.notEqual(releaseChangelog(released, "1.0.0-rc.30", "2026-11-01"), released)
+  assert.throws(() => releaseChangelog("# Changelog\n\n## [1.0.0-rc.2]\n", "1.0.0-rc.3", "2026-10-10"), /no `## \[Unreleased\]` section/)
+})
+
+test("every versioned changelog has a section for the version its package declares", () => {
+  const entries = readManifests()
+  for (const path of versionedChangelogs) {
+    const owner = entries.find((entry) => entry.directory === path.replace(/\/CHANGELOG\.md$/, ""))
+    assert.ok(owner, `${path} is not a workspace package's changelog`)
+    assert.deepEqual(changelogMismatches(owner.manifest.version), [])
+    assert.deepEqual(changelogMismatches("9.9.9"), [`${path}: no \`## [9.9.9]\` section`])
   }
 })

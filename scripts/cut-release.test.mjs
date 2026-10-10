@@ -17,7 +17,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import test from "node:test"
 import { dirtyPaths, nextCommands, parseArguments, releaseMessage, releaseTag, steps } from "./cut-release.mjs"
-import { versionedSources, versionedTemplates } from "./set-release-version.mjs"
+import { versionedChangelogs, versionedSources, versionedTemplates } from "./set-release-version.mjs"
 
 const scriptsDirectory = resolve(import.meta.dirname)
 
@@ -50,14 +50,32 @@ const write = (root, path, contents) => {
  * path, not by position in `versionedSources`, so a new row cannot shift another
  * row's text under the wrong file.
  */
+const storageReference = [
+  "ignored: SMITHERS_TEST_PG_URL has no effect in 0.1.0 (use SMITHERS_POSTGRES_URL to select PostgreSQL)",
+  "A refusal to open a durable database in 0.1.0, raised as a defect rather",
+  "| `<path> is not a Smithers 1.0 database (0.1.0 does not load a 0.x smithers.db)` |",
+  ""
+].join("\n")
+
 const seededSources = {
   "packages/smithers/flows/database/src/internal/ReleasePolicy.ts": "export const releaseVersion = \"0.1.0\"\n",
   "packages/smithers/flows/observability/src/Otlp.ts": "export const defaultServiceVersion = \"0.1.0\"\n",
   "packages/smithers/migrate/src/flow/Cli.ts": "export const version = \"0.1.0\"\n",
   "packages/smithers/migrate/src/Report.ts":
     "export const tool = { name: \"@smthrs/migrate\", version: \"0.1.0\" } as const\n",
-  "packages/smithers/mcp/src/McpClient.ts": "export const clientInfo = { name: \"smithers\", version: \"0.1.0\" }\n"
+  "packages/smithers/mcp/src/McpClient.ts": "export const clientInfo = { name: \"smithers\", version: \"0.1.0\" }\n",
+  // The storage docs quote the release in messages; "Smithers 1.0 database" names the format and stays.
+  "packages/smithers/flows/database/docs/api.md": storageReference,
+  "apps/site/src/content/docs/docs/reference/api/database.mdx": storageReference,
+  "packages/smithers/flows/database/docs/troubleshooting.md": [
+    "### `0.1.0 runs the durable engine on Node.js >=26.4.0 only`",
+    "### `<path> is not a Smithers 1.0 database (0.1.0 does not load a 0.x smithers.db)`",
+    ""
+  ].join("\n")
 }
+
+/** A package changelog at 0.1.0 with one entry waiting under `[Unreleased]`. */
+const seededChangelog = "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- A scorer.\n\n## [0.1.0] - 2020-01-01\n\n- First.\n"
 
 /**
  * A repository a cut can run in, at version 0.1.0 with two commits past its tag.
@@ -100,6 +118,7 @@ const seed = () => {
       devDependencies: { "@smthrs/cli": "workspace:*" } }))
   }
   for (const [path, text] of Object.entries(seededSources)) write(root, path, text)
+  for (const path of versionedChangelogs) write(root, path, seededChangelog)
   write(root, "CHANGELOG.md", "# smthrs\n\nPreamble.\n\n## 0.1.0 (2020-01-01)\n\nThe first release.\n")
   execFileSync("pnpm", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: root, stdio: "ignore" })
   execFileSync("bun", ["install", "--lockfile-only", "--ignore-scripts"], { cwd: root, stdio: "ignore" })
@@ -224,7 +243,14 @@ test("a cut bumps every manifest, retargets internal ranges, and writes the sect
         devDependencies: { "@smthrs/cli": "0.2.0" } })
     }
     for (const [path, text] of Object.entries(seededSources)) {
-      assert.equal(readFileSync(join(root, path), "utf8"), text.replace("0.1.0", "0.2.0"), `${path} changes only its version`)
+      assert.equal(readFileSync(join(root, path), "utf8"), text.replaceAll("0.1.0", "0.2.0"), `${path} changes only its version`)
+    }
+    for (const path of versionedChangelogs) {
+      assert.match(
+        readFileSync(join(root, path), "utf8"),
+        /^# Changelog\n\n## \[Unreleased\]\n\n## \[0\.2\.0\] - \d{4}-\d{2}-\d{2}\n\n### Added\n\n- A scorer\.\n\n## \[0\.1\.0\] - 2020-01-01\n\n- First\.\n$/,
+        `${path} releases its unreleased entries at the cut's version`
+      )
     }
 
     const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8")

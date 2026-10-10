@@ -11,7 +11,12 @@
  *
  * A few published sources also carry the release version as a literal, because
  * a package cannot read its own manifest on every runtime it supports. Those
- * declarations are listed in `versionedSources` and rewritten in the same pass.
+ * declarations are listed in `versionedSources` and rewritten in the same pass,
+ * as are the documentation lines that quote a message naming the release.
+ *
+ * A package changelog listed in `versionedChangelogs` gains a section for the
+ * version in the same pass: its package's own tests require one, and the cut
+ * writes only the root changelog.
  *
  * usage:
  *   node scripts/set-release-version.mjs <version>     rewrite manifests
@@ -60,8 +65,85 @@ export const versionedSources = [
     path: "packages/smithers/flows/database/src/internal/ReleasePolicy.ts",
     declaration: "releaseVersion",
     pattern: /(export const releaseVersion = ")([^"]*)(")/
+  },
+  // The storage package's docs quote the refusals and the notice that
+  // `ReleasePolicy.releaseVersion` names, and the site page is their copy.
+  ...[
+    "packages/smithers/flows/database/docs/api.md",
+    "apps/site/src/content/docs/docs/reference/api/database.mdx"
+  ].flatMap((path) => [
+    {
+      path,
+      package: "packages/smithers/flows/database",
+      declaration: "the ignored-setting notice",
+      pattern: /(has no effect in )(\S+)( \(use SMITHERS_POSTGRES_URL)/
+    },
+    {
+      path,
+      package: "packages/smithers/flows/database",
+      declaration: "the durable database refusal",
+      pattern: /(A refusal to open a durable database in )([^\s,]+)(, raised as a defect)/
+    },
+    {
+      path,
+      package: "packages/smithers/flows/database",
+      declaration: "the unsupported_database_file message",
+      pattern: /(is not a Smithers 1\.0 database \()(\S+)( does not load a 0\.x smithers\.db\))/
+    }
+  ]),
+  {
+    path: "packages/smithers/flows/database/docs/troubleshooting.md",
+    package: "packages/smithers/flows/database",
+    declaration: "the runtime refusal heading",
+    pattern: /(### `)(\S+)( runs the durable engine on Node\.js)/
+  },
+  {
+    path: "packages/smithers/flows/database/docs/troubleshooting.md",
+    package: "packages/smithers/flows/database",
+    declaration: "the unsupported_database_file heading",
+    pattern: /(is not a Smithers 1\.0 database \()(\S+)( does not load a 0\.x smithers\.db\))/
   }
 ]
+
+/**
+ * Package changelogs that must carry a `## [<version>]` section for the
+ * version their manifest declares.
+ *
+ * `scripts/generate-changelog.mjs` writes the root changelog only. A package
+ * whose tests tie its own changelog to its manifest (`@smthrs/scorers`) failed
+ * at the rc.2 and rc.3 cuts until someone added the heading by hand.
+ */
+export const versionedChangelogs = ["packages/smithers/agent/scorers/CHANGELOG.md"]
+
+const versionHeading = (version) => new RegExp(`^## \\[${version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\]`, "m")
+
+/**
+ * Releases a Keep a Changelog file at `version`: the entries under
+ * `## [Unreleased]` move under a dated heading for the version, and an empty
+ * `[Unreleased]` records that the package rode the train unchanged. A file that
+ * already has the heading is returned as it is.
+ */
+export const releaseChangelog = (text, version, date) => {
+  if (versionHeading(version).test(text)) return text
+  const unreleased = /^## \[Unreleased\][^\n]*\n/m.exec(text)
+  if (unreleased === null) throw new Error("the changelog has no `## [Unreleased]` section to release")
+  const start = unreleased.index + unreleased[0].length
+  const next = /^## \[/m.exec(text.slice(start))
+  const end = next === null ? text.length : start + next.index
+  const entries = text.slice(start, end).trim()
+  const body = entries === ""
+    ? "### Changed\n\n- Released with the workspace package train. No change to this package since the previous release."
+    : entries
+  return `${text.slice(0, start)}\n## [${version}] - ${date}\n\n${body}\n\n${text.slice(end)}`
+}
+
+/**
+ * Every versioned changelog without a section for `version`.
+ */
+export const changelogMismatches = (version, root = repoRoot, changelogs = versionedChangelogs) =>
+  changelogs
+    .filter((path) => !versionHeading(version).test(readFileSync(join(root, path), "utf8")))
+    .map((path) => `${path}: no \`## [${version}]\` section`)
 
 /**
  * Rewrites one versioned source declaration, or throws when the declaration is
@@ -173,7 +255,7 @@ export const main = (argv) => {
   }
   const entries = readVersionedManifests()
   if (check) {
-    const drift = [...mismatches(entries, version), ...sourceMismatches(version)]
+    const drift = [...mismatches(entries, version), ...sourceMismatches(version), ...changelogMismatches(version)]
     for (const line of drift) console.error(line)
     if (drift.length > 0) {
       console.error(`\n${drift.length} entries disagree with ${version}.`)
@@ -181,7 +263,9 @@ export const main = (argv) => {
       return
     }
     console.log(
-      `${entries.length} versioned manifests and ${count(versionedSources.length, "versioned source")} are at ${version}.`
+      `${entries.length} versioned manifests, ${count(versionedSources.length, "versioned source")} and ${
+        count(versionedChangelogs.length, "versioned changelog")
+      } are at ${version}.`
     )
     return
   }
@@ -203,8 +287,19 @@ export const main = (argv) => {
     writeFileSync(path, updated)
     rewritten += 1
   }
+  let released = 0
+  const today = new Date().toISOString().slice(0, 10)
+  for (const changelog of versionedChangelogs) {
+    const path = join(repoRoot, changelog)
+    const text = readFileSync(path, "utf8")
+    const updated = releaseChangelog(text, version, today)
+    if (updated === text) continue
+    writeFileSync(path, updated)
+    released += 1
+  }
   console.log(`set ${written} of ${entries.length} versioned manifests to ${version}.`)
   console.log(`set ${rewritten} of ${count(versionedSources.length, "versioned source")} to ${version}.`)
+  console.log(`released ${released} of ${count(versionedChangelogs.length, "versioned changelog")} at ${version}.`)
   console.log("run `pnpm install --lockfile-only` next: the lockfile records these specifiers.")
 }
 
