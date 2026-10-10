@@ -116,7 +116,7 @@ export const dispatchCatalog = async (
   }
   const variantFields = (row.payload.schema as Record<string, any>).anyOf?.flatMap((variant: Record<string, any>) =>
     Object.keys(variant.properties ?? {})
-  ) as string[] | undefined
+  ) as Array<string> | undefined
   const otherVariant = variantFields?.find((key) => supplied[key] !== undefined && !(key in fields))
   if (otherVariant) throw new UsageError({ message: `This HTTP door does not accept ${otherVariant}` })
   const exposed = httpInputFields(row)
@@ -301,7 +301,7 @@ export const mountCatalog = (cli: Cli.Cli<any, any, any, any>, runtime: Runtime)
             const mapped = { ...context.args }
             if (local && "run" in local) {
               catalogArgs.forEach((key, index) => {
-                if (localArgs[index]) mapped[key] = context.args[localArgs[index]!]
+                if (localArgs[index]) mapped[key] = context.args[localArgs[index]]
               })
             }
             if (row.name === "review" && Array.isArray(mapped.number) && mapped.number.length === 1) {

@@ -39,7 +39,7 @@ export const handlers: Record<string, Handler> = {
   "host start": (_c, _a, o) =>
     HostService.start(typeof o.bundle === "string" ? o.bundle : undefined, {
       ...(typeof o.bind === "string" ? { bind: o.bind } : {}),
-      ...(Array.isArray(o.origin) ? { origins: o.origin as string[] } : {})
+      ...(Array.isArray(o.origin) ? { origins: o.origin as Array<string> } : {})
     }),
   "host stop": async () => HostService.stop(HostService.launchd()),
   "host status": () => HostService.status(),

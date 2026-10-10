@@ -3,7 +3,6 @@
  * @since 0.1.0
  */
 
-import * as prompts from "@clack/prompts"
 import { randomBytes, timingSafeEqual } from "node:crypto"
 import { createServer, type IncomingMessage } from "node:http"
 import { Refused, UsageError } from "../../CliError.ts"
