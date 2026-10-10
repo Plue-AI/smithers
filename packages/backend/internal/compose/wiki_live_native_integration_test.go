@@ -336,9 +336,14 @@ func TestWikiHostCommittedReceiptsAndRestart(t *testing.T) {
 	require.Equal(t, 3, revisions)
 	// Continuous traffic cannot postpone persistence past the ten-second cap.
 	module, _ := filepath.Abs("../../../../apps/app/node_modules/yjs/dist/yjs.mjs")
-	burstScript := fmt.Sprintf(`import * as Y from %q;const d=new Y.Doc();Y.applyUpdate(d,Buffer.from(Bun.argv[1],'base64'));d.clientID=Number(Bun.argv[2]);const updates=[];for(let i=0;i<1100;i++){const sv=Y.encodeStateVector(d);d.getText('markdown').insert(i,'x');updates.push(Buffer.from(Y.encodeStateAsUpdate(d,sv)).toString('base64'))}console.log(JSON.stringify(updates));d.destroy();`, module)
-	burstRaw, err := exec.Command("bun", "-e", burstScript, reopened.state, fmt.Sprint(reopened.client)).CombinedOutput()
-	require.NoError(t, err, string(burstRaw))
+	burstScript := fmt.Sprintf(`import * as Y from %q;const d=new Y.Doc();Y.applyUpdate(d,Buffer.from(Bun.argv[1],'base64'));d.clientID=Number(Bun.argv[2]);const updates=[];for(let i=0;i<1100;i++){const sv=Y.encodeStateVector(d);d.getText('markdown').insert(i,'x');updates.push(Buffer.from(Y.encodeStateAsUpdate(d,sv)).toString('base64'))}await Bun.write(Bun.argv[3],JSON.stringify(updates));d.destroy();`, module)
+	// The updates go through a file: Bun drops a console.log still queued on a
+	// full stdout pipe when it exits, which cut the JSON at 64 KiB under load.
+	burstFile := filepath.Join(t.TempDir(), "burst.json")
+	output, err := exec.Command("bun", "-e", burstScript, reopened.state, fmt.Sprint(reopened.client), burstFile).CombinedOutput()
+	require.NoError(t, err, string(output))
+	burstRaw, err := os.ReadFile(burstFile)
+	require.NoError(t, err)
 	var burst []string
 	require.NoError(t, json.Unmarshal(burstRaw, &burst))
 	reopened.receive(t, func(raw []byte) bool { return strings.Contains(string(raw), `"t":"saved"`) })
