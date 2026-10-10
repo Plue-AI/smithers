@@ -28,8 +28,10 @@ rc.3             EnsureMachined step=head not_ready 3 times and stops without
                  machine held the only slot 22+ min, so /review, T2's review
                  and the last wiki refresh never got a machine.
               3. After a merge, the TODO card may show Plan "failed" beside
-                 Verify "done"; nothing failed.
-              1 and 2 are being fixed for rc.4.
+                 Verify "done"; nothing failed. Fixed on main, e202f42ad0.
+              1 and 2 are being fixed for rc.4. 1's three failures came in
+              3 s partly because a cached backoff refusal counted as a
+              failed start; fixed on main, 8b41be917d.
 Tag push      Publishes npm under `next` and nothing else. No publish after a
               failed build, pack or smoke. Homebrew and installer signing are
               skipped. No GitHub Release.
@@ -101,10 +103,6 @@ Open on main:
 
 | | Defect | State |
 |---|---|---|
-| 2 | The queued "Refresh wiki" row has no button unless it has failed. | Open |
-| 5 | During a machine start, a chat view save can answer 503 and a sign-in can wait. Member rows stay locked for the whole start. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
-| 6 | A machine start does not notice a workspace deleted while it is being admitted. | Open, [#3759](https://github.com/smithersai/smithers/issues/3759) |
-| 7 | The bundle's README promises one JSON line of setup links. `host start` prints two bare lines. | Open |
 | 15 | A Codex vendor process is orphaned when its supervisor is lost. | Open, [#3760](https://github.com/smithersai/smithers/issues/3760) |
 | 16 | An exec stream never closes after its process exits. | Open, [#3761](https://github.com/smithersai/smithers/issues/3761) |
 | 17 | Wiki g1's first retire on run 10 refused ("branch sleep requires verified capture, runtime binding and state publication"). The retry 31 s later retired it. | Open, not blocking |
@@ -123,6 +121,12 @@ Confirmed by run 10 on the cut, built with no local patch: 1 (the catalog machin
 | 11 | A sign-in cookie left by an earlier install on the same address blocked the setup link with 401. | 9a218b7f68 |
 | 12 | Model access read "Not signed incoding model". Reopening `/setup` after setup closed showed raw JSON. | 88b768b019 |
 | 13 | A failed initial start kept the only machine; restart cloning used the machine account; an interrupted catalog release stayed stuck. | fr27 start recovery: named failure and durable reaping, person-bound repository token, release reconciliation, and existing TODO Retry. PostgreSQL/trusted-process proof; real microVM confirmation awaits the Mac. |
+| 5 | During a machine start, a chat view save could answer 503 and a sign-in could wait: member rows stayed locked for the whole start. | 2dad24a47d: the start holds key-share locks and rechecks the roster before it commits ([#3759](https://github.com/smithersai/smithers/issues/3759)). PostgreSQL proof; the real-microVM `pg_stat_activity` sample awaits the Mac. |
+| 6 | A machine start did not notice a workspace deleted while it was admitted, and left its VM running. | 2dad24a47d: the start ends with 404 and reclaims the VM ([#3759](https://github.com/smithersai/smithers/issues/3759)). |
+| 19 | A merged TODO's card showed Plan "failed" beside Verify "done". | e202f42ad0 ([#3772](https://github.com/smithersai/smithers/issues/3772)) |
+| 20 | A machine's cached backoff refusal counted as a failed Flow host start, so the bound of three ran out in about 3 s. | 8b41be917d ([#3773](https://github.com/smithersai/smithers/issues/3773)) |
+
+Closed without a change: 2, a queued "Refresh wiki" row with no button. spec.md §14.3 and mvp.md B.4 give a background run Retry and Dismiss only once it failed; a refresh that never starts fails after 15 min and then offers both (run 13). 7, the bundle README's setup links: fixed before rc.3 in 3fe21fd0b4. The rc.3 bundle README shows the two lines `host start` printed on run 13.
 
 ### Journey rows
 
