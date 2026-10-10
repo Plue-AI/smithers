@@ -123,6 +123,10 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	}
 	// Bootstrap wiki work runs independently. Snapshot command subjects and
 	// all non-bootstrap admissions; do not treat guest heartbeats as effects.
+	// Once the approved TODO runs, the engine keeps its box awake: each minute
+	// an observation of the progressing run stamps that workspace's activity
+	// (KeepBoxAwake). That stamp is the run's heartbeat, not a refusal's effect.
+	keptAwake := ""
 	snapshot := func() string {
 		t.Helper()
 		var result string
@@ -131,10 +135,10 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
    'secrets',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM repository_secrets t),
    'todos',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM mythical_items t),
    'confirmations',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM approvals t),
-   'workspaces',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM workspaces t WHERE t.id=$1 OR (t.name NOT LIKE 'mythical wiki %' AND t.name NOT LIKE 'mythical source %' AND t.name NOT LIKE 'flow-load g%')),
+   'workspaces',(SELECT coalesce(jsonb_agg(to_jsonb(t) - CASE WHEN t.id::text=$2 THEN ARRAY['last_activity_at','updated_at'] ELSE ARRAY[]::text[] END ORDER BY t.id),'[]'::jsonb) FROM workspaces t WHERE t.id=$1 OR (t.name NOT LIKE 'mythical wiki %' AND t.name NOT LIKE 'mythical source %' AND t.name NOT LIKE 'flow-load g%')),
    'requests',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM product_job_requests t WHERE t.request_id LIKE 'campaign-%'),
    'workflows',(SELECT coalesce(jsonb_agg(to_jsonb(t) ORDER BY t.id),'[]'::jsonb) FROM workflow_runs t WHERE NOT (t.trigger_event='main' AND t.trigger_ref='mythical'))
-  )::text`, workspace.ID).Scan(&result))
+  )::text`, workspace.ID, keptAwake).Scan(&result))
 		return result
 	}
 	replacements := strings.NewReplacer("{owner}", "rehearsal-owner", "{repo}", "app", "{n}", "1", "{number}", "1", "{branch}", "sample", "{b}", "sample", "{name}", "CAMPAIGN_SECRET", "{id}", "1", "{run_id}", "1", "{documentId}", "campaign-document", "{pattern}", "main", "{child_id}", "campaign-child", "{operationID}", "campaign-operation", "{port}", "3000", "{delivery_id}", "1")
@@ -975,6 +979,7 @@ func TestRetainedCommandHTTPStateEffectsPostgres(t *testing.T) {
 	require.NoError(t, r.waitHeld("acc-profile", 3*time.Minute))
 	var executionWorkspace, executionRun string
 	require.NoError(t, pool.QueryRow(ctx, `SELECT workspace_id,request_run_id FROM mythical_items WHERE repository_id=$1 AND number=$2`, repo.ID, approvedNumber).Scan(&executionWorkspace, &executionRun))
+	keptAwake = executionWorkspace
 	issued, exists := r.hostCredentials.Load(executionWorkspace)
 	require.True(t, exists, "the real packaged coding host must receive its issued credential")
 	issuedToken := issued.(string)
