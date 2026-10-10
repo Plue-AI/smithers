@@ -57,3 +57,15 @@ J2 passes 14/0/0. These are rehearsals, not reference-host qualifications.
 The production-registry suite passes 4/0/0. The unchanged default policy audit
 still fails with 63 unique violations: 44 placement and 19 unlisted, zero Cut
 and zero Replaced. This is partial C-CAT-01 evidence, not named-layer acceptance.
+
+2026-10-10 — done-l12-r3 specializes installed delivery to stack proposal or
+submission. The installed graph and registry contain no backend append, queue,
+append observation, direct pull creation or AwaitVibeAppend fallback. A missing
+stack refuses delivery; it cannot select the hosted append policy. Hosted
+maintainer registrations retain these handlers and their persisted tag/codecs.
+The targeted registry and delivery suites pass 28/0/0, including installed
+proposal/submission replay, unavailable-stack refusal and hosted retention.
+The literal policy remains unchanged: the audit still fails with 55 unique
+violations (37 placement and 18 unlisted), zero Cut and zero Replaced. This is
+partial evidence; the install coordinator migration and reviewed Appendix C
+rows remain outstanding. It is not full C-CAT-01 or reference-host acceptance.

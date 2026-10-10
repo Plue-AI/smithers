@@ -27,7 +27,15 @@ test("built native and coding hosts expose their actual private registrations", 
             "coding/fast-forward-vibe",
             "coding/open-vibe-local-pull",
             "coding/merge-vibe-local-pull",
-            "coding/AwaitVibePullChecks"
+            "coding/AwaitVibePullChecks",
+            "coding/read-vibe-delivery",
+            "coding/open-vibe-pull",
+            "coding/prepare-vibe-append",
+            "coding/create-vibe-landing",
+            "coding/queue-vibe-append",
+            "coding/observe-vibe-append",
+            "coding/verify-vibe-landed",
+            "coding/AwaitVibeAppend"
           ]
         ) {
           assert.equal(inventory.tags.some((tag) => tag.id === id), false, `${inventory.host}: ${id}`)
@@ -187,7 +195,15 @@ test(
           "coding/fast-forward-vibe",
           "coding/open-vibe-local-pull",
           "coding/merge-vibe-local-pull",
-          "coding/AwaitVibePullChecks"
+          "coding/AwaitVibePullChecks",
+          "coding/read-vibe-delivery",
+          "coding/open-vibe-pull",
+          "coding/prepare-vibe-append",
+          "coding/create-vibe-landing",
+          "coding/queue-vibe-append",
+          "coding/observe-vibe-append",
+          "coding/verify-vibe-landed",
+          "coding/AwaitVibeAppend"
         ]
       ) {
         assert.ok(host.tags.some((tag) => tag.id === id), `${host.host}: ${id}`)

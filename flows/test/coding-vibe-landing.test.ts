@@ -10,7 +10,7 @@ import { NativeCoding, NativeCodingError } from "../coding/native.ts"
 import { checkInputDigest, CodingError, type Implementation, type Plan, type Revision } from "../coding/schema.ts"
 import { stackBaseLayer } from "../coding/stack.ts"
 import { landerLayer } from "../coding/vibe-lander.ts"
-import { landingLayers, LandVibe } from "../coding/vibe-landing.ts"
+import { backendLandingLayers, InstallLandVibe, landingLayers, LandVibe } from "../coding/vibe-landing.ts"
 import { publicationLayers } from "../coding/vibe-publication.ts"
 import type { VibeCleanup } from "../coding/vibe-schema.ts"
 import { RunCheck } from "../coding/workflow.ts"
@@ -134,6 +134,7 @@ const modes = [
   "native-stack",
   // A TODO without its active stack must refuse instead of appending main.
   "from-stack-without-stack",
+  "install-without-stack",
   "pending-then-landed",
   "policy-failed",
   "foreign-tail",
@@ -260,10 +261,23 @@ for (const mode of modes) {
         )
     )
     t.after(() => host.dispose())
+    const installHost = ManagedRuntime.make(
+      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+        .pipe(
+          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+    )
+    t.after(() => installHost.dispose())
     const execute = LandVibe.execute(mode === "from-stack-without-stack" ? fromStack : cleanup, { executionId: "land" })
-    if (mode === "from-stack-without-stack") {
+    const run = () => mode === "install-without-stack"
+      ? installHost.runPromise(InstallLandVibe.execute(cleanup, { executionId: "land" }))
+      : host.runPromise(execute)
+    if (mode === "from-stack-without-stack" || mode === "install-without-stack") {
       await assert.rejects(
-        host.runPromise(execute),
+        run(),
         (error: unknown) => error instanceof CodingError && error.code === "unavailable"
       )
       assert.deepEqual(calls, [`retain:${last.commitId}`])
@@ -326,8 +340,8 @@ for (const mode of modes) {
   })
 }
 
-test(
-  "vibe landing: a repository with an active mythical stack hands the result to it",
+for (const installed of [false, true]) test(
+  `vibe landing: ${installed ? "installed" : "hosted"} repository submits to its active stack`,
   { timeout: 60_000 },
   async (t) => {
     const calls: string[] = []
@@ -337,7 +351,7 @@ test(
       binding: { repositoryId: 42, workspaceId: "11111111-1111-4111-a111-111111111111" },
       readMain: unused(),
       pinMain: unused(),
-      readDelivery: Effect.sync(() => {
+      readDelivery: installed ? unused() : Effect.sync(() => {
         calls.push("delivery")
         return "pull-request" as const
       }),
@@ -390,26 +404,38 @@ test(
         )
     )
     t.after(() => host.dispose())
+    const installHost = ManagedRuntime.make(
+      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+        .pipe(
+          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+    )
+    t.after(() => installHost.dispose())
     // A stack request's original source is the fresh working change on the tip.
     const tip = "7".repeat(40)
     const stackCleanup: VibeCleanup = {
       ...cleanup,
       admission: { ...cleanup.admission, originalSource: { ...original, parentCommitIds: [tip] } }
     }
-    const execute = LandVibe.execute(stackCleanup, { executionId: "stack" })
-    const value = await host.runPromise(execute)
+    const run = () => installed
+      ? installHost.runPromise(InstallLandVibe.execute(stackCleanup, { executionId: "stack" }))
+      : host.runPromise(LandVibe.execute(stackCleanup, { executionId: "stack" }))
+    const value = await run()
     assert.ok("lane" in value)
     assert.equal(value.lane.itemId, "item-1")
     // The base is the stack tip the request started from: the original source's parent.
-    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "delivery", `submit:${tip}:${last.commitId}`])
+    assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", ...(installed ? [] : ["delivery"]), `submit:${tip}:${last.commitId}`])
     const count = calls.length
-    assert.deepEqual(await host.runPromise(execute), value)
+    assert.deepEqual(await run(), value)
     assert.equal(calls.length, count, "replay uses receipts; nothing is submitted twice")
   }
 )
 
-test(
-  "vibe landing: a request started from a stack base returns to its stack though main has no factory.json",
+for (const installed of [false, true]) test(
+  `vibe landing: ${installed ? "installed" : "hosted"} stack returns a proposal though main has no factory.json`,
   { timeout: 60_000 },
   async (t) => {
     const calls: string[] = []
@@ -474,11 +500,24 @@ test(
         )
     )
     t.after(() => host.dispose())
-    const value = await host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+    const installHost = ManagedRuntime.make(
+      Layer.mergeAll(stackBaseLayer, backendLandingLayers, landerLayer, publicationLayers, noChecks, Poll.layer, Sleep.layer)
+        .pipe(
+          Layer.provide(Layer.mergeAll(Layer.succeed(Landing, fake), native)),
+          Layer.provideMerge(Action.layerImplementations),
+          Layer.provideMerge(FlowEngine.layerMemory),
+          Layer.provideMerge(NodeCrypto.layer)
+        )
+    )
+    t.after(() => installHost.dispose())
+    const run = () => installed
+      ? installHost.runPromise(InstallLandVibe.execute(fromStack, { executionId: "from-stack" }))
+      : host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+    const value = await run()
     assert.ok("proposal" in value)
     assert.deepEqual(value.proposal, { generation: 3, head: last.commitId })
     assert.deepEqual(calls, [`retain:${last.commitId}`, "stack", "candidate", "propose"])
-    await host.runPromise(LandVibe.execute(fromStack, { executionId: "from-stack" }))
+    await run()
     assert.deepEqual(
       calls,
       [`retain:${last.commitId}`, "stack", "candidate", "propose"],

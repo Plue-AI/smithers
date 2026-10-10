@@ -259,36 +259,46 @@ const pullRequest = (cleanup: VibeCleanup) =>
       )
     )
   )
-/** The backend: retain the cleaned source, then append, open the pull request or hand the result to the stack. */
-const backend = (cleanup: VibeCleanup) =>
-  // bindPlanned alone lets independent descendants run early. The explicit
-  // andThen makes the whole delivery subtree wait for the retention receipt.
+/** Return the retained result to the existing stack without moving main. */
+const stackProposal = (
+  cleanup: VibeCleanup,
+  cleanedSource: Planned.Planned<typeof PublishVibeSource.successSchema.Type>
+) =>
+  Node.succeed(cleanup.admission.fromStack === true).pipe(
+    Node.branch({
+      if: (fromStack) => fromStack,
+      then: () =>
+        Candidate.call({ plan: cleanup.admission.request.plan }).pipe(
+          Node.bindPlanned((candidate) => Propose.call({ generation: candidate.generation })),
+          Node.bindPlanned((proposal) => Node.succeed({ cleanup, cleanedSource, proposal }))
+        ),
+      else: () => SubmitLane.call({ cleanup, cleanedSource })
+    })
+  )
+/** Only the stack can receive installed delivery; no legacy append fallback. */
+const installedDelivery = (cleanup: VibeCleanup) =>
   PublishVibeSource.child({ source: cleanup.head, phase: "cleaned" }).pipe(
     Node.bindPlanned((cleanedSource) =>
       Node.succeed(cleanedSource).pipe(
-        // A send-upstream repository with an active stack delegates proposal
-        // to that stack; native repositories use the landing append policy.
+        Node.andThen(ReadStack.call({ cleanup })),
+        Node.andThen(stackProposal(cleanup, cleanedSource))
+      )
+    )
+  )
+/** Hosted compatibility: retain the source before the declared landing policy. */
+const backend = (cleanup: VibeCleanup) =>
+  PublishVibeSource.child({ source: cleanup.head, phase: "cleaned" }).pipe(
+    Node.bindPlanned((cleanedSource) =>
+      Node.succeed(cleanedSource).pipe(
         Node.andThen(ReadStack.call({ cleanup })),
         Node.branch({
           if: (stacked) => stacked,
-          then: () =>
-            Node.succeed(cleanup.admission.fromStack === true).pipe(
-              Node.branch({
-                if: (fromStack) => fromStack,
-                then: () =>
-                  Candidate.call({ plan: cleanup.admission.request.plan }).pipe(
-                    Node.bindPlanned((candidate) => Propose.call({ generation: candidate.generation })),
-                    Node.bindPlanned((proposal) => Node.succeed({ cleanup, cleanedSource, proposal }))
-                  ),
-                else: () => SubmitLane.call({ cleanup, cleanedSource })
-              })
-            ),
+          then: () => stackProposal(cleanup, cleanedSource),
           else: () =>
             Node.succeed(cleanedSource).pipe(
               Node.andThen(PrepareAppend.call({ cleanup })),
               Node.bindPlanned((preparation) =>
                 CreateLanding.call({ cleanup, preparation }).pipe(
-                  // The policy is read once the landing exists, so a refusal before it reads nothing.
                   Node.bindPlanned((landing) =>
                     Node.succeed(landing).pipe(
                       Node.andThen(ReadDelivery.call({ cleanup })),
@@ -315,32 +325,34 @@ const backend = (cleanup: VibeCleanup) =>
       )
     )
   )
-const makeLandVibe = (local: boolean) =>
+const makeLandVibe = <R>(body: (cleanup: VibeCleanup) => Node.Node<VibeDelivered, typeof LandVibeError.Type, R>) =>
   Flow.make("coding/LandVibe", {
     payload: VibeCleanup,
     success: VibeDelivered,
     error: LandVibeError,
-    body: (cleanup) =>
-      !local ? backend(cleanup) : ReadLander.call({ phase: "landing" }).pipe(
-        Node.bindPlanned((lander) =>
-          Node.succeed(lander).pipe(
-            Node.branch({
-              if: (lander) => lander === "backend",
-              then: () => backend(cleanup),
-              else: () =>
-                Node.succeed(lander).pipe(
-                  Node.branch({
-                    if: (lander) => lander === "fast-forward",
-                    then: () => fastForward(cleanup),
-                    else: () => pullRequest(cleanup)
-                  })
-                )
-            })
-          )
-        )
-      )
+    body
   })
-export const LandVibe = makeLandVibe(true)
+export const LandVibe = makeLandVibe((cleanup) =>
+  ReadLander.call({ phase: "landing" }).pipe(
+    Node.bindPlanned((lander) =>
+      Node.succeed(lander).pipe(
+        Node.branch({
+          if: (lander) => lander === "backend",
+          then: () => backend(cleanup),
+          else: () =>
+            Node.succeed(lander).pipe(
+              Node.branch({
+                if: (lander) => lander === "fast-forward",
+                then: () => fastForward(cleanup),
+                else: () => pullRequest(cleanup)
+              })
+            )
+        })
+      )
+    )
+  )
+)
+export const InstallLandVibe = makeLandVibe(installedDelivery)
 
 /** The bound landing, refused when it is not a local lander. */
 const requireLocal = Effect.flatMap(
@@ -351,19 +363,18 @@ const requireLocal = Effect.flatMap(
     )
 )
 const atomsOf = (cleanup: VibeCleanup) => cleanup.result.changes.flatMap((change) => change.implementation.atoms)
-const backendOperations = Layer.mergeAll(
-  Interpreter.layer(AwaitAppend),
+const stackOperations = (install: boolean) => Layer.mergeAll(
   ReadStack.toLayer(({ cleanup }) =>
     Effect.flatMap(
       requireBackend,
       (landing) =>
         Effect.flatMap(landing.readStack ?? Effect.succeed(false), (stacked) =>
           !stacked
-            ? cleanup.admission.fromStack === true
+            ? install || cleanup.admission.fromStack === true
               ? Effect.fail(new CodingError({ code: "unavailable", message: "TODO stack is unavailable" }))
               : Effect.succeed(false)
             // The stack launched this request from its base; its lane waits for the result.
-            : cleanup.admission.fromStack === true
+            : install || cleanup.admission.fromStack === true
             ? Effect.succeed(true)
             : Effect.map(landing.readDelivery, (delivery) => delivery === "pull-request"))
     )
@@ -388,7 +399,11 @@ const backendOperations = Layer.mergeAll(
       })
       return { cleanup, cleanedSource, lane }
     })
-  ),
+  )
+)
+const backendOperations = Layer.mergeAll(
+  stackOperations(false),
+  Interpreter.layer(AwaitAppend),
   ReadDelivery.toLayer(() => Effect.flatMap(requireBackend, (landing) => landing.readDelivery)),
   OpenPull.toLayer(({ cleanup, cleanedSource, landing: identity }) =>
     Effect.gen(function*() {
@@ -551,5 +566,5 @@ const localLandingLayers = Layer.mergeAll(
   )
 )
 
-export const backendLandingLayers = Layer.merge(Interpreter.layer(makeLandVibe(false)), backendOperations)
+export const backendLandingLayers = Layer.merge(Interpreter.layer(InstallLandVibe), stackOperations(true))
 export const landingLayers = Layer.mergeAll(Interpreter.layer(LandVibe), backendOperations, localLandingLayers)
