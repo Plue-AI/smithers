@@ -2,7 +2,10 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -63,6 +66,9 @@ func (s *GitHubSyncedRepoService) dueInstallStreams(row db.GithubSyncedRepo) []g
 		state := s.install.streams[key]
 		stream := metadataBudgetStream(resource)
 		pause := s.budget.StreamRetryAt(row.InstallationID.Int64, stream)
+		if state.retryAt.After(pause) {
+			pause = state.retryAt
+		}
 		if pause.After(now) {
 			continue // Leave fetch hints pending until shared admission permits them.
 		}
@@ -90,10 +96,16 @@ func (s *GitHubSyncedRepoService) backfillInstallStreams(ctx context.Context, ro
 		}
 		key := syncedStreamKey(row, plan.resource)
 		stream := metadataBudgetStream(plan.resource)
-		if pause := s.budget.StreamRetryAt(row.InstallationID.Int64, stream); pause.After(s.now()) {
+		if pause := s.installPollRetryAt(row, plan.resource, stream); pause.After(s.now()) {
 			s.install.mu.Lock()
 			state := s.install.streams[key]
-			state.lastError, state.retryAt = errors.New("GitHub stream is paused"), pause
+			if state.lastError == nil {
+				state.lastError = errors.New("GitHub stream is paused")
+			}
+			state.retryAt = pause
+			if saveErr := s.persistPollHealth(ctx, row, plan.resource, state); saveErr != nil {
+				runErrors = append(runErrors, saveErr)
+			}
 			s.install.streams[key] = state
 			s.install.mu.Unlock()
 			continue
@@ -118,8 +130,13 @@ func (s *GitHubSyncedRepoService) backfillInstallStreams(ctx context.Context, ro
 		state.lastError, state.retryAt = err, time.Time{}
 		if err == nil {
 			state.lastSuccess = s.now()
-		} else if retryAt.After(s.now()) {
+		}
+		if retryAt.After(s.now()) {
 			state.retryAt = retryAt
+		}
+		if saveErr := s.persistPollHealth(ctx, row, plan.resource, state); saveErr != nil {
+			state.lastSuccess = s.install.streams[key].lastSuccess
+			state.lastError = errors.Join(state.lastError, saveErr)
 		}
 		s.install.streams[key] = state
 		s.install.mu.Unlock()
@@ -318,4 +335,86 @@ func (s *GitHubSyncedRepoService) installResources() []string {
 		return installMetadataResources
 	}
 	return installMetadataResources[:len(installMetadataResources)-1]
+}
+
+// Keep stream health inputs in the same install settings store that already
+// owns permission health. Identity includes the installation and repository,
+// so an old enrollment can never lend its receipt to a rebound repository.
+type gitHubPollReceipt struct {
+	Registry     int64     `json:"registry"`
+	Installation int64     `json:"installation"`
+	Repository   int64     `json:"repository"`
+	Owner        string    `json:"owner"`
+	Repo         string    `json:"repo"`
+	Resource     string    `json:"resource"`
+	Success      time.Time `json:"success"`
+	Retry        time.Time `json:"retry"`
+	Cause        string    `json:"cause"`
+}
+
+func (s *GitHubSyncedRepoService) persistPollHealth(ctx context.Context, row db.GithubSyncedRepo, resource string, state gitHubPollState) error {
+	receipt := gitHubPollReceipt{row.ID, row.InstallationID.Int64, row.GithubRepositoryID.Int64, row.OwnerLogin, row.RepoName, resource, state.lastSuccess, state.retryAt, gitHubSyncFaultCause(state.lastError)}
+	raw, err := json.Marshal(receipt)
+	if err != nil {
+		return err
+	}
+	identity := fmt.Sprintf("%d/%d/%d/%s/%s/%s", receipt.Registry, receipt.Installation, receipt.Repository, receipt.Owner, receipt.Repo, resource)
+	key := fmt.Sprintf("github.stream.health.%x", sha256.Sum256([]byte(identity)))
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	result, err := s.install.pool.Exec(saveCtx, `INSERT INTO install_settings(key,value)
+ SELECT $1,$2::jsonb WHERE EXISTS (SELECT 1 FROM github_synced_repos WHERE id=$3 AND installation_id=$4 AND github_repository_id=$5 AND owner_login=$6 AND repo_name=$7 AND sync_state NOT IN ('disabled','failed'))
+ ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=clock_timestamp()`, key, raw, row.ID, row.InstallationID.Int64, row.GithubRepositoryID.Int64, row.OwnerLogin, row.RepoName)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return gitHubFetchUnavailable()
+	}
+	return nil
+}
+
+func (s *GitHubSyncedRepoService) restorePollHealth() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	rows, err := s.install.pool.Query(ctx, `SELECT s.value FROM install_settings s JOIN github_synced_repos r
+ ON r.id=(s.value->>'registry')::bigint AND r.installation_id=(s.value->>'installation')::bigint AND r.github_repository_id=(s.value->>'repository')::bigint AND r.owner_login=s.value->>'owner' AND r.repo_name=s.value->>'repo'
+ WHERE s.key LIKE 'github.stream.health.%' AND r.sync_state NOT IN ('disabled','failed')`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		var receipt gitHubPollReceipt
+		if err := json.Unmarshal(raw, &receipt); err != nil {
+			return err
+		}
+		state := gitHubPollState{lastSuccess: receipt.Success, retryAt: receipt.Retry}
+		switch receipt.Cause {
+		case "permission":
+			state.lastError = pkgerrors.New(pkgerrors.CodeGitHubPermission, "GitHub permission missing")
+		case "not_installed":
+			state.lastError = pkgerrors.New(pkgerrors.CodeGitHubNotInstalled, "GitHub App is not installed")
+		case "unreachable":
+			state.lastError = pkgerrors.New(pkgerrors.CodeGitHubUnavailable, "GitHub is unavailable")
+		}
+		key := gitHubStreamKey{receipt.Registry, receipt.Installation, receipt.Repository, receipt.Owner, receipt.Repo, receipt.Resource}
+		s.install.streams[key] = state
+	}
+	return rows.Err()
+}
+
+func (s *GitHubSyncedRepoService) installPollRetryAt(row db.GithubSyncedRepo, resource, budgetStream string) time.Time {
+	pause := s.budget.StreamRetryAt(row.InstallationID.Int64, budgetStream)
+	s.install.mu.Lock()
+	stored := s.install.streams[syncedStreamKey(row, resource)].retryAt
+	s.install.mu.Unlock()
+	if stored.After(pause) {
+		return stored
+	}
+	return pause
 }

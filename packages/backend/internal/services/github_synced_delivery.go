@@ -71,7 +71,7 @@ func (s *GitHubSyncedRepoService) ConfigureInstallSync(pool *pgxpool.Pool) error
 		return err
 	}
 	s.install = &gitHubInstallSync{pool: pool, jobs: store, consumers: map[string]gitHubFetchedConsumer{GitHubRepoMetadataIssues: consumeCachedGitHubIssue}, requested: map[gitHubStreamKey]bool{}, streams: map[gitHubStreamKey]gitHubPollState{}, wake: make(chan struct{}, 1)}
-	return nil
+	return s.restorePollHealth()
 }
 
 // Issue snapshots already update the issue card cache in commitFetchedIssue.

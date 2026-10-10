@@ -3,11 +3,13 @@ package services
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -26,21 +28,33 @@ func (s *GitHubSyncedRepoService) pollInstallRelated(ctx context.Context, row db
 	}
 	snapshotAt := s.now().UTC()
 	streamKey := syncedStreamKey(row, kind+"/"+strconv.FormatInt(number, 10))
+	pause := s.installPollRetryAt(row, kind+"/"+strconv.FormatInt(number, 10), kind)
 	defer func() {
 		s.install.mu.Lock()
 		defer s.install.mu.Unlock()
 		state := s.install.streams[streamKey]
 		state.lastError = err
-		state.retryAt = s.budget.StreamRetryAt(row.InstallationID.Int64, kind)
+		state.retryAt = pause
+		if observed := s.budget.StreamRetryAt(row.InstallationID.Int64, kind); observed.After(state.retryAt) {
+			state.retryAt = observed
+		}
 		if err == nil {
 			state.lastSuccess = s.now()
+			if !state.retryAt.After(s.now()) {
+				state.retryAt = time.Time{}
+			}
+		}
+		if saveErr := s.persistPollHealth(ctx, row, kind+"/"+strconv.FormatInt(number, 10), state); saveErr != nil {
+			state.lastSuccess = s.install.streams[streamKey].lastSuccess
+			err = errors.Join(err, saveErr)
+			state.lastError = err
 		}
 		s.install.streams[streamKey] = state
 	}()
 	if err = s.authorizeFetched(ctx, row); err != nil {
 		return err
 	}
-	if pause := s.budget.StreamRetryAt(row.InstallationID.Int64, kind); pause.After(s.now()) {
+	if pause.After(s.now()) {
 		return GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {pause.UTC().Format(http.TimeFormat)}}, s.now())
 	}
 	var previous []byte

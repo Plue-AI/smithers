@@ -563,6 +563,123 @@ func (r *rehearsal) j10InstallationRefusal() {
 
 }
 
+func (r *rehearsal) j10NetworkDrop(alice http.CookieJar) {
+	r.step("6 Network drop turns stale past 120 s, Retry", "GitHub fake outage → GET /api/github/sync every 1 s; POST /api/github/sync as Alice; outage over → POST /api/github/sync",
+		"never stale before last success + 120 s, stale at once after; Alice's Retry 202 at once and still stale while down; fresh within 10 s of a Retry after", "T-GH-07", func() error {
+			if _, err := r.fakeControl("/_fake/outage", map[string]any{"down": true}); err != nil {
+				return err
+			}
+			defer r.fakeControl("/_fake/outage", map[string]any{"down": false})
+			// Recover health from the install's persisted receipts before the
+			// stale boundary. No successful upstream read can refresh them.
+			_, persisted, err := r.syncHealth()
+			if err != nil || persisted.IsZero() {
+				return fmt.Errorf("pre-restart receipt: %s %v", persisted, err)
+			}
+			r.restartBackend()
+			health, recovered, err := r.syncHealth()
+			if err != nil || health["state"] != "fresh" || !recovered.Equal(persisted) {
+				return fmt.Errorf("recovered health %v at %s, want fresh at %s: %v", health, recovered, persisted, err)
+			}
+			home, err := r.openLive(alice)
+			if err != nil {
+				return err
+			}
+			defer home.stop()
+			if _, err = home.subscribe("home"); err != nil {
+				return err
+			}
+			mainHealth := func(frame liveFrame) string {
+				var payload struct {
+					Main struct {
+						Health string `json:"health"`
+					} `json:"main"`
+				}
+				_ = json.Unmarshal(frame.Data, &payload)
+				return payload.Main.Health
+			}
+			if _, err = home.latest("home", 5*time.Second, func(frame liveFrame) bool { return mainHealth(frame) == "fresh" }); err != nil {
+				return err
+			}
+			var stale time.Time
+			var last time.Time
+			for deadline := time.Now().Add(4 * time.Minute); ; time.Sleep(time.Second) {
+				health, at, err := r.syncHealth()
+				if err != nil {
+					return err
+				}
+				if !at.IsZero() {
+					last = at
+				}
+				if health["state"] != "fresh" {
+					stale = time.Now()
+					if health["state"] != "stale" {
+						return fmt.Errorf("sync %v during the outage, want stale", health["state"])
+					}
+					break
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("still fresh 4 min into the outage, last success %s", last.Format(time.RFC3339))
+				}
+			}
+			if gap := stale.Sub(last); gap < 118*time.Second || gap > 125*time.Second {
+				return fmt.Errorf("stale %s after the last success, want 120 s", gap.Round(time.Second))
+			}
+			frame, err := home.latest("home", 3*time.Second, func(frame liveFrame) bool { return mainHealth(frame) == "stale" })
+			if err != nil {
+				return err
+			}
+			if age := frame.At.Sub(persisted); age < 120*time.Second || age > 123*time.Second {
+				return fmt.Errorf("restarted Home became stale after %s, want (120 s, 123 s]", age)
+			}
+			transitions, prior := 0, "fresh"
+			for _, observed := range home.received("home") {
+				if observed.T != "snap" {
+					continue
+				}
+				state := mainHealth(observed)
+				if state != prior {
+					transitions++
+					prior = state
+				}
+			}
+			if transitions != 1 {
+				return fmt.Errorf("Home health changed %d times during the outage, want one fresh to stale transition", transitions)
+			}
+			began := time.Now()
+			if code, data, err := r.keyedAs(alice, "POST", "/api/github/sync", "", r.keyPrefix+"retry-down"); err != nil || code != 202 {
+				return fmt.Errorf("Alice's Retry: %d %s %v", code, data, err)
+			}
+			if took := time.Since(began); took > time.Second {
+				return fmt.Errorf("Retry answered in %s", took.Round(time.Millisecond))
+			}
+			time.Sleep(3 * time.Second)
+			if health, _, err := r.syncHealth(); err != nil || health["state"] == "fresh" {
+				return fmt.Errorf("sync %v while GitHub is down: %v", health["state"], err)
+			}
+			if _, err := r.fakeControl("/_fake/outage", map[string]any{"down": false}); err != nil {
+				return err
+			}
+			retried := time.Now()
+			if code, data, err := r.keyedAs(alice, "POST", "/api/github/sync", "", r.keyPrefix+"retry-up"); err != nil || code != 202 {
+				return fmt.Errorf("Alice's Retry after the outage: %d %s %v", code, data, err)
+			}
+			for deadline := retried.Add(10 * time.Second); ; time.Sleep(250 * time.Millisecond) {
+				health, at, err := r.syncHealth()
+				if err != nil {
+					return err
+				}
+				if health["state"] == "fresh" && at.After(retried.Add(-time.Second)) {
+					r.actual = fmt.Sprintf("stale %s after the last success; Retry 202 while down; fresh %s after Retry", stale.Sub(last).Round(time.Second), time.Since(retried).Round(time.Second))
+					return nil
+				}
+				if time.Now().After(deadline) {
+					return fmt.Errorf("sync %v 10 s after Retry", health["state"])
+				}
+			}
+		})
+}
+
 // The focused sync rows reach the same composed command doors without waiting for
 // the preceding TODO review and rebase runs.
 func TestJ10SyncRehearsal(t *testing.T) {
@@ -575,6 +692,7 @@ func TestJ10SyncRehearsal(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.j10AgentRetry(alice)
+	r.j10NetworkDrop(alice)
 	r.j10InstallationRefusal()
 }
 
@@ -1560,68 +1678,7 @@ func TestJ10Rehearsal(t *testing.T) {
 		}
 		return nil
 	})
-	r.step("6 Network drop turns stale past 120 s, Retry", "GitHub fake outage → GET /api/github/sync every 1 s; POST /api/github/sync as Alice; outage over → POST /api/github/sync",
-		"never stale before last success + 120 s, stale at once after; Alice's Retry 202 at once and still stale while down; fresh within 10 s of a Retry after", "T-GH-07", func() error {
-			if _, err := r.fakeControl("/_fake/outage", map[string]any{"down": true}); err != nil {
-				return err
-			}
-			defer r.fakeControl("/_fake/outage", map[string]any{"down": false})
-			var stale time.Time
-			var last time.Time
-			for deadline := time.Now().Add(4 * time.Minute); ; time.Sleep(time.Second) {
-				health, at, err := r.syncHealth()
-				if err != nil {
-					return err
-				}
-				if !at.IsZero() {
-					last = at
-				}
-				if health["state"] != "fresh" {
-					stale = time.Now()
-					if health["state"] != "stale" {
-						return fmt.Errorf("sync %v during the outage, want stale", health["state"])
-					}
-					break
-				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("still fresh 4 min into the outage, last success %s", last.Format(time.RFC3339))
-				}
-			}
-			if gap := stale.Sub(last); gap < 118*time.Second || gap > 125*time.Second {
-				return fmt.Errorf("stale %s after the last success, want 120 s", gap.Round(time.Second))
-			}
-			began := time.Now()
-			if code, data, err := r.keyedAs(alice, "POST", "/api/github/sync", "", r.keyPrefix+"retry-down"); err != nil || code != 202 {
-				return fmt.Errorf("Alice's Retry: %d %s %v", code, data, err)
-			}
-			if took := time.Since(began); took > time.Second {
-				return fmt.Errorf("Retry answered in %s", took.Round(time.Millisecond))
-			}
-			time.Sleep(3 * time.Second)
-			if health, _, err := r.syncHealth(); err != nil || health["state"] == "fresh" {
-				return fmt.Errorf("sync %v while GitHub is down: %v", health["state"], err)
-			}
-			if _, err := r.fakeControl("/_fake/outage", map[string]any{"down": false}); err != nil {
-				return err
-			}
-			retried := time.Now()
-			if code, data, err := r.keyedAs(alice, "POST", "/api/github/sync", "", r.keyPrefix+"retry-up"); err != nil || code != 202 {
-				return fmt.Errorf("Alice's Retry after the outage: %d %s %v", code, data, err)
-			}
-			for deadline := retried.Add(10 * time.Second); ; time.Sleep(250 * time.Millisecond) {
-				health, at, err := r.syncHealth()
-				if err != nil {
-					return err
-				}
-				if health["state"] == "fresh" && at.After(retried.Add(-time.Second)) {
-					r.actual = fmt.Sprintf("stale %s after the last success; Retry 202 while down; fresh %s after Retry", stale.Sub(last).Round(time.Second), time.Since(retried).Round(time.Second))
-					return nil
-				}
-				if time.Now().After(deadline) {
-					return fmt.Errorf("sync %v 10 s after Retry", health["state"])
-				}
-			}
-		})
+	r.j10NetworkDrop(alice)
 	r.j10AgentRetry(alice)
 	r.j10InstallationRefusal()
 

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/smithersai/smithers/packages/backend/internal/db"
@@ -32,18 +33,30 @@ func (s *GitHubSyncedRepoService) pollInstallPullRead(ctx context.Context, row d
 	s.install.mu.Lock()
 	validator := s.install.etags[key]
 	s.install.mu.Unlock()
+	pause := s.installPollRetryAt(row, resource, "pulls")
 	defer func() {
 		s.install.mu.Lock()
 		defer s.install.mu.Unlock()
 		state := s.install.streams[key.gitHubStreamKey]
-		state.lastError, state.retryAt = err, s.budget.StreamRetryAt(row.InstallationID.Int64, "pulls")
+		state.lastError, state.retryAt = err, pause
+		if observed := s.budget.StreamRetryAt(row.InstallationID.Int64, "pulls"); observed.After(state.retryAt) {
+			state.retryAt = observed
+		}
 		if err == nil {
 			state.lastSuccess = s.now()
+			if !state.retryAt.After(s.now()) {
+				state.retryAt = time.Time{}
+			}
+		}
+		if saveErr := s.persistPollHealth(ctx, row, resource, state); saveErr != nil {
+			state.lastSuccess = s.install.streams[key.gitHubStreamKey].lastSuccess
+			err = errors.Join(err, saveErr)
+			state.lastError = err
 		}
 		s.install.streams[key.gitHubStreamKey] = state
 	}()
 	// Respect a pause before the fetcher can mint an installation token.
-	if at := s.budget.StreamRetryAt(row.InstallationID.Int64, "pulls"); at.After(s.now()) {
+	if at := pause; at.After(s.now()) {
 		return GitHubRateLimitError(http.StatusTooManyRequests, http.Header{"Retry-After": {at.UTC().Format(http.TimeFormat)}}, s.now())
 	}
 	var after int64

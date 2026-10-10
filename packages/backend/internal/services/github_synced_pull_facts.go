@@ -91,10 +91,19 @@ func (s *GitHubSyncedRepoService) pollInstallPullFacts(ctx context.Context, row 
 		key := syncedStreamKey(row, kind+"/"+strconv.FormatInt(number, 10))
 		state := s.install.streams[key]
 		state.lastError = err
-		state.retryAt = s.budget.StreamRetryAt(row.InstallationID.Int64, kind)
+		if observed := s.budget.StreamRetryAt(row.InstallationID.Int64, kind); observed.After(state.retryAt) {
+			state.retryAt = observed
+		}
 		if err == nil {
 			state.lastSuccess = s.now()
-			state.retryAt = time.Time{}
+			if !state.retryAt.After(s.now()) {
+				state.retryAt = time.Time{}
+			}
+		}
+		if saveErr := s.persistPollHealth(ctx, row, kind+"/"+strconv.FormatInt(number, 10), state); saveErr != nil {
+			state.lastSuccess = s.install.streams[key].lastSuccess
+			err = errors.Join(err, saveErr)
+			state.lastError = err
 		}
 		s.install.streams[key] = state
 		s.install.mu.Unlock()
