@@ -1488,7 +1488,7 @@ describe("runtime views", () => {
     expect(readFileSync(join(cwd, "math.js"), "utf8")).toContain("a + b")
     await tui.press(key.ctrlK)
     await tui.type("undo")
-    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "undo action")
+    await tui.until((screen) => /Undo…\s+alt\+u/.test(screen), 5_000, "undo action")
     await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("Undo node check.mjs fails?") && screen.includes("[x] math.js"),
@@ -1503,7 +1503,7 @@ describe("runtime views", () => {
     )
     await tui.press(key.ctrlK)
     await tui.type("undo")
-    await tui.until((screen) => /Undo…\s+u/.test(screen), 5_000, "second undo action")
+    await tui.until((screen) => /Undo…\s+alt\+u/.test(screen), 5_000, "second undo action")
     await tui.press(key.enter)
     await tui.until((screen) => screen.includes("Nothing to undo"), 5_000, "already undone")
     await tui.type("still usable")
@@ -1771,14 +1771,19 @@ console.log("reverted");`,
     await tui.type("/flow review title=x")
     await tui.press(key.enter)
     await tui.until((screen) => /[◐◓◑◒] review · \d+m?s/.test(screen))
-    await tui.type("/tabs")
+    // /tabs left with 39e43c0fe4; Ctrl+K opens the worker tab. Its actions take Alt (573ce2ed81).
+    await tui.press(key.ctrlK)
+    await tui.type("tab:fix")
+    await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
+    await tui.until(workerTab("Fixer"), 5_000, "worker tab")
+    await tui.press(key.tab)
     await tui.until(
-      (screen) => screen.includes("d Diff  esc Chat") && !screen.includes("u Undo"),
+      (screen) => screen.includes("alt+v Diff") && !screen.includes("alt+u Undo"),
       5_000,
-      "worker footer"
+      "worker rows"
     )
-    await tui.press("u")
+    await tui.press("\x1bu")
     const screen = await tui.until((screen) =>
       screen.includes("Stop running work first") || screen.includes("Undo Fixer?")
     )
@@ -1825,8 +1830,9 @@ console.log("reverted");`,
     await tui.type("tab:fix")
     await tui.until((screen) => screen.includes("Search") && /Fixer\s+done/.test(screen), 5_000, "tab row")
     await tui.press(key.enter)
-    await tui.until((screen) => screen.includes("u Undo") && screen.includes("Fixer"), 5_000, "worker tab")
-    await tui.type("u")
+    await tui.until(workerTab("Fixer"), 5_000, "worker tab")
+    // The tab's composer has focus; its undo key is Alt+U (573ce2ed81).
+    await tui.press("\x1bu")
     await tui.until((screen) => screen.includes("Undo Fixer?"), 5_000, "checklist")
     await tui.press(key.enter)
     await tui.until(() => existsSync(`${gate}.held`), 5_000, "undo held")
@@ -2080,7 +2086,8 @@ describe("worker tabs", () => {
       "ctrl+y to the chat"
     )
     await tui.press(key.tab)
-    await tui.until((screen) => screen.includes("esc Composer") && screen.includes("enter Open"), 5_000, "focused card")
+    // A focused worker card lists that card's keys, without esc (5277844998).
+    await tui.until((screen) => screen.includes("enter Open") && screen.includes("↑↓←→ Card"), 5_000, "focused card")
     await tui.press(key.enter)
     await tui.until(workerTab("Investigation"), 5_000, "enter opens the worker")
     await tui.press("\x19")
@@ -2162,7 +2169,8 @@ describe("flows", () => {
     await tui.until((screen) => !screen.includes("r Resume") && screen.includes("x Stop"), 5_000, "flow tab footer")
     await tui.type("x")
     await tui.until(
-      (screen) => screen.includes("Stopped.") && screen.includes("■ review") && screen.includes("r Resume"),
+      // A cancelled run's tab reads `stopped`, as flows.test.ts pins for a watch-settled cancel.
+      (screen) => /^\s*stopped\s*$/m.test(screen) && screen.includes("■ review") && screen.includes("r Resume"),
       5_000,
       "settled from the watch"
     )
@@ -2266,7 +2274,8 @@ describe("custom agents", () => {
     await tui.press(key.ctrlBracket)
     await tui.until((screen) => screen.includes("x Stop"), 5_000, "agent tab")
     await tui.press("\x1bx")
-    await tui.until((screen) => /Stop review: look at math\.js\?/.test(screen), 5_000, "stop confirmation")
+    // The confirmation names the request; the tab adds the agent (as b6928c275c's unit cases read).
+    await tui.until((screen) => /Stop look at math\.js\?/.test(screen), 5_000, "stop confirmation")
     await tui.press(key.enter)
     await tui.until(
       (screen) => screen.includes("■ stopped") && screen.includes("r Resume") && !screen.includes("x Stop"),
@@ -2281,7 +2290,8 @@ describe("custom agents", () => {
     await tui.press(key.escape)
     await tui.press(key.enter)
     await tui.until(
-      (screen) => screen.includes("Flows") && /review\s+alt\+r\s+Reviews the uncommitted/.test(screen),
+      // The example's key moved off alt+r, now Resume, in 573ce2ed81.
+      (screen) => screen.includes("Flows") && /review\s+alt\+z\s+Reviews the uncommitted/.test(screen),
       20_000,
       "flows catalog"
     )
