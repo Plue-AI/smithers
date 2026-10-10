@@ -192,18 +192,6 @@ const settledRow = (runId: string) =>
     return row
   })
 
-/** Waits for a round the engine opens asynchronously, and reports it if it never does. */
-const openedRound = (runId: string) =>
-  Effect.gen(function*() {
-    const store = yield* RunStore.RunStore
-    for (let attempt = 0; attempt < 2_000; attempt++) {
-      const row = yield* Effect.exit(store.get(runId))
-      if (Exit.isSuccess(row)) return row.value
-      yield* Effect.yieldNow
-    }
-    return yield* store.get(runId)
-  })
-
 /**
  * Joins the drive a detached start scheduled. Since #2932 `discard: true`
  * answers once the engine durably admits the execution and drives it in the
@@ -382,13 +370,22 @@ const Stage = Action.make("e2e/stage", {
   success: Schema.Number
 })
 
-/** Records `label:value`, so a round that ran twice is visible as a duplicate. */
-const staging = (calls: Array<string>) =>
+/**
+ * Records `label:value`, so a round that ran twice is visible as a duplicate.
+ * The `stall` label's call announces itself and never returns, as on a worker
+ * that dies inside that round; it records nothing, because it never ran.
+ */
+const staging = (
+  calls: Array<string>,
+  stall?: { readonly label: string; readonly entered: Deferred.Deferred<void> }
+) =>
   Stage.toLayer(({ label, value }) =>
-    Effect.sync(() => {
-      calls.push(`${label}:${value}`)
-      return value + 1
-    })
+    label === stall?.label
+      ? Effect.andThen(Deferred.succeed(stall.entered, undefined), Effect.never)
+      : Effect.sync(() => {
+        calls.push(`${label}:${value}`)
+        return value + 1
+      })
   )
 
 const StageThree = Flow.make("e2e/stage-three", {
@@ -422,28 +419,31 @@ describe("a lineage survives the process that was driving it", () => {
       const second: Array<string> = []
       const observed = yield* durable(Effect.gen(function*() {
         const store = yield* RunStore.RunStore
-        // A worker that knows the first two legs only. It settles rounds 0 and 1,
-        // opens round 2 durably, and then has nothing that can drive it — the
-        // crash window the derived round id exists for.
-        const partial = yield* incarnation({
-          hostId: "crash-partial",
-          flows: [StageOne, StageTwo],
-          implementations: [staging(first)]
-        })
-        const stranded = yield* Effect.gen(function*() {
-          yield* StageOne.execute({ value: 0 }, {
-            executionId: "crash-lineage",
-            discard: true
+        // A worker that dies inside round 2. It registers the first two legs,
+        // and a registration also registers the flows its bodies hand off to
+        // (#3302), so it settles rounds 0 and 1 and claims round 2. Round 2's
+        // action never returns, and the worker shuts down under it: the crash
+        // window the derived round id exists for.
+        const entered = yield* Deferred.make<void>()
+        const stranded = yield* Effect.scoped(Effect.gen(function*() {
+          const partial = yield* incarnation({
+            hostId: "crash-partial",
+            flows: [StageOne, StageTwo],
+            implementations: [staging(first, { label: "three", entered })]
           })
-          // `discard: true` answers when round 0 is ADMITTED, and the engine
-          // follows the handoffs afterwards in the registration's scope
-          // (`engine/docs/concepts/trampoline-rounds.md`). So the registration
-          // has to stay open until this worker has run out of legs, and the
-          // round it could not drive is what says it did: wait for the row,
-          // rather than assume the lineage stopped the instant admission
-          // answered.
-          return yield* openedRound(roundId("crash-lineage", 2))
-        }).pipe(Effect.provide(partial.wiring))
+          return yield* Effect.gen(function*() {
+            yield* StageOne.execute({ value: 0 }, {
+              executionId: "crash-lineage",
+              discard: true
+            })
+            // `discard: true` answers when round 0 is ADMITTED, and the engine
+            // follows the handoffs afterwards in the registration's scope
+            // (`engine/docs/concepts/trampoline-rounds.md`). So the
+            // registration has to stay open until this worker is inside round 2.
+            yield* Deferred.await(entered)
+            return yield* store.get(roundId("crash-lineage", 2))
+          }).pipe(Effect.provide(partial.wiring))
+        }))
 
         const settled = yield* Effect.forEach(
           ["crash-lineage", roundId("crash-lineage", 1)],
@@ -456,9 +456,18 @@ describe("a lineage survives the process that was driving it", () => {
           flows: [StageOne, StageTwo, StageThree],
           implementations: [staging(second)]
         })
-        const value = yield* StageOne.execute({ value: 0 }, {
-          executionId: "crash-lineage"
-        }).pipe(Effect.provide(whole.wiring))
+        // The replacement takes round 2 over on its own schedule, which runs
+        // on the test clock: at once when the dead worker released its claim
+        // on the way out, and once its heartbeat is 30 seconds stale when it
+        // could not.
+        const drive = yield* Effect.forkChild(
+          StageOne.execute({ value: 0 }, {
+            executionId: "crash-lineage"
+          }).pipe(Effect.provide(whole.wiring)),
+          { startImmediately: true }
+        )
+        yield* TestClock.adjust("31 seconds")
+        const value = yield* Fiber.join(drive)
 
         const finished = yield* Effect.forEach(
           ["crash-lineage", roundId("crash-lineage", 1), roundId("crash-lineage", 2)],
@@ -468,7 +477,8 @@ describe("a lineage survives the process that was driving it", () => {
       }))
 
       expect(observed.settled.map((row) => row.status)).toEqual(["completed", "completed"])
-      expect(observed.stranded.status).toBe("pending")
+      expect(observed.stranded.status).toBe("running")
+      expect(observed.stranded.owner?.hostId).toBe("crash-partial")
       expect(observed.stranded.roundOrdinal).toBe(2)
       // At most once: the first worker's two rounds ran on IT, and the second
       // worker ran only the round nobody had run.

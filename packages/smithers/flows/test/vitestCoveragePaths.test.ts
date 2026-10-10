@@ -1,5 +1,15 @@
 import { spawnSync } from "node:child_process"
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -26,6 +36,9 @@ it.each(["smithers", "smithers/agent", "smithers/build", "smithers/flows"])(
         writeFileSync(join(root, file), "export const value = () => 42\n")
       }
       mkdirSync(join(root, "test"))
+      // The copied config runs the package's setup file before every test file.
+      const setup = join(packagesDir, name, "test/setup.ts")
+      if (existsSync(setup)) copyFileSync(setup, join(root, "test/setup.ts"))
       writeFileSync(
         join(root, "test/fixture.test.ts"),
         "import { expect, it } from \"vitest\"\n"
