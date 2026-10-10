@@ -66,6 +66,10 @@ export const issuesFlows = (actions: CommandActions): ReadonlyArray<FlowEntry> =
     name: "issues.create",
     confirm: "create this issue",
     ...issueWriteConfirmation(actions),
+    // Cloud issue rows are not the install's GitHub App issue identity.
+    preflight: (payload) => actions.bootstrap?.capabilities.includes("install")
+      ? "Use /issue.new on this install."
+      : issueWriteConfirmation(actions).preflight(payload),
     form: { fields: { repo: { optionsFrom: "cloud-repos", kind: "text" } }, args: payload => line(text(payload, "title"), text(payload, "repo"), flag(payload, "kind")) },
     summary: "Create an issue, or a private conversation with --kind conversation",
     runtime: ["cloud"],
