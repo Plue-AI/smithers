@@ -179,7 +179,21 @@ func TestInstallLabelMutationsPostgres(t *testing.T) {
 				_, err = f.pool.Exec(f.ctx, `UPDATE auth_sessions SET expires_at=now()+interval '1 hour' WHERE session_key=$1`, ownerHash)
 				require.NoError(t, err)
 			}()
-			call(t, "POST", "/labels", ownerCookie, "", `{"name":"admitted","color":"112233"}`, "labels.create", status)
+			if mode == "demoted after admission" {
+				// An admitted ordinary request keeps its captured grant through a
+				// role change while its live fence still checks identity, scope
+				// and membership (bd612c5e71); the next request reads the new role.
+				created := call(t, "POST", "/labels", ownerCookie, "", `{"name":"admitted","color":"112233"}`, "labels.create", 201)
+				var row db.Label
+				require.NoError(t, json.Unmarshal(created.Body.Bytes(), &row))
+				probe.before = nil
+				refused := call(t, "POST", "/labels", ownerCookie, "", `{"name":"after","color":"112233"}`, "labels.create", 403)
+				require.Contains(t, refused.Body.String(), `"code":"permission"`)
+				_, err := f.pool.Exec(f.ctx, `DELETE FROM labels WHERE id=$1`, row.ID)
+				require.NoError(t, err)
+			} else {
+				call(t, "POST", "/labels", ownerCookie, "", `{"name":"admitted","color":"112233"}`, "labels.create", status)
+			}
 			count, err := f.q.CountLabelsByRepo(f.ctx, f.repoID)
 			require.NoError(t, err)
 			require.EqualValues(t, 1, count)

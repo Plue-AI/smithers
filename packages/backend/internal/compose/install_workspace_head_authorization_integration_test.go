@@ -33,9 +33,14 @@ func TestInstallWorkspaceHeadCommandPostgres(t *testing.T) {
 		return row
 	}
 	own, other := workspace("own"), workspace("other")
-	// Install machines have a separate database owner; the recorded publisher
-	// token, rather than that owner, binds the active member sponsoring reports.
-	_, err := f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, f.other.ID)
+	// Install branch machines belong to the machine service user and share
+	// write access with the one member who sponsors them; the recorded
+	// publisher token binds that sole writer's reports.
+	machines, err := f.q.GetBranchMachineOwner(f.ctx)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(f.ctx, `UPDATE workspaces SET user_id=$2 WHERE id=$1`, own.ID, machines)
+	require.NoError(t, err)
+	_, err = f.pool.Exec(f.ctx, `INSERT INTO workspace_shares(workspace_id,owner_user_id,grantee_user_id,level) VALUES($1,$2,$3,'write')`, own.ID, machines, f.owner.ID)
 	require.NoError(t, err)
 
 	cookie := "head-owner-session"
