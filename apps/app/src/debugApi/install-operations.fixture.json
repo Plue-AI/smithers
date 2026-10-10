@@ -58,7 +58,6 @@
   {"id":"post_api_flows_name_edit","method":"POST","path":"/api/flows/{name}/edit"},
   {"id":"post_api_gateways_host_file_write_grants","method":"POST","path":"/api/gateways/{hostID}/file-write-grants"},
   {"id":"delete_api_gateways_host_file_write_grants_token","method":"DELETE","path":"/api/gateways/{hostID}/file-write-grants/{tokenID}"},
-  {"id":"put_api_gateways_host_repository_jobs_job_comments_step","method":"PUT","path":"/api/gateways/{hostID}/repository-jobs/{job}/comments/{step}"},
   {"id":"get_api_gateways_host_learning_run_evidence","method":"GET","path":"/api/gateways/{hostID}/learning/{runID}/evidence"},
   {"id":"get_api_github_sync","method":"GET","path":"/api/github/sync"},
   {"id":"post_api_github_sync","method":"POST","path":"/api/github/sync"},

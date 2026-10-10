@@ -58,7 +58,6 @@
   {"id":"post_api_flows_name_edit","fields":[{"name":"path:name","label":"name","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},
   {"id":"post_api_gateways_host_file_write_grants","fields":[{"name":"path:hostID","label":"hostID","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":true}]},
   {"id":"delete_api_gateways_host_file_write_grants_token","fields":[{"name":"path:hostID","label":"hostID","required":true,"kind":"text"},{"name":"path:tokenID","label":"tokenID","required":true,"kind":"text"}]},
-  {"id":"put_api_gateways_host_repository_jobs_job_comments_step","fields":[{"name":"path:hostID","label":"hostID","required":true,"kind":"text"},{"name":"path:job","label":"job","required":true,"kind":"text"},{"name":"path:step","label":"step","required":true,"kind":"text"},{"name":"body","label":"JSON","kind":"text","multiline":true,"required":false}]},
   {"id":"get_api_gateways_host_learning_run_evidence","fields":[{"name":"path:hostID","label":"hostID","required":true,"kind":"text"},{"name":"path:runID","label":"runID","required":true,"kind":"text"}]},
   {"id":"get_api_github_sync","fields":[]},
   {"id":"post_api_github_sync","fields":[]},
