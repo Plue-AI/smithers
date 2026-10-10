@@ -113,9 +113,14 @@ func heldWorkspaceMutationTransaction(ctx context.Context, workspaceID string, u
 func commitWorkspaceMutation(ctx context.Context, tx pgx.Tx, authority workspaceMutationAuthority, fn func(context.Context) error) error {
 	held := context.WithValue(ctx, workspaceMutationAuthorityKey{}, authority)
 	held = context.WithValue(held, workspaceMutationTransactionKey{}, workspaceMutationTransaction{authority: authority, tx: tx})
-	held = machined.WithSessionAdmissionTransaction(held, authority.workspaceID, tx)
+	held = machined.WithCheckedSessionAdmissionTransaction(held, authority.workspaceID, tx)
 	if err := fn(held); err != nil {
 		return err
+	}
+	// Member reads on this transaction hold no row lock across the start;
+	// they recheck here, just before the commit, and fail it closed (#3759).
+	if err := machined.CheckSessionAdmission(held, authority.workspaceID); err != nil {
+		return pkgerrors.Conflict("member access changed during the machine start").WithCause(err)
 	}
 	return tx.Commit(ctx)
 }

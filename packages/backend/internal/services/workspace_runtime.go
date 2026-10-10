@@ -504,6 +504,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		// Store starting, never running, until the daemon admits the boot.
 		if row.VmID != machine {
 			updated, err := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: machine, Status: "starting"})
+			if errors.Is(err, pgx.ErrNoRows) {
+				return row, s.reclaimDeletedStart(ctx, row, requesterID)
+			}
 			if err != nil {
 				return row, err
 			}
@@ -519,6 +522,9 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 		// Persist the verified runtime binding only after start and repository
 		// materialization succeed. Sleep and capture fence on this identity.
 		updated, updateErr := s.q.UpdateWorkspaceExecutionInfo(ctx, db.UpdateWorkspaceExecutionInfoParams{ID: row.ID, VmID: machine, Status: "running"})
+		if errors.Is(updateErr, pgx.ErrNoRows) {
+			return row, s.reclaimDeletedStart(ctx, row, requesterID)
+		}
 		if updateErr != nil {
 			return row, pkgerrors.Internal("update workspace status: " + updateErr.Error())
 		}
@@ -534,6 +540,19 @@ func (s *WorkspaceService) ensureRuntimeWorkspaceRunningLocked(ctx context.Conte
 	}
 	_ = s.q.TouchWorkspaceActivity(ctx, row.ID)
 	return row, nil
+}
+
+// reclaimDeletedStart ends a start whose workspace was deleted while it was
+// admitted: the start's status write applies only to a live row, and found
+// none (#3759). Nothing else owns the machine this start booted, so the start
+// reclaims it before it answers that the workspace is gone.
+func (s *WorkspaceService) reclaimDeletedStart(ctx context.Context, row db.Workspace, requesterID int64) error {
+	cleanup, cancel := detachedRuntimeContext(ctx, 30*time.Second)
+	defer cancel()
+	if err := s.deleteRuntimeWorkspaceLocked(cleanup, row, requesterID); err != nil {
+		slog.Warn("failed to reclaim the machine of a workspace deleted during its start", "workspace_id", row.ID, "error", err)
+	}
+	return pkgerrors.NotFound("workspace not found")
 }
 
 // runtimeMachineIdentity names a daemon-capable runtime's machine as the

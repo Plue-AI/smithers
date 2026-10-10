@@ -62,7 +62,15 @@ func (h *machineHost) Record(ctx context.Context, branch string, boot [16]byte, 
 			if e != nil || parsed.String() != host {
 				return machined.ErrUnauthorized
 			}
-			if err := tx.QueryRow(ctx, `SELECT h.user_id,h.owner_generation FROM flow_runtime_host_bindings h JOIN workspaces w ON w.id=h.workspace_id JOIN users u ON u.id=h.user_id JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=u.id WHERE h.id=$1 AND w.id=$2 AND w.vm_id=$3 AND w.kind IN ('vm','container') AND w.deleted_at IS NULL AND w.status='running' AND h.catalog_key='coding' AND h.state IN ('pending','starting','running') AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000 AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL FOR SHARE OF h,w,c,u`, host, branch, machine).Scan(&member, &generation); err != nil {
+			query := `SELECT h.user_id,h.owner_generation FROM flow_runtime_host_bindings h JOIN workspaces w ON w.id=h.workspace_id JOIN users u ON u.id=h.user_id JOIN collaborators c ON c.repository_id=w.repository_id AND c.user_id=u.id WHERE h.id=$1 AND w.id=$2 AND w.vm_id=$3 AND w.kind IN ('vm','container') AND w.deleted_at IS NULL AND w.status='running' AND h.catalog_key='coding' AND h.state IN ('pending','starting','running') AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND c.unix_uid>=20000 AND u.is_active AND NOT u.prohibit_login AND u.deleted_at IS NULL FOR `
+			lock := admissionRowLock(ctx, branch, func(ctx context.Context, tx pgx.Tx) error {
+				var again, generationAgain int64
+				if err := tx.QueryRow(ctx, query+`SHARE OF h,w,c,u`, host, branch, machine).Scan(&again, &generationAgain); err != nil || again != member || generationAgain != generation {
+					return machined.ErrUnauthorized
+				}
+				return nil
+			})
+			if err := tx.QueryRow(ctx, query+lock+` OF h,w,c,u`, host, branch, machine).Scan(&member, &generation); err != nil {
 				return machined.ErrUnauthorized
 			}
 			actor = map[string]any{"id": "agent:" + host, "kind": "agent", "agent": "coding", "run_id": host, "member_id": strconv.FormatInt(member, 10)}
@@ -70,7 +78,15 @@ func (h *machineHost) Record(ctx context.Context, branch string, boot [16]byte, 
 			if strings.HasPrefix(via, "agent:") {
 				return machined.ErrUnauthorized
 			}
-			if err := tx.QueryRow(ctx, `SELECT c.user_id FROM collaborators c JOIN workspaces w ON w.repository_id=c.repository_id JOIN users u ON u.id=c.user_id WHERE w.id=$1 AND c.unix_login=$2 AND c.unix_uid=$3 AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login FOR SHARE OF c,u`, branch, user.Login, user.UID).Scan(&member); err != nil {
+			query := `SELECT c.user_id FROM collaborators c JOIN workspaces w ON w.repository_id=c.repository_id JOIN users u ON u.id=c.user_id WHERE w.id=$1 AND c.unix_login=$2 AND c.unix_uid=$3 AND c.suspended_at IS NULL AND c.permission IN ('write','admin') AND u.is_active AND u.deleted_at IS NULL AND NOT u.prohibit_login FOR `
+			lock := admissionRowLock(ctx, branch, func(ctx context.Context, tx pgx.Tx) error {
+				var again int64
+				if err := tx.QueryRow(ctx, query+`SHARE OF c,u`, branch, user.Login, user.UID).Scan(&again); err != nil || again != member {
+					return machined.ErrUnauthorized
+				}
+				return nil
+			})
+			if err := tx.QueryRow(ctx, query+lock+` OF c,u`, branch, user.Login, user.UID).Scan(&member); err != nil {
 				return machined.ErrUnauthorized
 			}
 			actor = map[string]any{"id": "member:" + strconv.FormatInt(member, 10), "kind": "person", "member_id": strconv.FormatInt(member, 10), "via": via}
@@ -93,6 +109,19 @@ func (h *machineHost) Record(ctx context.Context, branch string, boot [16]byte, 
 	}
 	return pgx.BeginFunc(ctx, h.pool, write)
 }
+
+// admissionRowLock is the row lock an authorization read takes on branch's
+// admission transaction. On a machine start's held transaction it is KEY
+// SHARE, and recheck runs under SHARE just before that start commits, so no
+// member row stays locked across the VM boot (#3759). A short transaction
+// holds SHARE until it commits.
+func admissionRowLock(ctx context.Context, branch string, recheck func(context.Context, pgx.Tx) error) string {
+	if machined.RecheckBeforeAdmissionCommit(ctx, branch, recheck) {
+		return "KEY SHARE"
+	}
+	return "SHARE"
+}
+
 func (h *machineHost) Lookup(ctx context.Context, branch string, boot [16]byte, id uint32) (machined.SessionUser, error) {
 	if h == nil || h.pool == nil || id == 0 {
 		return machined.SessionUser{}, machined.ErrNotReady

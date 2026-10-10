@@ -2,6 +2,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -38,7 +39,7 @@ func (r *machineRoster) syncBranch(ctx context.Context, branch string) error {
 	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
 		return err
 	}
-	members, err := readMachineMembers(ctx, tx, branch)
+	members, err := readMachineMembers(ctx, tx, branch, "SHARE")
 	if err != nil {
 		return err
 	}
@@ -167,7 +168,15 @@ func (r *machineRoster) start(ctx context.Context, bus *revocation.Bus) func() {
 	return func() { unsubscribe(); cancel(); <-done }
 }
 
-func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machined.SessionUser, error) {
+// readMachineMembers reads branch's admitted members on tx. lock is the row
+// lock it takes on their collaborators and users rows: "SHARE" on a short
+// transaction, so a suspension, demotion or removal waits for it, or "KEY
+// SHARE" on a machine start's held transaction, which rechecks under SHARE
+// just before it commits (recheckMachineMembers, #3759).
+func readMachineMembers(ctx context.Context, tx pgx.Tx, branch, lock string) ([]machined.SessionUser, error) {
+	if lock != "SHARE" && lock != "KEY SHARE" {
+		return nil, fmt.Errorf("invalid roster lock %q", lock)
+	}
 	// Freeze allocations before locking linked users: invited GitHub writers
 	// can be provisioned before login, but a linked inactive user cannot enter.
 	// The workspace row takes a key-share lock: it freezes the row's identity
@@ -175,10 +184,10 @@ func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machin
 	// writes, which reach the row from the pool while a member's start holds
 	// this transaction (services.commitWorkspaceMutation). A share lock made
 	// that start wait on itself until its context expired.
-	if _, err := tx.Exec(ctx, `SELECT c.id FROM collaborators c JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR SHARE OF c FOR KEY SHARE OF w`, branch); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT c.id FROM collaborators c JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR `+lock+` OF c FOR KEY SHARE OF w`, branch); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `SELECT u.id FROM users u JOIN collaborators c ON c.user_id=u.id JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR SHARE OF u`, branch); err != nil {
+	if _, err := tx.Exec(ctx, `SELECT u.id FROM users u JOIN collaborators c ON c.user_id=u.id JOIN workspaces w ON w.repository_id=c.repository_id WHERE w.id=$1::uuid FOR `+lock+` OF u`, branch); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `SELECT c.unix_login,c.unix_uid FROM collaborators c
@@ -188,7 +197,7 @@ func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machin
  AND (c.github_id IS NOT NULL OR c.user_id IS NOT NULL)
  AND c.permission IN ('admin','write') AND coalesce(u.prohibit_login,false)=false
  AND (c.user_id IS NULL OR (u.is_active AND u.deleted_at IS NULL))
- ORDER BY c.unix_uid FOR SHARE OF c FOR KEY SHARE OF w`, branch)
+ ORDER BY c.unix_uid FOR `+lock+` OF c FOR KEY SHARE OF w`, branch)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +217,27 @@ func readMachineMembers(ctx context.Context, tx pgx.Tx, branch string) ([]machin
 	return members, nil
 }
 
+// recheckMachineMembers fails a held machine start closed when a member it
+// provisioned lost machine access while the VM booted: suspended, demoted,
+// removed, or the linked user refused sign-in. Its SHARE read holds the
+// roster for the commit that follows it.
+func recheckMachineMembers(ctx context.Context, tx pgx.Tx, branch string, provisioned []machined.SessionUser) error {
+	current, err := readMachineMembers(ctx, tx, branch, "SHARE")
+	if err != nil {
+		return err
+	}
+	admitted := map[machined.SessionUser]bool{}
+	for _, member := range current {
+		admitted[member] = true
+	}
+	for _, member := range provisioned {
+		if !admitted[member] {
+			return fmt.Errorf("%w: member %s lost machine access during the machine start", machined.ErrUnauthorized, member.Login)
+		}
+	}
+	return nil
+}
+
 // withProvisioningRoster holds the same owner lock as broker reconciliation,
 // so removal cannot commit between reading allocations and guest setup.
 func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch string, visit func(context.Context, []microsandbox.MemberIdentity) error) error {
@@ -224,15 +254,31 @@ func (r *machineRoster) withProvisioningRoster(ctx context.Context, branch strin
 	if _, err = tx.Exec(ctx, `SELECT user_id FROM self_host_owners FOR SHARE`); err != nil {
 		return err
 	}
-	members, err := readMachineMembers(ctx, tx, branch)
+	// A machine start holds its transaction across the VM boot. Its roster
+	// read takes no row lock that would make a member's view-state save or
+	// sign-in wait that long; the start rechecks the roster just before it
+	// commits and fails closed if a provisioned member lost access (#3759).
+	// The owner row lock above still makes roster changes wait.
+	lock, provisioned := "SHARE", new([]machined.SessionUser)
+	if !own && machined.RecheckBeforeAdmissionCommit(ctx, branch, func(ctx context.Context, tx pgx.Tx) error {
+		return recheckMachineMembers(ctx, tx, branch, *provisioned)
+	}) {
+		lock = "KEY SHARE"
+	}
+	members, err := readMachineMembers(ctx, tx, branch, lock)
 	if err != nil {
 		return err
 	}
+	*provisioned = members
 	identities := make([]microsandbox.MemberIdentity, 0, len(members))
 	for _, member := range members {
 		identities = append(identities, microsandbox.MemberIdentity{Login: member.Login, UID: int(member.UID), Active: true})
 	}
-	if err = visit(machined.WithSessionAdmissionTransaction(ctx, branch, tx), identities); err != nil {
+	visitCtx := ctx
+	if own {
+		visitCtx = machined.WithSessionAdmissionTransaction(ctx, branch, tx)
+	}
+	if err = visit(visitCtx, identities); err != nil {
 		return err
 	}
 	if own {
