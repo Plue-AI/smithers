@@ -86,9 +86,20 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 	}
 	token, err = seed.OwnerToken(t.Context(), pool, "releaseowner")
 	require.NoError(t, err)
+	// An install classifies a personal token as delegated (spec §5.3.0), so
+	// it cannot create a repository; only the owner's browser session can.
+	refused, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, http.StatusForbidden, nil)
+	require.Equal(t, "never", refused["class"])
+	browserSession = ownerBrowserSession(t, pool)
 
 	repo, _ := request("POST", "/api/user/repos", `{"name":"audit","private":true,"auto_init":true}`, 201, nil)
 	require.Equal(t, true, repo["can_write"], "creator must retain editing access")
+	// Bind the install to the new repository, replacing the seed's
+	// pre-repository sentinel: an install's repository writes act on it.
+	_, err = pool.Exec(t.Context(), `UPDATE install_settings
+		SET value=jsonb_set(value,'{repository_id}',to_jsonb($1::bigint))
+		WHERE key IN ('github.repository','owner.access')`, int64(repo["id"].(float64)))
+	require.NoError(t, err)
 	path := "/api/repos/releaseowner/audit"
 	for _, change := range []struct {
 		method, suffix, body string
@@ -105,9 +116,11 @@ func TestReleaseHTTPWriteAndPaginationContracts(t *testing.T) {
 		require.Equal(t, result["can_write"], view["can_write"])
 	}
 	// Personal tokens cannot perform person-only secret actions. The remaining
-	// payload checks use a real browser session so they reach body validation.
+	// payload checks use the browser session so they reach body validation.
+	session := browserSession
+	browserSession = ""
 	request("POST", path+"/secrets", `{"name":"DISCARDED","value":"scratch"}`, http.StatusForbidden, nil)
-	browserSession = ownerBrowserSession(t, pool)
+	browserSession = session
 	for _, tc := range []struct{ route, body string }{
 		{"/api/user/repos", `{"name":"discarded"}`},
 		{path + "/issues", `{"title":"discarded"}`},

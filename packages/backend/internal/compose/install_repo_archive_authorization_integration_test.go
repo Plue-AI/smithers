@@ -236,4 +236,35 @@ func TestInstallRepoArchiveAuthorizationPostgres(t *testing.T) {
 		require.False(t, result.IsArchived)
 		require.Equal(t, []string{"repo.archive", "repo.unarchive"}, commands)
 	})
+	// GitHub's PATCH {"archived": …} is the archive command, never a
+	// settings update a member's or an agent's credential may make.
+	t.Run("patch archived is the archive command", func(t *testing.T) {
+		for _, tc := range []struct {
+			name, body, cookie, token, command, code string
+			status                                   int
+			archived                                 bool
+		}{
+			{"member", `{"archived":true}`, "archive-member", "", "repo.archive", "permission", 403, false},
+			{"app", `{"archived":true}`, "", app, "repo.archive", "never", 403, false},
+			{"owner archives", `{"archived":true}`, "archive-owner", "", "repo.archive", "", 200, true},
+			{"maintainer", `{"archived":false}`, "archive-maintainer", "", "repo.unarchive", "permission", 403, true},
+			{"owner unarchives", `{"archived":false}`, "archive-owner", "", "repo.unarchive", "", 200, false},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				commands := []string{}
+				ctx := services.WithAuthorizationObserver(f.ctx, func(command string) { commands = append(commands, command) })
+				req := request(ctx, "", tc.cookie, tc.token)
+				patch := httptest.NewRequest(http.MethodPatch, cfg.Server.PublicURL+"/api/repos/gate-owner/app", strings.NewReader(tc.body)).WithContext(ctx)
+				patch.Header = req.Header
+				out := httptest.NewRecorder()
+				router.ServeHTTP(out, patch)
+				require.Equal(t, tc.status, out.Code, out.Body.String())
+				if tc.code != "" {
+					require.Contains(t, out.Body.String(), `"code":"`+tc.code+`"`)
+				}
+				require.Equal(t, []string{tc.command}, commands)
+				state(tc.archived)
+			})
+		}
+	})
 }

@@ -33,7 +33,9 @@ func admitInstallRepositoryAdmin(w http.ResponseWriter, r *http.Request, q *db.Q
 		return
 	}
 	parts := strings.Split(strings.Trim(r.URL.EscapedPath(), "/"), "/")
-	if len(parts) < 5 || (len(parts) > 6 && ((!strings.HasPrefix(command, "webhooks.") || len(parts) > 9) && (command != "devtools.read" || len(parts) > 7) && (!strings.HasPrefix(command, "cache.tokens.") || len(parts) > 7))) {
+	// PATCH /api/repos/{owner}/{repo} carries archive in its body.
+	patchArchive := r.Method == http.MethodPatch && len(parts) == 4 && (command == "repo.archive" || command == "repo.unarchive")
+	if len(parts) < 5 && !patchArchive || (len(parts) > 6 && ((!strings.HasPrefix(command, "webhooks.") || len(parts) > 9) && (command != "devtools.read" || len(parts) > 7) && (!strings.HasPrefix(command, "cache.tokens.") || len(parts) > 7))) {
 		refuse(pkgerrors.BadRequest("invalid repository configuration request"))
 		return
 	}
